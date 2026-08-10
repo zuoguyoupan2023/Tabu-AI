@@ -597,6 +597,16 @@ input, select, textarea { font-family: var(--font); }
 .vc-mode:hover { background: var(--glass-strong); }
 .vc-mode.active { background: rgba(255,255,255,.28); color: #fff; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
+
+/* ===== 红区底部：运行日志（默认展开） ===== */
+.debug-log { background: rgba(0,0,0,.2); border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; overflow: hidden; }
+.debug-log-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }
+.debug-log-body { max-height: 160px; overflow-y: auto; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,.78); }
+.debug-log-empty { color: rgba(255,255,255,.35); }
+.debug-log-line { word-break: break-all; }
+.debug-log-line .dl-time { opacity: .5; margin-right: 6px; }
+.debug-log-line .dl-scope { font-weight: 700; }
+.debug-log-line.dl-err { color: #f87171; }
 .voice-output { background: var(--glass); border: 1px solid var(--line); border-radius: 8px; margin: 4px 0 6px; overflow: hidden; }
 .voice-output-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }
 .voice-output-body { max-height: 150px; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.5; }
