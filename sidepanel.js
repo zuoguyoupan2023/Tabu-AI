@@ -584,33 +584,71 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
   const chunks = splitLocalChunks(text, 150);
+  const abortSig = () => (localTtsAbort ? localTtsAbort.signal : null);
+  let producer = Promise.resolve();
   try {
-    for (let i = 0; i < chunks.length; i++) {
-      if (localTtsAbort.signal.aborted) break;
-      // Kokoro：语速走服务端（保音高）；Qwen3：服务端无语速参数，用 playbackRate
-      const body = engine === 'kokoro'
-        ? { text: chunks[i], sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: Math.max(0.5, Math.min(2, rate)) }
-        : { text: chunks[i], voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto', speed: 1 };
-      const res = await fetch(serverUrl + '/speak?engine=' + engine, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: localTtsAbort.signal
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || '本地服务 HTTP ' + res.status);
+    // ===== 013-P0：双缓冲预取 =====
+    // 生产者：提前合成 + 解码下一段入队（最多提前 PREFETCH 块），合成时间被当前播放掩盖；
+    // 消费者：按序从队列取段播放 → 连续朗读无停顿感。
+    const queue = [];
+    const PREFETCH = 2;
+    let producerDone = false, producerError = null, consumerFinished = false;
+
+    async function produce() {
+      try {
+        for (let i = 0; i < chunks.length && !consumerFinished; i++) {
+          if (abortSig()?.aborted) return;
+          // 限流：队列已满则等待消费者腾出空间
+          while (queue.length >= PREFETCH + 1 && !abortSig()?.aborted && !consumerFinished) {
+            await new Promise(r => setTimeout(r, 25));
+          }
+          if (abortSig()?.aborted || consumerFinished) return;
+          const body = engine === 'kokoro'
+            ? { text: chunks[i], sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: Math.max(0.5, Math.min(2, rate)) }
+            : { text: chunks[i], voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto', speed: 1 };
+          const res = await fetch(serverUrl + '/speak?engine=' + engine, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: localTtsAbort.signal
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || '本地服务 HTTP ' + res.status);
+          }
+          const buf = await res.arrayBuffer();
+          const pcm = await decodeAndResample(buf, 24000);
+          if (abortSig()?.aborted || consumerFinished || !pcm.length) continue;
+          queue.push(pcm);
+        }
+        producerDone = true;
+      } catch (e) {
+        if (e.name === 'AbortError' || abortSig()?.aborted) return;
+        producerError = e;
       }
-      const buf = await res.arrayBuffer();
-      const pcm = await decodeAndResample(buf, 24000);
-      if (localTtsAbort.signal.aborted || !pcm.length) continue;
+    }
+
+    producer = produce();
+    let done = false;
+    for (let i = 0; i < chunks.length && !done; i++) {
+      while (queue.length === 0) {
+        if (producerError) throw producerError;
+        if (producerDone && queue.length === 0) { done = true; break; }
+        if (abortSig()?.aborted) throw new DOMException('aborted', 'AbortError');
+        await new Promise(r => setTimeout(r, 25));
+      }
+      if (done) break;
+      if (abortSig()?.aborted) throw new DOMException('aborted', 'AbortError');
+      const pcm = queue.shift();
       await playLocalBuffer(pcm, engine === 'qwen3' ? rate : 1, volume);
     }
-    if (localTtsAbort.signal.aborted) throw new DOMException('aborted', 'AbortError');
+    consumerFinished = true;
+    await producer.catch(() => {});
+    if (abortSig()?.aborted) throw new DOMException('aborted', 'AbortError');
     if (statusEl) statusEl.textContent = I18N.t('speakDone');
     showStatus(I18N.t('speakDone'), 'success');
   } catch (e) {
-    if (e.name === 'AbortError' || localTtsAbort.signal.aborted) {
+    if (e.name === 'AbortError' || (localTtsAbort && localTtsAbort.signal.aborted)) {
       if (statusEl) statusEl.textContent = '';
       showStatus(I18N.t('stopSpeak'), 'info');
     } else {
@@ -621,6 +659,7 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
       showStatus(I18N.t('readErrorStatus'), 'error');
     }
   } finally {
+    await producer.catch(() => {}); // 确保生产者先落定，再清共享状态，避免孤儿请求
     localTtsActive = false;
     localTtsAbort = null;
     localTtsSrc = null;
