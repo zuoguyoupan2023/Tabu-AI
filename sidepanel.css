@@ -589,6 +589,13 @@ input, select, textarea { font-family: var(--font); }
 @keyframes voiceCirclePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); } 50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
 .voice-circle-status { font-size: 11px; opacity: .85; text-align: center; min-height: 15px; }
 .voice-circle-status.error { color: #f87171; }
+.voice-circle-mode { display: flex; gap: 4px; }
+.vc-mode {
+  background: var(--glass); color: rgba(255,255,255,.7); font-size: 10px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer; transition: background .2s, color .2s;
+}
+.vc-mode:hover { background: var(--glass-strong); }
+.vc-mode.active { background: rgba(255,255,255,.28); color: #fff; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
 .voice-output { background: var(--glass); border: 1px solid var(--line); border-radius: 8px; margin: 4px 0 6px; overflow: hidden; }
 .voice-output-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }

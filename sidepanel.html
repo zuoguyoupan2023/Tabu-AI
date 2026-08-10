@@ -55,6 +55,10 @@
             <span class="voice-circle-ico">🎤</span>
           </button>
           <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
+          <div class="voice-circle-mode" id="voiceCircleMode">
+            <button class="vc-mode active" data-vcmode="manual" data-i18n="voiceModeManual">点击停止</button>
+            <button class="vc-mode" data-vcmode="vad" data-i18n="voiceModeVad">说话自动停</button>
+          </div>
           <label class="voice-output-toggle"><input type="checkbox" id="voiceOutputShow" checked /> <span data-i18n="voiceOutputShow">显示输出</span></label>
         </div>
 

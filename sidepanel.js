@@ -2314,6 +2314,8 @@ async function onAsrRecordingDone() {
 // ========== 顶部圆形语音工作台：一键「识别 → LLM → 输出并朗读」 ==========
 let vbRecorder = null, vbChunks = [], vbStream = null, vbRecording = false;
 let vbSuppress = false; // 被对话录音接管时抑制本段处理
+let voiceCircleMode = 'manual'; // manual（点击停止）/ vad（说话自动停）
+let vadTimer = null, vadSource = null, vadAnalyser = null, vadHadSpeech = false;
 
 function setVoiceCircleStatus(msg, isError) {
   const el = document.getElementById('voiceCircleStatus');
@@ -2328,9 +2330,74 @@ function warmAudioContext() {
   } catch (e) {}
 }
 
+// 圆形模式切换：manual（点击一直录，再点停止）/ vad（说话自动停）
+function setVoiceCircleMode(mode) {
+  voiceCircleMode = (mode === 'vad') ? 'vad' : 'manual';
+  chrome.storage.local.set({ voiceCircleMode }).catch(() => {});
+  document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
+    b.classList.toggle('active', b.dataset.vcmode === voiceCircleMode);
+  });
+}
+
+async function loadVoiceCircleMode() {
+  try {
+    const r = await chrome.storage.local.get('voiceCircleMode');
+    if (r.voiceCircleMode === 'vad' || r.voiceCircleMode === 'manual') {
+      voiceCircleMode = r.voiceCircleMode;
+      document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
+        b.classList.toggle('active', b.dataset.vcmode === voiceCircleMode);
+      });
+    }
+  } catch (e) {}
+}
+
+// VAD 监控：检测到有说话后，静音持续超过阈值 → 自动结束录音；超长 30s 强制结束兜底
+function startVad(stream) {
+  try {
+    const ctx = localTtsCtx || new (window.AudioContext || window.webkitAudioContext)();
+    vadSource = ctx.createMediaStreamSource(stream);
+    vadAnalyser = ctx.createAnalyser();
+    vadAnalyser.fftSize = 512;
+    vadSource.connect(vadAnalyser);
+    const data = new Uint8Array(vadAnalyser.fftSize);
+    vadHadSpeech = false;
+    const CHECK_MS = 100, SILENCE_MS = 1500, MAX_MS = 30000;
+    let silentMs = 0, totalMs = 0;
+    vadTimer = setInterval(() => {
+      totalMs += CHECK_MS;
+      vadAnalyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      if (rms > 0.02) { vadHadSpeech = true; silentMs = 0; }
+      else if (vadHadSpeech) {
+        silentMs += CHECK_MS;
+        if (silentMs >= SILENCE_MS) stopVoiceCircleRecording();
+      }
+      if (totalMs >= MAX_MS) stopVoiceCircleRecording();
+    }, CHECK_MS);
+  } catch (e) { /* VAD 启动失败 → 退回手动点击停止 */ }
+}
+
+function stopVad() {
+  if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+  if (vadSource) { try { vadSource.disconnect(); } catch (e) {} vadSource = null; }
+  vadAnalyser = null;
+  vadHadSpeech = false;
+}
+
+// 结束录音（手动点击停止 或 VAD 自动触发）
+function stopVoiceCircleRecording() {
+  stopVad();
+  if (vbRecorder && vbRecorder.state !== 'inactive') vbRecorder.stop();
+}
+
 // 点击圆形：开始/结束录音；停止后自动「识别 → 渠道LLM → 输出栏 + 朗读」
 async function toggleVoiceCircle() {
-  if (vbRecording) { if (vbRecorder && vbRecorder.state !== 'inactive') vbRecorder.stop(); return; }
+  if (vbRecording) { stopVoiceCircleRecording(); return; }
   // 单一音频通道：若对话面板正在录音，先停旧再起新的
   if (chatRecording) stopChatRecording();
   warmAudioContext();
@@ -2351,7 +2418,12 @@ async function toggleVoiceCircle() {
     vbRecording = true;
     const btn = document.getElementById('voiceCircleBtn');
     if (btn) btn.classList.add('recording');
-    setVoiceCircleStatus('🎙 ' + I18N.t('voiceCircleRecording'));
+    if (voiceCircleMode === 'vad') {
+      startVad(stream);
+      setVoiceCircleStatus('🎙 ' + I18N.t('voiceVadRecording'));
+    } else {
+      setVoiceCircleStatus('🎙 ' + I18N.t('voiceCircleRecording'));
+    }
   } catch (e) {
     const name = e && (e.name || e.message);
     if (name && /NotAllowed|PermissionDismissed|SecurityError/.test(name)) {
@@ -2364,6 +2436,7 @@ async function toggleVoiceCircle() {
 }
 
 async function onVoiceCircleDone() {
+  stopVad();
   const recorder = vbRecorder;
   vbRecorder = null;
   vbRecording = false;
@@ -2407,18 +2480,9 @@ async function onVoiceCircleDone() {
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
       const data = await res.json();
       renderVoiceOutput(data.recognized || '', data.answer || '');
-      if (data.audioBase64) {
-        // 服务端已返回音频：解码后播放（在点击手势内已预热 AudioContext，确保出声）
-        const bin = atob(data.audioBase64);
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        const pcm = await decodeAndResample(arr.buffer, 24000);
-        await playLocalBuffer(pcm, 1, 1);
-        setVoiceCircleStatus('✅ ' + I18N.t('voiceCircleDone'));
-      } else if (data.answer) {
-        // 服务端未返回音频（如 TTS 引擎缺失）→ 本地兜底朗读
-        try { await voiceSpeakText(data.answer); } catch (e2) {}
-        setVoiceCircleStatus('✅ ' + I18N.t('voiceCircleDone'));
+      if (data.answer) {
+        // 复用下方「朗读」已验证可用的 doSpeak 路径，确保 LLM 回答被朗读（系统 TTS 即时 / 本地走 /speak）
+        doSpeak(data.answer, document.getElementById('voiceCircleStatus'), null);
       } else {
         setVoiceCircleStatus('✅ ' + I18N.t('voiceCircleDone'));
       }
@@ -2431,8 +2495,7 @@ async function onVoiceCircleDone() {
       const answer = await voiceChatAskText(text, mode);
       renderVoiceOutput(text, answer);
       if (answer && mode !== 'inject') {
-        try { await voiceSpeakText(answer); } catch (e) { /* 朗读失败不影响主流程 */ }
-        setVoiceCircleStatus('✅ ' + I18N.t('voiceCircleDone'));
+        doSpeak(answer, document.getElementById('voiceCircleStatus'), null);
       } else {
         setVoiceCircleStatus('✅ ' + (mode === 'inject' ? I18N.t('voiceSentToSite') : I18N.t('voiceCircleDone')));
       }
@@ -2466,13 +2529,6 @@ async function voiceChatAskText(text, mode) {
   if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
   const data = await res.json();
   return data.text || '';
-}
-
-async function voiceSpeakText(text) {
-  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
-  const ttsEngine = currentVoiceConfig.ttsEngine === 'qwen3' ? 'qwen3' : 'kokoro';
-  const res = await chatSpeakFetch(serverUrl, ttsEngine, text);
-  await playSpeakResponse(res);
 }
 
 // 渲染到输出栏（追加 识别 + 回答）
@@ -3469,6 +3525,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== 顶部圆形语音工作台 + 输出栏 =====
   const voiceCircleBtn = document.getElementById('voiceCircleBtn');
   if (voiceCircleBtn) voiceCircleBtn.addEventListener('click', toggleVoiceCircle);
+  document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
+    b.addEventListener('click', () => setVoiceCircleMode(b.dataset.vcmode));
+  });
+  loadVoiceCircleMode();
   const voiceOutputShow = document.getElementById('voiceOutputShow');
   if (voiceOutputShow) voiceOutputShow.addEventListener('change', toggleVoiceOutput);
   const voiceOutputClearBtn = document.getElementById('voiceOutputClear');
