@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TabU · 红蓝分层 UI Demo（v0.5 修订）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --font: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --red-a: #7f1d1d; --red-b: #b91c1c;
+    --blue-a: #1e3a8a; --blue-b: #2563eb;
+    --white: #fff;
+    --glass: rgba(255,255,255,.12);
+    --glass-strong: rgba(255,255,255,.2);
+    --line: rgba(255,255,255,.22);
+  }
+  body { font-family: var(--font); background: #10141d; color: var(--white); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 22px 12px 40px; }
+
+  .demo-bar { width: 400px; max-width: 100%; display: flex; justify-content: space-between; align-items: center; background: #1c2434; border: 1px solid #2b3550; border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #9fb0c8; margin-bottom: 12px; }
+  .demo-bar b { color: #e6edf7; }
+
+  .app { width: 400px; max-width: 100%; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.45); transition: background .5s ease; }
+  .app[data-layer="red"]  { background: linear-gradient(160deg, var(--red-a), var(--red-b)); }
+  .app[data-layer="blue"] { background: linear-gradient(160deg, var(--blue-a), var(--blue-b)); }
+
+  /* ===== Header ===== */
+  .app-header { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px; }
+  .app-header h1 { font-size: 16px; font-weight: 700; }
+  .badge { font-size: 10px; font-weight: 600; background: rgba(0,0,0,.25); border-radius: 20px; padding: 2px 8px; margin-left: 5px; vertical-align: middle; }
+
+  .header-tools { display: flex; gap: 6px; margin-left: 6px; }
+  .h-text { font-size: 12px; font-weight: 600; color: #fff; background: rgba(0,0,0,.22); border-radius: 8px; padding: 6px 10px; border: none; cursor: pointer; transition: background .2s; white-space: nowrap; }
+  .h-text:hover { background: rgba(255,255,255,.22); }
+
+  /* 胶囊式红蓝切换：一个白色胶囊，激活半圆填主题色，无缝无凹槽 */
+  .layer-switch { display: flex; background: #fff; border-radius: 999px; overflow: hidden; margin-left: auto; box-shadow: 0 2px 10px rgba(0,0,0,.22); }
+  .layer-btn { border: none; cursor: pointer; font-size: 12px; font-weight: 700; padding: 6px 16px; transition: all .2s; }
+  .layer-btn.red.active { background: var(--red-b); color: #fff; }
+  .layer-btn.red:not(.active) { background: transparent; color: var(--red-b); }
+  .layer-btn.blue.active { background: var(--blue-b); color: #fff; }
+  .layer-btn.blue:not(.active) { background: transparent; color: var(--blue-b); }
+
+  /* ===== 滚动区 ===== */
+  .app-body { height: 640px; overflow-y: auto; padding: 2px 16px 14px; scrollbar-width: thin; }
+  .layer { display: none; }
+  .layer.active { display: block; animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .hidden { display: none !important; }
+  button { font-family: var(--font); cursor: pointer; border: none; }
+
+  /* ===== 文本工具：顶部 4 主按钮（与子 tab 一致：透明 + 下划线选中） ===== */
+  .tool-tabs { display: flex; gap: 2px; margin-top: 6px; border-bottom: 1px solid var(--line); }
+  .tool-tab { flex: 1; font-size: 13px; font-weight: 600; color: rgba(255,255,255,.75); background: transparent; border-bottom: 2px solid transparent; padding: 10px 0; transition: all .2s; }
+  .tool-tab.active { background: transparent; color: #fff; font-weight: 800; border-bottom-color: #fff; }
+  .app[data-layer="blue"] .tool-tab.active { color: #fff; }
+
+  .tool-panel { background: transparent; border-radius: 0; padding: 10px 0 4px; margin-bottom: 12px; }
+  /* 操作按钮自带来源（选中/全文/输入框），不再单独放来源按钮行 */
+  .src-row { display: none; }
+  .chip { flex: 1; background: var(--glass); color: #fff; font-size: 12px; padding: 8px 2px; border-radius: 8px; transition: background .2s; }
+  .chip:hover { background: var(--glass-strong); }
+  .input { width: 100%; margin-top: 8px; background: rgba(0,0,0,.22); border: 1px solid var(--line); color: #fff; font-size: 12px; line-height: 1.5; border-radius: 8px; padding: 8px 10px; resize: vertical; min-height: 46px; }
+  .input::placeholder { color: rgba(255,255,255,.5); }
+  .ops { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .op { flex: 1; min-width: 80px; background: var(--glass-strong); color: #fff; font-size: 12px; font-weight: 600; border-radius: 8px; padding: 9px 4px; }
+  .op:hover { background: rgba(255,255,255,.3); }
+  .op.primary { background: #fff; color: var(--red-b); font-weight: 800; }
+  .app[data-layer="blue"] .op.primary { color: var(--blue-b); }
+
+  .fold { margin-top: 8px; background: rgba(0,0,0,.15); border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+  .fold summary { list-style: none; cursor: pointer; font-size: 11px; padding: 8px 10px; color: #fff; display: flex; align-items: center; gap: 6px; }
+  .fold summary::-webkit-details-marker { display: none; }
+  .fold summary::after { content: "▾"; margin-left: auto; opacity: .6; transition: transform .2s; }
+  .fold[open] summary::after { transform: rotate(180deg); }
+  .fold-body { padding: 0 10px 10px; font-size: 12px; }
+
+  /* ===== 优雅卡片（卡片工具） ===== */
+  .elegant-card {
+    margin-top: 8px; background: #fff; color: #23272f; border-radius: 8px;
+    padding: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.3); position: relative; overflow: hidden;
+  }
+  .ec-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+  .ec-text { font-size: 14px; line-height: 1.7; padding: 18px; transition: all .2s; }
+
+  .card-controls { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ctrl { background: rgba(0,0,0,.15); border-radius: 8px; padding: 7px 9px; }
+  .ctrl label { display: block; font-size: 10px; opacity: .75; margin-bottom: 4px; }
+  .ctrl select, .ctrl input[type="range"] { width: 100%; font-size: 11px; background: rgba(255,255,255,.92); border: none; border-radius: 6px; padding: 3px 4px; color: #23272f; }
+  .swatches { display: flex; gap: 5px; }
+  .swatch { width: 22px; height: 22px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
+  .swatch.sel { border-color: #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .hint { grid-column: 1 / -1; font-size: 10px; opacity: .7; }
+  .ec-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .ec-actions button { flex: 1; font-size: 13px; font-weight: 700; padding: 10px; border-radius: 7px; background: var(--red-b); color: #fff; }
+  .app[data-layer="blue"] .ec-actions button { background: var(--blue-b); }
+
+  /* ===== 全局搜索 + 4 子 tab ===== */
+  .search { width: 100%; margin-top: 10px; background: rgba(0,0,0,.22); border: 1px solid var(--line); color: #fff; font-size: 12px; border-radius: 7px; padding: 8px 10px; }
+  /* 粘贴并访问：白底黑字全宽按钮，兼作视觉分割 */
+  .paste-btn { width: 100%; margin-top: 10px; background: #fff; color: #111; font-size: 13px; font-weight: 700; padding: 12px; border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,.18); }
+  .paste-btn:hover { background: #f4f4f5; }
+  .search::placeholder { color: rgba(255,255,255,.55); }
+
+  .sub-tabs { display: flex; gap: 2px; margin-top: 10px; border-bottom: 1px solid var(--line); }
+  .sub-tab { flex: 1; background: transparent; color: rgba(255,255,255,.75); font-size: 12px; font-weight: 600; padding: 8px 0; border-bottom: 2px solid transparent; }
+  .sub-tab.active { color: #fff; border-bottom-color: #fff; }
+  .sub-panel { padding: 10px 0 4px; }
+
+  .tab-item { display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,.16); border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; margin-bottom: 6px; }
+  .favicon { width: 22px; height: 22px; border-radius: 6px; background: rgba(255,255,255,.16); display: flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+  .ti-text { flex: 1; min-width: 0; }
+  .ti-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ti-url { font-size: 10px; opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ti-actions { display: flex; gap: 3px; flex: none; }
+  .mini-btn { background: var(--glass-strong); color: #fff; font-size: 11px; border-radius: 7px; padding: 4px 8px; }
+  .mini-btn:hover { background: rgba(255,255,255,.3); }
+  .mini-btn.danger:hover { background: rgba(255,0,0,.35); }
+
+  /* 快照：并入当前标签页 */
+  .snap-btn { width: 100%; margin-top: 8px; background: #fff; color: var(--red-b); font-size: 13px; font-weight: 800; padding: 11px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,.2); }
+  .app[data-layer="blue"] .snap-btn { color: var(--blue-b); }
+
+  .snap-history { margin-top: 8px; background: rgba(0,0,0,.18); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .snap-head { width: 100%; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.14); color: #fff; font-size: 12px; font-weight: 600; padding: 9px 12px; }
+  .snap-head .cnt { background: #fff; color: var(--red-b); border-radius: 8px; font-size: 10px; padding: 1px 7px; font-weight: 800; }
+  .app[data-layer="blue"] .snap-head .cnt { color: var(--blue-b); }
+  .snap-head .arrow { margin-left: auto; transition: transform .2s; }
+  .snap-records { padding: 8px; }
+  .snap-record { background: rgba(0,0,0,.16); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 6px; overflow: hidden; }
+  .snap-rec-head { width: 100%; display: flex; align-items: center; gap: 6px; background: none; color: #fff; font-size: 12px; padding: 8px 10px; }
+  .snap-rec-head small { opacity: .6; font-weight: 400; }
+  .snap-rec-head .arrow { margin-left: auto; transition: transform .2s; }
+  .snap-rec-body { padding: 0 10px 9px; }
+  .snap-rec-body .tab-item { margin-bottom: 4px; background: rgba(0,0,0,.14); }
+  .snap-rec-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .snap-empty { font-size: 11px; opacity: .6; padding: 4px 2px; }
+
+  /* ===== 蓝层通用 ===== */
+  .sec { margin: 12px 0; }
+  .sec-title { font-size: 11px; font-weight: 600; opacity: .8; letter-spacing: .5px; margin-bottom: 8px; }
+  .btn-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .btn-row button { background: var(--glass-strong); color: #fff; font-size: 12px; font-weight: 600; padding: 12px 0; border-radius: 7px; }
+  .btn-row button:hover { background: rgba(255,255,255,.3); }
+  .tool { width: 100%; background: var(--glass); color: #fff; font-size: 13px; font-weight: 600; padding: 11px; border-radius: 8px; }
+  .tool:hover { background: var(--glass-strong); }
+
+  .card { background: var(--glass); border: 1px solid var(--line); border-radius: 8px; padding: 11px 12px; margin-bottom: 8px; }
+  .card-title { font-size: 12px; font-weight: 700; margin-bottom: 8px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .stat { background: rgba(0,0,0,.14); border-radius: 7px; padding: 10px 4px; text-align: center; font-size: 10px; opacity: .85; }
+  .stat b { display: block; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
+  .row-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .row-card .lbl { font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .row-card input { background: rgba(0,0,0,.2); border: 1px solid var(--line); color: #fff; font-size: 11px; border-radius: 7px; padding: 5px 8px; width: 120px; }
+  .switch { width: 40px; height: 22px; border-radius: 20px; background: rgba(0,0,0,.3); position: relative; flex: none; cursor: pointer; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .2s; }
+  .switch.on { background: #34d399; }
+  .switch.on::after { left: 21px; }
+  .manage { display: block; text-align: center; font-size: 12px; color: #fff; opacity: .8; text-decoration: none; padding: 10px; border: 1px dashed var(--line); border-radius: 8px; }
+  .manage:hover { opacity: 1; background: var(--glass); }
+  .danger-btn { background: rgba(239,68,68,.38); color: #fff; font-size: 12px; font-weight: 600; border-radius: 7px; padding: 10px 4px; }
+  .danger-btn:hover { background: rgba(239,68,68,.58); }
+
+  .status { margin-top: 12px; background: rgba(0,0,0,.18); border: 1px dashed var(--line); border-radius: 7px; padding: 8px 12px; font-size: 12px; opacity: .85; min-height: 34px; }
+
+  #toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px); background: rgba(0,0,0,.82); color: #fff; font-size: 12px; padding: 8px 18px; border-radius: 20px; opacity: 0; transition: all .25s; pointer-events: none; z-index: 99; }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+  <div class="demo-bar"><span><b>TabU</b> 红蓝分层 UI Demo · v0.5 修订</span><span>纯演示 · 无实际功能</span></div>
+
+  <div class="app" id="app" data-layer="red">
+    <header class="app-header">
+      <h1>TabU<span class="badge">v0.5</span></h1>
+      <div class="header-tools">
+        <button class="h-text">🕶 无痕</button>
+        <button class="h-text">⬇ 导出</button>
+      </div>
+      <div class="layer-switch">
+        <button class="layer-btn red active" data-layer="red">红</button>
+        <button class="layer-btn blue" data-layer="blue">蓝</button>
+      </div>
+    </header>
+
+    <div class="app-body">
+
+      <!-- ================= 红层 ================= -->
+      <div class="layer active" id="layer-red">
+
+        <!-- ① 文本工具：朗读 / 翻译 / AI / 卡片 -->
+        <div class="tool-tabs">
+          <button class="tool-tab active" data-tool="tts">🗣 朗读</button>
+          <button class="tool-tab" data-tool="trans">🌐 翻译</button>
+          <button class="tool-tab" data-tool="ai">🚀 AI</button>
+          <button class="tool-tab" data-tool="card">💳 卡片</button>
+        </div>
+
+        <!-- 朗读（默认展开） -->
+        <div class="tool-panel" id="panel-tts">
+          <textarea class="input" data-panel="tts" placeholder="输入文本…"></textarea>
+          <div class="ops">
+            <button class="op primary">▶ 朗读选中</button>
+            <button class="op">▶ 朗读全文</button>
+            <button class="op">▶ 朗读输入框</button>
+          </div>
+          <details class="fold"><summary>⚙️ 语音设置 · 语速 / 音调 / 音量</summary><div class="fold-body">语音选择、语速滑块、音调滑块、音量滑块（演示占位）。</div></details>
+        </div>
+
+        <!-- 翻译 -->
+        <div class="tool-panel hidden" id="panel-trans">
+          <textarea class="input" data-panel="trans" placeholder="输入文本…"></textarea>
+          <div class="ops">
+            <button class="op primary">🌐 翻译选中</button>
+            <button class="op">🌐 翻译全文</button>
+            <button class="op">🌐 翻译输入框</button>
+          </div>
+          <details class="fold"><summary>⚙️ 语言设置 · 源语言 / 目标语言</summary><div class="fold-body">源语言、目标语言下拉；长文本分段翻译开关（演示占位）。</div></details>
+        </div>
+
+        <!-- AI -->
+        <div class="tool-panel hidden" id="panel-ai">
+          <textarea class="input" data-panel="ai" placeholder="输入文本…"></textarea>
+          <div class="ops">
+            <button class="chip">翻译</button><button class="chip">总结</button>
+            <button class="chip">解释</button><button class="chip">润色</button>
+          </div>
+          <div class="ops">
+            <button class="chip" style="flex:0 0 auto;">发送到：ChatGPT ▾</button>
+            <button class="op primary" style="flex:0 0 auto;">🚀 发送</button>
+          </div>
+          <details class="fold"><summary>📜 会话历史 · 随 AI 整体在红层</summary>
+            <div class="fold-body">
+              <div class="tab-item"><span class="ti-text">总结 · 生活明朗…<small style="opacity:.6">10:02</small></span><button class="mini-btn">删除</button></div>
+              <div class="tab-item"><span class="ti-text">润色 · 计划文档<small style="opacity:.6">09:40</small></span><button class="mini-btn">删除</button></div>
+            </div>
+          </details>
+        </div>
+
+        <!-- 卡片 -->
+        <div class="tool-panel hidden" id="panel-card">
+          <div class="ops">
+            <button class="op" id="cardImportSel">📋 导入选中文本</button>
+            <button class="op" id="cardPaste">📋 粘贴</button>
+          </div>
+          <textarea class="input" data-panel="card" placeholder="输入文本，即卡片正文…">生活明朗，万物可爱。人间值得，未来可期。</textarea>
+
+          <div class="elegant-card" id="elegantCard">
+            <div class="ec-title">TabU 摘录卡片</div>
+            <div class="ec-text" id="cardText">生活明朗，万物可爱。人间值得，未来可期。</div>
+          </div>
+
+          <div class="card-controls">
+            <div class="ctrl"><label>字体</label>
+              <select id="ctlFont"><option value="">默认</option><option value="Georgia, serif">衬线</option><option value="'Courier New', monospace">等宽</option></select>
+            </div>
+            <div class="ctrl"><label>背景色</label>
+              <div class="swatches" id="ctlBg">
+                <span class="swatch sel" data-c="#ffffff"></span>
+                <span class="swatch" data-c="#fde68a"></span>
+                <span class="swatch" data-c="#bfdbfe"></span>
+                <span class="swatch" data-c="#f5d0fe"></span>
+              </div>
+            </div>
+            <div class="ctrl"><label>文本色</label>
+              <div class="swatches" id="ctlColor">
+                <span class="swatch sel" data-c="#23272f"></span>
+                <span class="swatch" data-c="#7f1d1d"></span>
+                <span class="swatch" data-c="#1e3a8a"></span>
+              </div>
+            </div>
+            <div class="ctrl"><label>圆角 <b id="ctlRadiusV">14</b></label>
+              <input type="range" id="ctlRadius" min="0" max="28" value="14" />
+            </div>
+            <div class="ctrl"><label>文本框边距 <b id="ctlPadV">18</b></label>
+              <input type="range" id="ctlPad" min="6" max="40" value="18" />
+            </div>
+            <div class="ctrl"><label>文本框位置</label>
+              <input type="range" id="ctlPos" min="-16" max="16" value="0" />
+            </div>
+            <div class="hint">🖱 卡片区域内可手动拖拽调整文本框位置（演示）</div>
+          </div>
+
+          <div class="ec-actions"><button id="cardDownload">⬇ 下载卡片</button></div>
+        </div>
+
+        <!-- 打开复制的网址：白底黑字全宽按钮，兼作视觉分割 -->
+        <button class="paste-btn">↗ 打开复制的网址</button>
+
+        <!-- ② 全局搜索 -->
+        <input class="search" placeholder="🔎 全局搜索：标签、快照、书签、历史…" />
+
+        <!-- ③ 4 个子 tab -->
+        <div class="sub-tabs">
+          <button class="sub-tab active" data-sub="cur">当前标签</button>
+          <button class="sub-tab" data-sub="bm">书签</button>
+          <button class="sub-tab" data-sub="hist">历史</button>
+          <button class="sub-tab" data-sub="dl">下载</button>
+        </div>
+
+        <!-- 当前标签 -->
+        <div class="sub-panel" id="sub-cur">
+          <div class="tab-item">
+            <span class="favicon">🌐</span>
+            <div class="ti-text"><div class="ti-title">GitHub · 构建软件</div><div class="ti-url">github.com</div></div>
+            <div class="ti-actions"><button class="mini-btn">切</button><button class="mini-btn">↻</button><button class="mini-btn">✕</button></div>
+          </div>
+          <div class="tab-item">
+            <span class="favicon">📄</span>
+            <div class="ti-text"><div class="ti-title">003 红蓝分层与底层共享能力规划</div><div class="ti-url">file:///003-红蓝分层与底层共享能力规划.md</div></div>
+            <div class="ti-actions"><button class="mini-btn">切</button><button class="mini-btn">↻</button><button class="mini-btn">✕</button></div>
+          </div>
+          <div class="tab-item">
+            <span class="favicon">🎵</span>
+            <div class="ti-text"><div class="ti-title">音乐播放列表</div><div class="ti-url">music.example.com</div></div>
+            <div class="ti-actions"><button class="mini-btn">切</button><button class="mini-btn">↻</button><button class="mini-btn">✕</button></div>
+          </div>
+
+          <!-- 清理重复 + 快照：并入当前标签页 -->
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="tool" id="dedupBtn" style="flex:1; width:auto;">🧹 清理重复</button>
+            <button class="snap-btn" id="snapBtn" style="flex:1; width:auto; margin-top:0;">📌 一键快照</button>
+          </div>
+          <div class="snap-history hidden" id="snapHistory">
+            <button class="snap-head" id="snapToggle">🗂 快照历史 <span class="cnt" id="snapCount">0</span> <span class="arrow">▾</span></button>
+            <div class="snap-records hidden" id="snapRecords"></div>
+          </div>
+        </div>
+
+        <!-- 书签 -->
+        <div class="sub-panel hidden" id="sub-bm">
+          <div class="tab-item"><span class="favicon">⭐</span><div class="ti-text"><div class="ti-title">收藏夹</div><div class="ti-url">24 条书签</div></div></div>
+          <div class="tab-item"><span class="favicon">📌</span><div class="ti-text"><div class="ti-title">常用站点</div><div class="ti-url">8 条书签</div></div></div>
+          <div class="tab-item"><span class="favicon">🗂</span><div class="ti-text"><div class="ti-title">研究资料</div><div class="ti-url">16 条书签</div></div></div>
+        </div>
+
+        <!-- 历史 -->
+        <div class="sub-panel hidden" id="sub-hist">
+          <div class="tab-item"><span class="favicon">🕐</span><div class="ti-text"><div class="ti-title">今日 12:30 · 知乎日报</div><div class="ti-url">daily.zhihu.com</div></div></div>
+          <div class="tab-item"><span class="favicon">🕐</span><div class="ti-text"><div class="ti-title">今日 11:05 · 掘金</div><div class="ti-url">juejin.cn</div></div></div>
+          <div class="tab-item"><span class="favicon">🕐</span><div class="ti-text"><div class="ti-title">昨日 · 阮一峰的网络日志</div><div class="ti-url">ruanyifeng.com</div></div></div>
+        </div>
+
+        <!-- 下载 -->
+        <div class="sub-panel hidden" id="sub-dl">
+          <div class="tab-item"><span class="favicon">📄</span><div class="ti-text"><div class="ti-title">demo.html</div><div class="ti-url">4.2 KB · 今天</div></div></div>
+          <div class="tab-item"><span class="favicon">🖼</span><div class="ti-text"><div class="ti-title">snapshot-0807.png</div><div class="ti-url">1.1 MB · 昨天</div></div></div>
+          <div class="tab-item"><span class="favicon">📑</span><div class="ti-text"><div class="ti-title">报告.pdf</div><div class="ti-url">2.3 MB · 08-05</div></div></div>
+        </div>
+
+        <div class="status">就绪 · 试试「一键快照」「朗读/翻译/AI/卡片」切换</div>
+      </div>
+
+      <!-- ================= 蓝层 ================= -->
+      <div class="layer" id="layer-blue">
+
+        <section class="sec">
+          <div class="sec-title">🧰 数据工具</div>
+          <div class="btn-row">
+            <button>📸 截图</button>
+            <button>🖨 打印</button>
+            <button>📧 邮件</button>
+            <button>⬆ 导入</button>
+            <button>⬇ 导出</button>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-title">⚙️ 系统 / 设置</div>
+          <div class="card">
+            <div class="card-title">统计概览</div>
+            <div class="stats">
+              <div class="stat"><b>128</b>当前标签</div>
+              <div class="stat"><b>42</b>快照</div>
+              <div class="stat"><b>20</b>书签版本</div>
+              <div class="stat"><b>35</b>已用天数</div>
+            </div>
+          </div>
+          <div class="card row-card">
+            <span class="lbl">🔌 终端桥接 Token</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input placeholder="粘贴 Token…" style="width:110px;" />
+              <button class="mini-btn" style="flex:none;">保存</button>
+            </div>
+          </div>
+          <div class="card row-card">
+            <span class="lbl">⌨️ 注入输入开关</span>
+            <span class="switch on" id="switchDemo"></span>
+          </div>
+          <a class="manage" href="#">管理设置 →</a>
+        </section>
+
+        <section class="sec">
+          <div class="sec-title">⚙️ 版本保留设置</div>
+          <div class="card row-card">
+            <span class="lbl">📑 书签版本最大保留数</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input type="number" value="20" min="1" max="100" style="width:60px;" />
+              <button class="mini-btn" style="flex:none;">保存</button>
+            </div>
+          </div>
+          <div class="card row-card">
+            <span class="lbl">🕐 历史版本最大保留数</span>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <input type="number" value="20" min="1" max="100" style="width:60px;" />
+              <button class="mini-btn" style="flex:none;">保存</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-title">🗑 数据管理</div>
+          <div class="card">
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+              <button class="danger-btn" style="flex:1;">清空所有快照</button>
+              <button class="danger-btn" style="flex:1;">清空书签版本</button>
+              <button class="danger-btn" style="flex:1;">清空历史版本</button>
+            </div>
+            <div class="hint" style="font-size:10px; opacity:.7; margin-top:6px;">⚠️ 清空操作不可撤销</div>
+          </div>
+        </section>
+
+        <div class="status">蓝层 · 数据工具 + 系统设置 + 版本保留 + 数据管理</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+<script>
+  const app = document.getElementById('app');
+  const status = document.querySelector('#layer-red .status');
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._h);
+    t._h = setTimeout(() => t.classList.remove('show'), 1500);
+  }
+
+  /* ===== 红 / 蓝 切换 ===== */
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      app.dataset.layer = btn.dataset.layer;
+      document.getElementById('layer-red').classList.toggle('active', btn.dataset.layer === 'red');
+      document.getElementById('layer-blue').classList.toggle('active', btn.dataset.layer === 'blue');
+    });
+  });
+
+  /* ===== 顶部 4 工具切换 ===== */
+  const panels = { tts: 'panel-tts', trans: 'panel-trans', ai: 'panel-ai', card: 'panel-card' };
+  document.querySelectorAll('.tool-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tool-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      Object.entries(panels).forEach(([k, id]) => {
+        document.getElementById(id).classList.toggle('hidden', k !== tab.dataset.tool);
+      });
+      toast('切换工具：' + tab.textContent.trim());
+    });
+  });
+
+  /* ===== 操作按钮自带来源：朗读 / 翻译 的「选中 / 全文 / 输入框」 ===== */
+  const demoTxt = {
+    sel: '生活明朗，万物可爱。人间值得，未来可期。',
+    full: '（全文演示）本文将整页正文抓取到这里，供朗读 / 翻译使用。'
+  };
+  ['panel-tts', 'panel-trans'].forEach(pid => {
+    const panel = document.getElementById(pid);
+    panel.querySelectorAll('.op').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ta = panel.querySelector('textarea');
+        const name = btn.textContent.trim();
+        if (name.includes('选中')) ta.value = demoTxt.sel;
+        else if (name.includes('全文')) ta.value = demoTxt.full;
+        else if (!ta.value.trim()) { toast('输入框为空，请先点「选中 / 全文」或输入文本'); return; }
+        toast(name + '（演示）');
+      });
+    });
+  });
+
+  /* ===== 卡片工具：实时预览 + 调节 ===== */
+  const cardText = document.getElementById('cardText');
+  const elegantCard = document.getElementById('elegantCard');
+  document.querySelectorAll('[data-panel="card"]').forEach(ta => {
+    ta.addEventListener('input', () => { cardText.textContent = ta.value || '（空）'; });
+  });
+  document.getElementById('ctlFont').addEventListener('change', e => { cardText.style.fontFamily = e.target.value; });
+  // 背景色
+  document.querySelectorAll('#ctlBg .swatch').forEach(s => {
+    s.addEventListener('click', () => {
+      document.querySelectorAll('#ctlBg .swatch').forEach(x => x.classList.remove('sel'));
+      s.classList.add('sel');
+      elegantCard.style.background = s.dataset.c;
+    });
+  });
+  // 文本色
+  document.querySelectorAll('#ctlColor .swatch').forEach(s => {
+    s.addEventListener('click', () => {
+      document.querySelectorAll('#ctlColor .swatch').forEach(x => x.classList.remove('sel'));
+      s.classList.add('sel');
+      cardText.style.color = s.dataset.c;
+    });
+  });
+  document.getElementById('ctlRadius').addEventListener('input', e => {
+    elegantCard.style.borderRadius = e.target.value + 'px';
+    document.getElementById('ctlRadiusV').textContent = e.target.value;
+  });
+  document.getElementById('ctlPad').addEventListener('input', e => {
+    cardText.style.padding = e.target.value + 'px';
+    document.getElementById('ctlPadV').textContent = e.target.value;
+  });
+  document.getElementById('ctlPos').addEventListener('input', e => {
+    cardText.style.transform = 'translateX(' + e.target.value + 'px)';
+  });
+  document.getElementById('cardDownload').addEventListener('click', () => toast('下载卡片 PNG（演示）'));
+
+  /* 卡片导入：选中文本 / 剪贴板 → 输入框 */
+  const cardInput = document.querySelector('[data-panel="card"]');
+  document.getElementById('cardImportSel').addEventListener('click', () => {
+    cardInput.value = demoTxt.sel;
+    cardText.textContent = demoTxt.sel;
+    toast('已导入选中文本 → 输入框');
+  });
+  document.getElementById('cardPaste').addEventListener('click', () => {
+    cardInput.value = '（剪贴板演示）https://example.com/article';
+    cardText.textContent = cardInput.value;
+    toast('已粘贴剪贴板内容 → 输入框');
+  });
+
+  /* ===== 4 子 tab ===== */
+  document.querySelectorAll('.sub-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      ['cur', 'bm', 'hist', 'dl'].forEach(k => {
+        document.getElementById('sub-' + k).classList.toggle('hidden', k !== tab.dataset.sub);
+      });
+    });
+  });
+
+  /* ===== 快照：点击一键保存 → 生成快照历史 ===== */
+  let snapCount = 0;
+  const snapHistory = document.getElementById('snapHistory');
+  const snapRecords = document.getElementById('snapRecords');
+  const snapCountEl = document.getElementById('snapCount');
+  const snapToggle = document.getElementById('snapToggle');
+
+  document.getElementById('snapBtn').addEventListener('click', () => {
+    snapCount++;
+    snapCountEl.textContent = snapCount;
+    snapHistory.classList.remove('hidden');
+    const titles = ['GitHub · 构建软件', '003 红蓝分层与底层共享能力规划', '音乐播放列表'];
+    const rec = document.createElement('div');
+    rec.className = 'snap-record';
+    const now = new Date();
+    const t = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    rec.innerHTML = `
+      <button class="snap-rec-head">快照 ${t} · ${titles.length} 个标签 <small>手动</small><span class="arrow">▾</span></button>
+      <div class="snap-rec-body hidden">
+        ${titles.map(x => `<div class="tab-item"><span class="favicon">🌐</span><div class="ti-text"><div class="ti-title">${x}</div><div class="ti-url">…</div></div><button class="mini-btn">恢复</button></div>`).join('')}
+        <div class="snap-rec-actions">
+          <button class="mini-btn" style="flex:1;">恢复全部</button>
+          <button class="mini-btn danger" style="flex:1;">删除</button>
+        </div>
+      </div>`;
+    rec.querySelector('.snap-rec-head').addEventListener('click', () => {
+      const body = rec.querySelector('.snap-rec-body');
+      const arrow = rec.querySelector('.arrow');
+      body.classList.toggle('hidden');
+      arrow.style.transform = body.classList.contains('hidden') ? '' : 'rotate(180deg)';
+    });
+    snapRecords.appendChild(rec);
+    snapRecords.classList.remove('hidden');
+    snapToggle.querySelector('.arrow').style.transform = '';
+    toast('已保存快照 · 点击「快照历史」展开记录');
+  });
+
+  snapToggle.addEventListener('click', () => {
+    const open = snapRecords.classList.toggle('hidden');
+    snapToggle.querySelector('.arrow').style.transform = open ? '' : 'rotate(180deg)';
+  });
+
+  /* 清理重复标签页（演示） */
+  document.getElementById('dedupBtn').addEventListener('click', () => toast('清理重复标签页（演示）'));
+
+  /* ===== 注入开关 ===== */
+  document.getElementById('switchDemo').addEventListener('click', function () {
+    this.classList.toggle('on');
+    toast(this.classList.contains('on') ? '注入输入开关：开' : '注入输入开关：关');
+  });
+
+  /* ===== 其余按钮统一占位提示 ===== */
+  document.querySelectorAll('.h-text, .op, .btn-row button, .tool, .manage, .search, .paste-btn, .snap-btn, .sub-tab').forEach(el => {
+    el.addEventListener('click', (e) => {
+      if (el.id === 'snapBtn') return;
+      if (el.classList.contains('sub-tab')) return;
+      if (el.classList.contains('tool-tab')) return;
+      e.stopPropagation();
+    });
+  });
+</script>
+</body>
+</html>

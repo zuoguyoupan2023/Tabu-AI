@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>欢迎使用 TabU</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* 与 sidepanel.css 统一 */
+    --red-a: #7f1d1d; --red-b: #b91c1c; --red-grad: linear-gradient(135deg, #991b1b, #dc2626);
+    --blue-a: #1e3a8a; --blue-b: #2563eb; --blue-grad: linear-gradient(135deg, #1e40af, #3b82f6);
+    --line: rgba(255,255,255,.22);
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    /* 红蓝对角渐变（红 = 高频工具，蓝 = 低频回溯），白色玻璃卡片浮于其上 */
+    background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(220,38,38,.35), transparent 60%),
+      radial-gradient(1200px 700px at 110% 115%, rgba(59,130,246,.40), transparent 60%),
+      linear-gradient(135deg, var(--red-a) 0%, #7f1d1d 38%, #1e3a8a 78%, var(--blue-a) 100%);
+    color: #fff;
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 20px; line-height: 1.6; overflow-x: hidden;
+  }
+  body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); opacity: .30; z-index: 0; pointer-events: none; }
+  body::before { width: 380px; height: 380px; background: #f87171; top: -110px; right: -120px; }
+  body::after  { width: 340px; height: 340px; background: #60a5fa; bottom: -120px; left: -100px; }
+
+  /* 语言切换按钮：右上角固定，跟随 i18n.js apply() 更新文案 */
+  .lang-btn {
+    position: fixed; top: 16px; right: 16px; z-index: 3;
+    background: rgba(0,0,0,.32); color: #fff; border: 1px solid rgba(255,255,255,.32);
+    border-radius: 30px; padding: 6px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: background .15s, transform .15s;
+  }
+  .lang-btn:hover { background: rgba(0,0,0,.48); transform: translateY(-1px); }
+
+  .card {
+    position: relative; z-index: 1;
+    max-width: 700px; width: 100%;
+    background: rgba(255,255,255,.10);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.24);
+    border-radius: 24px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.40);
+    padding: 34px 36px;
+    animation: rise .5s ease both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  /* ===== 步骤指示器（当前=红渐变，已过=蓝，未到=灰） ===== */
+  .steps { display: flex; justify-content: center; align-items: center; gap: 10px; margin-bottom: 26px; }
+  .steps .dot { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,.30); transition: transform .25s, background .25s; }
+  .steps .dot.active { background: var(--red-grad); transform: scale(1.25); box-shadow: 0 0 10px rgba(220,38,38,.6); }
+  .steps .dot.done { background: var(--blue-grad); }
+  .steps .bar { width: 26px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.22); }
+  .steps .bar.done { background: var(--blue-grad); }
+
+  /* ===== 步骤区块 ===== */
+  .step-page { display: none; }
+  .step-page.show { display: block; animation: fade .35s ease both; }
+  @keyframes fade { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+
+  .hero { text-align: center; }
+  .logo { font-size: 52px; }
+  .brand { font-size: 30px; font-weight: 800; letter-spacing: -.5px; margin-top: 4px; }
+  .brand .version { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.92); margin-left: 8px; background: rgba(0,0,0,.28); padding: 2px 10px; border-radius: 30px; vertical-align: 6px; }
+  .dual-banner {
+    margin: 18px auto 6px; max-width: 480px;
+    display: flex; align-items: stretch; overflow: hidden; border-radius: 12px;
+    font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    border: 1px solid rgba(255,255,255,.3);
+  }
+  .dual-banner .red { flex: 1; background: var(--red-grad); padding: 8px 6px; text-align: center; }
+  .dual-banner .blue { flex: 1; background: var(--blue-grad); padding: 8px 6px; text-align: center; }
+  .dual-banner small { display: block; font-weight: 500; font-size: 11px; opacity: .85; letter-spacing: normal; }
+  .hero .msg { margin-top: 14px; font-size: 16px; color: rgba(255,255,255,.92); }
+  .hero .sub { margin-top: 4px; font-size: 13px; color: rgba(255,255,255,.72); }
+
+  /* ===== STEP 2 固定教学 ===== */
+  .teach { margin: 18px 0 4px; display: flex; flex-direction: column; gap: 10px; }
+  .teach .row { display: flex; align-items: flex-start; gap: 12px; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.12); border-radius: 12px; padding: 11px 14px; font-size: 14px; }
+  .teach .num { background: var(--red-grad); color: #fff; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; flex: none; margin-top: 2px; }
+  .teach strong { font-weight: 700; }
+  .teach .hl { background: rgba(255,255,255,.16); padding: 1px 8px; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 13px; }
+
+  /* 模拟浏览器工具栏示意图 */
+  .mock-browser { margin: 16px auto 2px; max-width: 520px; background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; padding: 12px 14px 14px; }
+  .mock-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+  .mock-tab { flex: 1; height: 26px; background: rgba(255,255,255,.10); border-radius: 8px 8px 0 0; }
+  .mock-tab.active { background: rgba(255,255,255,.18); }
+  .mock-bar { display: flex; align-items: center; gap: 10px; }
+  .mock-addr { flex: 1; height: 30px; background: rgba(255,255,255,.12); border-radius: 30px; }
+  .mock-icon { width: 30px; height: 30px; border-radius: 8px; background: rgba(255,255,255,.16); display: flex; align-items: center; justify-content: center; font-size: 15px; position: relative; flex: none; }
+  .mock-icon.puzzle { background: var(--red-grad); }
+  .ring { position: absolute; inset: -7px; border: 2px solid rgba(255,80,80,.9); border-radius: 10px; animation: breathe 1.6s ease-in-out infinite; }
+  .ring::after { content: var(--ring-text, "点这里"); position: absolute; top: -26px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; background: rgba(0,0,0,.45); padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+  @keyframes breathe { 0%,100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.18); opacity: .4; } }
+
+  /* ===== STEP 3 红蓝两层对仗 ===== */
+  .pair-title { text-align: center; font-size: 16px; font-weight: 700; margin: 6px 0 14px; }
+  .pair-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pair-col { border-radius: 14px; padding: 14px 16px; border: 1px solid rgba(255,255,255,.22); }
+  .pair-col.red { background: linear-gradient(150deg, rgba(153,27,27,.55), rgba(220,38,38,.28)); }
+  .pair-col.blue { background: linear-gradient(150deg, rgba(30,64,175,.55), rgba(59,130,246,.28)); }
+  .pair-col h3 { font-size: 15px; margin-bottom: 10px; }
+  .pair-col ul { list-style: none; font-size: 13px; display: flex; flex-direction: column; gap: 7px; }
+  .pair-col li { opacity: .95; }
+  .pair-hint { margin-top: 16px; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 13px; color: rgba(255,255,255,.85); background: rgba(0,0,0,.20); border-radius: 10px; padding: 9px 12px; }
+  .pair-hint kbd { background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.28); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+
+  /* ===== STEP 4 完成 ===== */
+  .finish { text-align: center; }
+  .finish .emoji { font-size: 56px; }
+  .finish h2 { font-size: 26px; font-weight: 800; margin: 6px 0 4px; }
+  .finish .feat { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; margin: 18px 0; }
+  .finish .feat-item { background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 12px 8px; text-align: center; font-size: 13px; }
+  .finish .feat-item .ic { font-size: 22px; display: block; margin-bottom: 4px; }
+  .privacy { margin-top: 14px; font-size: 12px; color: rgba(255,255,255,.78); }
+
+  /* ===== 按钮 ===== */
+  .actions { margin-top: 26px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+  .btn { border: none; cursor: pointer; padding: 11px 26px; border-radius: 40px; font-size: 15px; font-weight: 600; transition: transform .15s, box-shadow .15s, background .15s, opacity .15s; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .btn-primary { background: linear-gradient(120deg, #dc2626, #b91c1c 55%, #2563eb); color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+  .btn-primary:hover { box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+  .btn-glass { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.3); }
+  .btn-glass:hover { background: rgba(255,255,255,.22); }
+  .btn-link { background: transparent; color: rgba(255,255,255,.75); border: none; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; padding: 8px 10px; }
+
+  .footer { margin-top: 22px; text-align: center; color: rgba(255,255,255,.72); font-size: 12px; border-top: 1px solid rgba(255,255,255,.16); padding-top: 14px; }
+
+  @media (max-width: 520px) {
+    .card { padding: 24px 18px; }
+    .pair-grid { grid-template-columns: 1fr; }
+    .brand { font-size: 24px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <button class="lang-btn" id="btnLang" title="切换语言">EN</button>
+  <div class="card">
+    <!-- 步骤指示器 -->
+    <div class="steps" id="stepDots">
+      <span class="dot active" data-dot="1"></span>
+      <span class="bar" data-bar="1"></span>
+      <span class="dot" data-dot="2"></span>
+      <span class="bar" data-bar="2"></span>
+      <span class="dot" data-dot="3"></span>
+      <span class="bar" data-bar="3"></span>
+      <span class="dot" data-dot="4"></span>
+    </div>
+
+    <!-- ===== STEP 1 · 安装成功 ===== -->
+    <section class="step-page show" data-step="1">
+      <div class="hero">
+        <div class="logo">🧩</div>
+        <div class="brand">TabU<span class="version" id="versionBadge">v0.5.0</span></div>
+        <div class="dual-banner">
+          <div class="red"><span data-i18n="welcomeRed">红 · 高频工具</span><small data-i18n="welcomeRedList">朗读 · 翻译 · AI · 标签快照 · 搜索</small></div>
+          <div class="blue"><span data-i18n="welcomeBlue">蓝 · 低频回溯</span><small data-i18n="welcomeBlueList">备份 · 定时快照 · 设置 · 数据管理</small></div>
+        </div>
+        <div class="msg" data-i18n-html="welcomeInstalled">✓ 安装成功！接下来 <strong>3 步</strong> 快速上手</div>
+        <div class="sub" data-i18n="welcomeSub">TabU 是智能标签页管家，帮你管理标签、快照、书签与历史。</div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btnStart" data-i18n="welcomeStart">▶ 开始引导</button>
+      </div>
+    </section>
+
+    <!-- ===== STEP 2 · 固定到工具栏 ===== -->
+    <section class="step-page" data-step="2">
+      <div class="hero" style="margin-bottom:4px;">
+        <div class="brand" style="font-size:24px;" data-i18n="welcomePinTitle">📌 固定到工具栏</div>
+        <div class="sub" data-i18n="welcomePinSub">把 TabU 固定到浏览器工具栏，随时一键打开侧边栏</div>
+      </div>
+      <div class="teach">
+        <div class="row"><span class="num">1</span><div data-i18n-html="welcomePinStep1">点击浏览器右上角的 <strong>拼图图标</strong>（扩展程序管理按钮）</div></div>
+        <div class="row"><span class="num">2</span><div data-i18n-html="welcomePinStep2">在列表中找到 <strong>TabU Browser Manager</strong></div></div>
+        <div class="row"><span class="num">3</span><div data-i18n-html="welcomePinStep3">点击它右侧的 <span class="hl">📌 图钉</span>，固定到工具栏</div></div>
+      </div>
+      <div class="mock-browser">
+        <div class="mock-tabs"><div class="mock-tab active"></div><div class="mock-tab"></div><div class="mock-tab"></div></div>
+        <div class="mock-bar">
+          <div class="mock-addr"></div>
+          <div class="mock-icon puzzle">🧩<span class="ring"></span></div>
+          <div class="mock-icon">📌</div>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-link" id="btnBack2" data-i18n="welcomeBack">◀ 返回</button>
+        <button class="btn btn-primary" id="btnNext2" data-i18n="welcomeNextLayers">下一步：认识红蓝层 ▶</button>
+      </div>
+    </section>
+
+    <!-- ===== STEP 3 · 认识红蓝层 ===== -->
+    <section class="step-page" data-step="3">
+      <div class="pair-title" data-i18n="welcomePairTitle">界面分「红 · 蓝」两层，右上角胶囊一键切换</div>
+      <div class="pair-grid">
+        <div class="pair-col red">
+          <h3 data-i18n="welcomeLayerRedTitle">🔴 红层 · 高频工具</h3>
+          <ul>
+            <li data-i18n="welcomeLayerRed1">🗣 朗读 / 翻译 / AI / 卡片</li>
+            <li data-i18n="welcomeLayerRed2">↗ 打开网址 · 全局搜索</li>
+            <li data-i18n="welcomeLayerRed3">📌 标签快照 · 去重</li>
+            <li data-i18n="welcomeLayerRed4">📚 标签 / 书签 / 历史 / 下载</li>
+          </ul>
+        </div>
+        <div class="pair-col blue">
+          <h3 data-i18n="welcomeLayerBlueTitle">🔵 蓝层 · 低频回溯</h3>
+          <ul>
+            <li data-i18n="welcomeLayerBlue1">📸 截图 / 打印 / 邮件导出</li>
+            <li data-i18n="welcomeLayerBlue2">⬆ 导入 / 导出备份</li>
+            <li data-i18n="welcomeLayerBlue3">⏰ 定时保存快照</li>
+            <li data-i18n="welcomeLayerBlue4">⚙️ 设置 / 统计 / 数据管理</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pair-hint" data-i18n-html="welcomePairHint">点击工具栏图标即可打开侧边栏（红层默认） · 快捷键 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> 或 <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></div>
+      <div class="actions">
+        <button class="btn btn-link" id="btnBack3" data-i18n="welcomeBack">◀ 返回</button>
+        <button class="btn btn-primary" id="btnNext3" data-i18n="welcomeNextStart">下一步：开始使用 ▶</button>
+      </div>
+    </section>
+
+    <!-- ===== STEP 4 · 完成 ===== -->
+    <section class="step-page" data-step="4">
+      <div class="finish">
+        <div class="emoji">🎉</div>
+        <h2 data-i18n="welcomeReadyTitle">准备好了！</h2>
+        <div class="sub" data-i18n="welcomeReadySub">TabU 已就绪，开始高效管理你的标签页吧</div>
+        <div class="feat">
+          <div class="feat-item"><span class="ic">📸</span><span data-i18n="welcomeFeatSnapshot">一键快照</span></div>
+          <div class="feat-item"><span class="ic">🔄</span><span data-i18n="welcomeFeatDedup">去重标签</span></div>
+          <div class="feat-item"><span class="ic">🔍</span><span data-i18n="welcomeFeatSearch">全局搜索</span></div>
+          <div class="feat-item"><span class="ic">📖</span><span data-i18n="welcomeFeatVersions">书签 / 历史版本</span></div>
+          <div class="feat-item"><span class="ic">🗣️</span><span data-i18n="welcomeFeatTts">朗读 &amp; 翻译</span></div>
+          <div class="feat-item"><span class="ic">💾</span><span data-i18n="welcomeFeatBackup">数据备份</span></div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-primary" id="openSidepanel" data-i18n="welcomeOpenSidebar">🧩 打开侧边栏</button>
+          <button class="btn btn-glass" id="btnDocs" data-i18n="welcomeDocs">📄 文档</button>
+          <button class="btn btn-glass" id="btnFeedback" data-i18n="welcomeFeedback">💬 反馈</button>
+        </div>
+        <div class="privacy" data-i18n="welcomePrivacy">💾 所有数据仅保存在本地，不会上传到任何服务器</div>
+      </div>
+    </section>
+
+    <div class="footer" data-i18n="welcomeFooter">TabU Browser Manager · 智能标签页管家</div>
+  </div>
+
+  <!-- 与 sidepanel 共享 i18n：语言跟随 uiLang 偏好；MV3 扩展页 CSP 禁止内联脚本，逻辑放外部文件 -->
+  <script src="i18n.js"></script>
+  <script src="welcome.js"></script>
+</body>
+</html>

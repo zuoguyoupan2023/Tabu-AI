@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TabArchive - 管理设置</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f8fafc; }
+    .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .sub { color: #6b7a8e; margin-bottom: 20px; }
+    .btn { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #1a2332; }
+    textarea { width: 100%; height: 200px; font-family: monospace; font-size: 13px; padding: 12px; border: 1px solid #dce1ea; border-radius: 6px; }
+    .import-area { margin-top: 12px; }
+    .file-input { display: block; margin: 12px 0; }
+    .status-msg { margin-left: 12px; color: #6b7a8e; }
+    hr { margin: 20px 0; border: none; border-top: 1px solid #e2e8f0; }
+    .setting-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .setting-row label { min-width: 140px; }
+    .setting-row input { padding: 4px 8px; border: 1px solid #dce1ea; border-radius: 4px; width: 80px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>⚙️ TabArchive 管理设置 (v3.0)</h1>
+    <p class="sub">数据存储于 IndexedDB，容量无上限</p>
+
+    <h3>📥 导入数据</h3>
+    <div class="import-area">
+      <input type="file" id="importFile" accept=".json" class="file-input">
+      <button id="btnImport" class="btn btn-primary">导入并合并</button>
+      <span id="importStatus" class="status-msg"></span>
+    </div>
+
+    <hr>
+
+    <h3>⚙️ 版本保留设置</h3>
+    <div class="setting-row">
+      <label>书签版本最大保留数：</label>
+      <input type="number" id="bookmarkMaxVersions" min="1" max="100" value="20">
+      <button id="btnSaveBookmarkSetting" class="btn btn-secondary small">保存</button>
+      <span id="bookmarkSettingStatus" class="status-msg"></span>
+    </div>
+    <div class="setting-row">
+      <label>历史版本最大保留数：</label>
+      <input type="number" id="historyMaxVersions" min="1" max="100" value="20">
+      <button id="btnSaveHistorySetting" class="btn btn-secondary small">保存</button>
+      <span id="historySettingStatus" class="status-msg"></span>
+    </div>
+
+    <hr>
+
+    <h3>🗑 数据管理</h3>
+    <div style="display:flex; flex-wrap:wrap; gap:12px;">
+      <button id="btnClearSnapshots" class="btn btn-danger">清空所有快照</button>
+      <button id="btnClearBookmarkVersions" class="btn btn-danger">清空书签版本</button>
+      <button id="btnClearHistoryVersions" class="btn btn-danger">清空历史版本</button>
+    </div>
+    <span id="clearStatus" class="status-msg"></span>
+  </div>
+
+  <div class="card">
+    <h3>🔌 终端桥接（TabU Bridge）</h3>
+    <p class="sub" style="font-size:13px;color:#6b7a8e;">
+      先运行 <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">node bridge/server.js</code>，
+      它会打印一个 Token。把 Token 填到下面并保存，之后在终端里设置
+      <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">ANTHROPIC_BASE_URL=http://127.0.0.1:11434</code>，
+      即可让 Claude Code 等工具通过浏览器里的 ChatGPT 页面回答。
+    </p>
+    <div class="setting-row">
+      <label>桥接 Token：</label>
+      <input type="text" id="bridgeToken" style="width:280px;" placeholder="tabu_xxxxxxxxxxxxxxxxxxxxxxxx">
+      <button id="btnSaveBridgeToken" class="btn btn-secondary small">保存</button>
+      <span id="bridgeTokenStatus" class="status-msg"></span>
+    </div>
+    <div class="setting-row" style="margin-top:12px;">
+      <label style="min-width:auto;"><input type="checkbox" id="inputInjectEnabled"> 启用注入输入工具</label>
+      <button id="btnSaveInputInject" class="btn btn-secondary small">保存</button>
+      <span id="inputInjectStatus" class="status-msg"></span>
+    </div>
+    <p style="color:#6b7a8e;font-size:12px;margin-top:8px;">
+      💡 注入输入工具：聚焦到网页的多行输入框时右下角出现"发送"按钮，方便把内容发到 ChatGPT 等页面。
+    </p>
+  </div>
+
+  <div class="card">
+    <p style="color:#6b7a8e;font-size:14px;">
+      💡 提示：导入的数据会与现有数据合并，不会覆盖原有快照或版本。
+      版本保留数设置将在下次存档时生效。
+    </p>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

@@ -1,0 +1,3381 @@
+// ========== 工具函数 ==========
+// 状态/提示统一走 fixed 悬浮 toast（不占布局，页面不因提醒而跳动）
+function showToast(message, duration = 1500, type = '') {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = message;
+  if (type) {
+    toast.classList.remove('success', 'error', 'info');
+    toast.classList.add(type);
+  }
+  toast.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => {
+    toast.classList.remove('show', 'success', 'error', 'info');
+  }, duration);
+}
+
+function showStatus(message, type = 'info') {
+  showToast(message, 3000, type);
+}
+
+// ========== favicon / 内部页面图标（tabler 风格内联 SVG，不用 emoji） ==========
+const TABU_ICONS = {
+  puzzle: 'M4 12a3 3 0 0 1 3-3h2a1 1 0 0 0 1-1V6a2 2 0 0 1 2-2 2 2 0 0 1 2 2v2a1 1 0 0 0 1 1h2a3 3 0 0 1 3 3 3 3 0 0 1-3 3h-2a1 1 0 0 0-1 1v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-2a1 1 0 0 0-1-1H7a3 3 0 0 1-3-3z',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  bookmark: 'M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/>',
+  download: '<path d="M12 3v12m0 0l4-4m-4 4l-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  home: '<path d="M3 10l9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 21v-6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v6"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/>',
+  browser: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  camera: '<path d="M4 8h2l2-3h8l2 3h2a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="12" r="4"/>',
+};
+function svgIcon(inner, size = 16) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+}
+// chrome:// 等浏览器内部页面 → 对应图标
+function internalPageIcon(url) {
+  if (!url) return '';
+  const u = String(url).toLowerCase();
+  const has = (s) => u.includes(s);
+  if (has('extensions')) return svgIcon(TABU_ICONS.puzzle);           // 扩展管理页 → 拼图
+  if (has('settings') || has('preferences') || has('flags')) return svgIcon(TABU_ICONS.gear);
+  if (has('bookmarks')) return svgIcon(TABU_ICONS.bookmark);
+  if (has('history')) return svgIcon(TABU_ICONS.clock);
+  if (has('downloads')) return svgIcon(TABU_ICONS.download);
+  if (has('newtab') || has('new-tab-page') || u === 'about:blank') return svgIcon(TABU_ICONS.home);
+  if (has('apps')) return svgIcon(TABU_ICONS.grid);
+  if (u.startsWith('chrome://') || u.startsWith('edge://') || u.startsWith('brave://') || u.startsWith('opera://')) return svgIcon(TABU_ICONS.browser);
+  return '';
+}
+// 标签图标：
+//  · 浏览器内部页面（chrome:// 等）→ 直接显示我们定义的 SVG 图标（不再叠 favicon，内部页 favicon 不稳定/会覆盖）
+//  · 普通网页 → 优先官方 favicon（img 覆盖在 SVG 之上），缺失/失败则回退为 SVG
+function tabIcon(tab) {
+  const internal = internalPageIcon(tab.url);
+  if (internal) return `<span class="favicon-wrap">${internal}</span>`;
+  const img = tab.favIconUrl ? `<img src="${escapeHtml(tab.favIconUrl)}" class="tab-favicon" alt="" onerror="this.remove()" />` : '';
+  return `<span class="favicon-wrap">${svgIcon(TABU_ICONS.globe)}${img}</span>`;
+}
+
+// ========== 翻译请求锁 ==========
+let isTranslating = false;
+
+// ========== 安装天数 ==========
+async function getInstallDays() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get('installDate', (result) => {
+      let installDate = result.installDate;
+      if (!installDate) {
+        installDate = Date.now();
+        chrome.storage.local.set({ installDate });
+        resolve(0);
+      } else {
+        const now = Date.now();
+        const diff = now - installDate;
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        resolve(days);
+      }
+    });
+  });
+}
+
+// ========== 加载统计 ==========
+async function loadStats() {
+  try {
+    const windows = await chrome.windows.getAll({ populate: true });
+    let totalTabs = 0;
+    for (const win of windows) totalTabs += win.tabs.length;
+    const statEl = document.getElementById('statCurrent');
+    if (statEl) statEl.textContent = totalTabs;
+
+    const stats = await sendMessage('getStats');
+    if (stats) {
+      const snapEl = document.getElementById('statSnapshots');
+      if (snapEl) snapEl.textContent = stats.snapshots || 0;
+      const bmEl = document.getElementById('statBookmarks');
+      if (bmEl) bmEl.textContent = stats.bookmarkVersions || 0;
+      const histEl = document.getElementById('statHistory');
+      if (histEl) histEl.textContent = stats.historyVersions || 0;
+    }
+    const days = await getInstallDays();
+    const daysEl = document.getElementById('statDays');
+    if (daysEl) daysEl.textContent = days;
+  } catch (e) {
+    console.warn('加载统计失败', e);
+  }
+}
+
+// ========== 导出 ==========
+async function exportData() {
+  try {
+    showStatus(I18N.t('preparingExport'), 'info');
+    const result = await sendMessage('exportData');
+    if (result.success) {
+      showStatus(I18N.t('exportSuccess'), 'success');
+    } else {
+      showStatus(I18N.t('exportFail') + (result.message || ''), 'error');
+    }
+  } catch (e) {
+    showStatus(I18N.t('exportFail') + e.message, 'error');
+  }
+}
+
+async function mailExport() {
+  try {
+    showStatus(I18N.t('preparingExport'), 'info');
+    const data = await sendMessage('getExportData');
+    if (!data || !data.version) {
+      showStatus(I18N.t('getExportFail'), 'error');
+      return;
+    }
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `TabU备份_${dateStr}.json`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    showStatus(I18N.t('backupSaved', fileName), 'info');
+    const subject = encodeURIComponent(I18N.t('mailSubject'));
+    const body = encodeURIComponent(I18N.t('mailBody', fileName));
+    window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
+  } catch (e) {
+    showStatus(I18N.t('opFail') + e.message, 'error');
+  }
+}
+
+// ========== 红蓝层切换（红层默认） ==========
+function switchLayer(layerName) {
+  const app = document.getElementById('app');
+  if (app) app.dataset.layer = layerName;
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.layer === layerName);
+  });
+  const red = document.getElementById('layer-red');
+  const blue = document.getElementById('layer-blue');
+  if (red) red.classList.toggle('active', layerName === 'red');
+  if (blue) blue.classList.toggle('active', layerName === 'blue');
+  if (layerName === 'red') { loadStats(); }
+  if (layerName === 'blue') updateCardPreview(); // 卡片工具已迁至蓝区，进入蓝区时刷新预览缩放
+}
+
+// ========== 文本工具切换（朗读/转写/AI；翻译已并入 AI 面板的「免费翻译」模式，卡片已移至蓝区） ==========
+function switchTool(toolName) {
+  chrome.tts.stop();
+  document.querySelectorAll('.tool-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tool === toolName);
+  });
+  ['tts', 'asr', 'chat', 'ai'].forEach(name => {
+    const panel = document.getElementById(`panel-${name}`);
+    if (panel) panel.classList.toggle('hidden', name !== toolName);
+  });
+  if (toolName === 'ai') renderInjectHistory();
+  if (toolName === 'asr') { syncAsrBackendUi(); loadAsrDevices(); }
+  if (toolName === 'chat') loadChatMicDevices();
+}
+
+// ========== 新建无痕窗口 ==========
+async function createIncognitoWindow() {
+  try {
+    await chrome.windows.create({ incognito: true });
+    showStatus(I18N.t('incognitoOpened'), 'success');
+  } catch (e) {
+    showStatus(I18N.t('incognitoFail') + e.message, 'error');
+  }
+}
+
+// ========== 打印 ==========
+async function printCurrentTab() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) throw new Error(I18N.t('noActiveTab'));
+    if (tab.url.startsWith('chrome://') || tab.url.startsWith('edge://') || tab.url.startsWith('about:')) {
+      showStatus(I18N.t('cannotPrintInternal'), 'error');
+      return;
+    }
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => window.print()
+    });
+    showStatus(I18N.t('printDialogOpened'), 'info');
+  } catch (e) {
+    showStatus(I18N.t('printFail') + e.message, 'error');
+  }
+}
+
+// ========== 朗读功能 ==========
+// 文本来源（getSelectedText / getFullPageText / extractMainText）已统一收进 capabilities.js
+
+// 填充语音列表
+let allVoices = [];
+let ttsLangFirstRender = true;   // 首次填充时按系统语言定默认筛选语言，之后保留用户选择
+
+// BCP-47 语言代码 → 显示名（zh / en）。未知代码回退为「基础语言名 + 地区码」。
+const TTS_LANG_LABELS = {
+  'zh-cn': { zh: '中国大陆', en: 'Mainland China' },
+  'zh-tw': { zh: '中国台湾', en: 'Taiwan' },
+  'zh-hk': { zh: '中国香港', en: 'Hong Kong' },
+  'zh-sg': { zh: '新加坡中文', en: 'Singapore (Chinese)' },
+  'zh': { zh: '中文', en: 'Chinese' },
+  'cmn-cn': { zh: '普通话（中国大陆）', en: 'Mandarin (Mainland China)' },
+  'cmn-tw': { zh: '普通话（台湾）', en: 'Mandarin (Taiwan)' },
+  'yue-hk': { zh: '粤语（香港）', en: 'Cantonese (Hong Kong)' },
+  'en-us': { zh: '美国英语', en: 'English (US)' },
+  'en-gb': { zh: '英国英语', en: 'English (UK)' },
+  'en-au': { zh: '澳大利亚英语', en: 'English (Australia)' },
+  'en-ca': { zh: '加拿大英语', en: 'English (Canada)' },
+  'en-in': { zh: '印度英语', en: 'English (India)' },
+  'en-ie': { zh: '爱尔兰英语', en: 'English (Ireland)' },
+  'en-nz': { zh: '新西兰英语', en: 'English (New Zealand)' },
+  'en': { zh: '英语', en: 'English' },
+  'ja-jp': { zh: '日语（日本）', en: 'Japanese (Japan)' },
+  'ja': { zh: '日语', en: 'Japanese' },
+  'ko-kr': { zh: '韩语（韩国）', en: 'Korean (South Korea)' },
+  'ko': { zh: '韩语', en: 'Korean' },
+  'fr-fr': { zh: '法语（法国）', en: 'French (France)' },
+  'fr-ca': { zh: '法语（加拿大）', en: 'French (Canada)' },
+  'fr': { zh: '法语', en: 'French' },
+  'de-de': { zh: '德语（德国）', en: 'German (Germany)' },
+  'de-at': { zh: '德语（奥地利）', en: 'German (Austria)' },
+  'de-ch': { zh: '德语（瑞士）', en: 'German (Switzerland)' },
+  'de': { zh: '德语', en: 'German' },
+  'es-es': { zh: '西班牙语（西班牙）', en: 'Spanish (Spain)' },
+  'es-mx': { zh: '西班牙语（墨西哥）', en: 'Spanish (Mexico)' },
+  'es-ar': { zh: '西班牙语（阿根廷）', en: 'Spanish (Argentina)' },
+  'es-us': { zh: '西班牙语（美国）', en: 'Spanish (US)' },
+  'es': { zh: '西班牙语', en: 'Spanish' },
+  'pt-br': { zh: '葡萄牙语（巴西）', en: 'Portuguese (Brazil)' },
+  'pt-pt': { zh: '葡萄牙语（葡萄牙）', en: 'Portuguese (Portugal)' },
+  'pt': { zh: '葡萄牙语', en: 'Portuguese' },
+  'it-it': { zh: '意大利语（意大利）', en: 'Italian (Italy)' },
+  'it': { zh: '意大利语', en: 'Italian' },
+  'ru-ru': { zh: '俄语（俄罗斯）', en: 'Russian (Russia)' },
+  'ru': { zh: '俄语', en: 'Russian' },
+  'ar-sa': { zh: '阿拉伯语（沙特）', en: 'Arabic (Saudi Arabia)' },
+  'ar-eg': { zh: '阿拉伯语（埃及）', en: 'Arabic (Egypt)' },
+  'ar': { zh: '阿拉伯语', en: 'Arabic' },
+  'hi-in': { zh: '印地语（印度）', en: 'Hindi (India)' },
+  'hi': { zh: '印地语', en: 'Hindi' },
+  'nl-nl': { zh: '荷兰语（荷兰）', en: 'Dutch (Netherlands)' },
+  'nl': { zh: '荷兰语', en: 'Dutch' },
+  'pl-pl': { zh: '波兰语（波兰）', en: 'Polish (Poland)' },
+  'pl': { zh: '波兰语', en: 'Polish' },
+  'tr-tr': { zh: '土耳其语（土耳其）', en: 'Turkish (Turkey)' },
+  'tr': { zh: '土耳其语', en: 'Turkish' },
+  'sv-se': { zh: '瑞典语（瑞典）', en: 'Swedish (Sweden)' },
+  'sv': { zh: '瑞典语', en: 'Swedish' },
+  'da-dk': { zh: '丹麦语（丹麦）', en: 'Danish (Denmark)' },
+  'da': { zh: '丹麦语', en: 'Danish' },
+  'nb-no': { zh: '挪威语（挪威）', en: 'Norwegian (Norway)' },
+  'no': { zh: '挪威语', en: 'Norwegian' },
+  'fi-fi': { zh: '芬兰语（芬兰）', en: 'Finnish (Finland)' },
+  'fi': { zh: '芬兰语', en: 'Finnish' },
+  'cs-cz': { zh: '捷克语（捷克）', en: 'Czech (Czechia)' },
+  'cs': { zh: '捷克语', en: 'Czech' },
+  'uk-ua': { zh: '乌克兰语（乌克兰）', en: 'Ukrainian (Ukraine)' },
+  'uk': { zh: '乌克兰语', en: 'Ukrainian' },
+  'th-th': { zh: '泰语（泰国）', en: 'Thai (Thailand)' },
+  'th': { zh: '泰语', en: 'Thai' },
+  'id-id': { zh: '印尼语（印尼）', en: 'Indonesian (Indonesia)' },
+  'id': { zh: '印尼语', en: 'Indonesian' },
+  'vi-vn': { zh: '越南语（越南）', en: 'Vietnamese (Vietnam)' },
+  'vi': { zh: '越南语', en: 'Vietnamese' },
+  'el-gr': { zh: '希腊语（希腊）', en: 'Greek (Greece)' },
+  'el': { zh: '希腊语', en: 'Greek' },
+  'he-il': { zh: '希伯来语（以色列）', en: 'Hebrew (Israel)' },
+  'he': { zh: '希伯来语', en: 'Hebrew' },
+  'ro-ro': { zh: '罗马尼亚语（罗马尼亚）', en: 'Romanian (Romania)' },
+  'hu-hu': { zh: '匈牙利语（匈牙利）', en: 'Hungarian (Hungary)' },
+  'sk-sk': { zh: '斯洛伐克语（斯洛伐克）', en: 'Slovak (Slovakia)' },
+  'hr-hr': { zh: '克罗地亚语（克罗地亚）', en: 'Croatian (Croatia)' },
+  'bg-bg': { zh: '保加利亚语（保加利亚）', en: 'Bulgarian (Bulgaria)' },
+  // 南亚语系（常见于系统 TTS）
+  'bn-bd': { zh: '孟加拉语（孟加拉）', en: 'Bengali (Bangladesh)' },
+  'bn-in': { zh: '孟加拉语（印度）', en: 'Bengali (India)' },
+  'bn': { zh: '孟加拉语', en: 'Bengali' },
+  'te-in': { zh: '泰卢固语（印度）', en: 'Telugu (India)' },
+  'te': { zh: '泰卢固语', en: 'Telugu' },
+  'ta-in': { zh: '泰米尔语（印度）', en: 'Tamil (India)' },
+  'ta-lk': { zh: '泰米尔语（斯里兰卡）', en: 'Tamil (Sri Lanka)' },
+  'ta': { zh: '泰米尔语', en: 'Tamil' },
+  'mr-in': { zh: '马拉地语（印度）', en: 'Marathi (India)' },
+  'mr': { zh: '马拉地语', en: 'Marathi' },
+  'gu-in': { zh: '古吉拉特语（印度）', en: 'Gujarati (India)' },
+  'gu': { zh: '古吉拉特语', en: 'Gujarati' },
+  'kn-in': { zh: '卡纳达语（印度）', en: 'Kannada (India)' },
+  'kn': { zh: '卡纳达语', en: 'Kannada' },
+  'ml-in': { zh: '马拉雅拉姆语（印度）', en: 'Malayalam (India)' },
+  'ml': { zh: '马拉雅拉姆语', en: 'Malayalam' },
+  'pa-in': { zh: '旁遮普语（印度）', en: 'Punjabi (India)' },
+  'pa-pk': { zh: '旁遮普语（巴基斯坦）', en: 'Punjabi (Pakistan)' },
+  'pa': { zh: '旁遮普语', en: 'Punjabi' },
+  'ur-pk': { zh: '乌尔都语（巴基斯坦）', en: 'Urdu (Pakistan)' },
+  'ur-in': { zh: '乌尔都语（印度）', en: 'Urdu (India)' },
+  'ur': { zh: '乌尔都语', en: 'Urdu' },
+  'ne-np': { zh: '尼泊尔语（尼泊尔）', en: 'Nepali (Nepal)' },
+  'ne': { zh: '尼泊尔语', en: 'Nepali' },
+  'si-lk': { zh: '僧伽罗语（斯里兰卡）', en: 'Sinhala (Sri Lanka)' },
+  'si': { zh: '僧伽罗语', en: 'Sinhala' },
+  // 伊比利亚/高加索等
+  'ca-es': { zh: '加泰罗尼亚语（西班牙）', en: 'Catalan (Spain)' },
+  'ca': { zh: '加泰罗尼亚语', en: 'Catalan' },
+  'eu-es': { zh: '巴斯克语（西班牙）', en: 'Basque (Spain)' },
+  'eu': { zh: '巴斯克语', en: 'Basque' },
+  'gl-es': { zh: '加利西亚语（西班牙）', en: 'Galician (Spain)' },
+  'gl': { zh: '加利西亚语', en: 'Galician' },
+  // 其它常见
+  'af-za': { zh: '南非荷兰语（南非）', en: 'Afrikaans (South Africa)' },
+  'af': { zh: '南非荷兰语', en: 'Afrikaans' },
+  'sw-ke': { zh: '斯瓦希里语（肯尼亚）', en: 'Swahili (Kenya)' },
+  'sw': { zh: '斯瓦希里语', en: 'Swahili' },
+  'fa-ir': { zh: '波斯语（伊朗）', en: 'Persian (Iran)' },
+  'fa': { zh: '波斯语', en: 'Persian' },
+  'ms-my': { zh: '马来语（马来西亚）', en: 'Malay (Malaysia)' },
+  'ms': { zh: '马来语', en: 'Malay' },
+  'fil-ph': { zh: '菲律宾语（菲律宾）', en: 'Filipino (Philippines)' },
+  'tl-ph': { zh: '他加禄语（菲律宾）', en: 'Tagalog (Philippines)' },
+  'tl': { zh: '他加禄语', en: 'Tagalog' },
+  'zu-za': { zh: '祖鲁语（南非）', en: 'Zulu (South Africa)' },
+  'zu': { zh: '祖鲁语', en: 'Zulu' },
+  'xh-za': { zh: '科萨语（南非）', en: 'Xhosa (South Africa)' },
+  'xh': { zh: '科萨语', en: 'Xhosa' },
+  'cy-gb': { zh: '威尔士语（英国）', en: 'Welsh (UK)' },
+  'cy': { zh: '威尔士语', en: 'Welsh' },
+  'ga-ie': { zh: '爱尔兰语（爱尔兰）', en: 'Irish (Ireland)' },
+  'ga': { zh: '爱尔兰语', en: 'Irish' },
+  'is-is': { zh: '冰岛语（冰岛）', en: 'Icelandic (Iceland)' },
+  'is': { zh: '冰岛语', en: 'Icelandic' },
+  'lt-lt': { zh: '立陶宛语（立陶宛）', en: 'Lithuanian (Lithuania)' },
+  'lt': { zh: '立陶宛语', en: 'Lithuanian' },
+  'lv-lv': { zh: '拉脱维亚语（拉脱维亚）', en: 'Latvian (Latvia)' },
+  'lv': { zh: '拉脱维亚语', en: 'Latvian' },
+  'et-ee': { zh: '爱沙尼亚语（爱沙尼亚）', en: 'Estonian (Estonia)' },
+  'et': { zh: '爱沙尼亚语', en: 'Estonian' },
+  'sl-si': { zh: '斯洛文尼亚语（斯洛文尼亚）', en: 'Slovenian (Slovenia)' },
+  'sl': { zh: '斯洛文尼亚语', en: 'Slovenian' },
+  'sr-rs': { zh: '塞尔维亚语（塞尔维亚）', en: 'Serbian (Serbia)' },
+  'sr': { zh: '塞尔维亚语', en: 'Serbian' },
+  'sq-al': { zh: '阿尔巴尼亚语（阿尔巴尼亚）', en: 'Albanian (Albania)' },
+  'sq': { zh: '阿尔巴尼亚语', en: 'Albanian' },
+  'ka-ge': { zh: '格鲁吉亚语（格鲁吉亚）', en: 'Georgian (Georgia)' },
+  'ka': { zh: '格鲁吉亚语', en: 'Georgian' },
+  'hy-am': { zh: '亚美尼亚语（亚美尼亚）', en: 'Armenian (Armenia)' },
+  'hy': { zh: '亚美尼亚语', en: 'Armenian' },
+  'az-az': { zh: '阿塞拜疆语（阿塞拜疆）', en: 'Azerbaijani (Azerbaijan)' },
+  'az': { zh: '阿塞拜疆语', en: 'Azerbaijani' },
+  'kk-kz': { zh: '哈萨克语（哈萨克斯坦）', en: 'Kazakh (Kazakhstan)' },
+  'kk': { zh: '哈萨克语', en: 'Kazakh' },
+  'uz-uz': { zh: '乌兹别克语（乌兹别克斯坦）', en: 'Uzbek (Uzbekistan)' },
+  'uz': { zh: '乌兹别克语', en: 'Uzbek' },
+  'mn-mn': { zh: '蒙古语（蒙古）', en: 'Mongolian (Mongolia)' },
+  'mn': { zh: '蒙古语', en: 'Mongolian' },
+  'km-kh': { zh: '高棉语（柬埔寨）', en: 'Khmer (Cambodia)' },
+  'km': { zh: '高棉语', en: 'Khmer' },
+  'lo-la': { zh: '老挝语（老挝）', en: 'Lao (Laos)' },
+  'lo': { zh: '老挝语', en: 'Lao' },
+  'my-mm': { zh: '缅甸语（缅甸）', en: 'Burmese (Myanmar)' },
+  'my': { zh: '缅甸语', en: 'Burmese' },
+  'jv-id': { zh: '爪哇语（印尼）', en: 'Javanese (Indonesia)' },
+  'jv': { zh: '爪哇语', en: 'Javanese' },
+  'am-et': { zh: '阿姆哈拉语（埃塞俄比亚）', en: 'Amharic (Ethiopia)' },
+  'am': { zh: '阿姆哈拉语', en: 'Amharic' },
+  'mt-mt': { zh: '马耳他语（马耳他）', en: 'Maltese (Malta)' },
+  'mt': { zh: '马耳他语', en: 'Maltese' }
+};
+
+// 系统语言 → 默认筛选语言：精确匹配优先，其次同一语言按系统地区选（zh-CN→大陆、zh-TW→台湾、zh-HK→香港、en→美式），
+// 其它语言按常见地区偏好；系统语言完全不匹配 → 兜底美国英语（en-us），无 en-us 则 'all'。
+function resolveDefaultFilterLang(codeList) {
+  const codes = (codeList || []).map(c => String(c).toLowerCase());
+  const has = (c) => codes.includes(c);
+  const sys = String(navigator.language || (navigator.languages && navigator.languages[0]) || '').toLowerCase();
+  const [base, region] = sys.split(/[-_]/);
+  if (has(sys)) return sys;
+  if (base === 'zh') {
+    const r = (region || '').toUpperCase();
+    if (r === 'TW') return has('zh-tw') ? 'zh-tw' : 'zh-cn';
+    if (r === 'HK') return has('zh-hk') ? 'zh-hk' : 'zh-tw';
+    if (r === 'HANT') return has('zh-tw') ? 'zh-tw' : 'zh-hk';
+    return has('zh-cn') ? 'zh-cn' : (has('zh-tw') ? 'zh-tw' : 'zh-hk');
+  }
+  if (base === 'en') {
+    if (region && has('en-' + region.toLowerCase())) return 'en-' + region.toLowerCase();
+    return has('en-us') ? 'en-us' : (has('en-gb') ? 'en-gb' : 'en-us');
+  }
+  const COMMON = {
+    fr: 'fr-fr', de: 'de-de', ja: 'ja-jp', ko: 'ko-kr', es: 'es-es', pt: 'pt-br',
+    it: 'it-it', ru: 'ru-ru', ar: 'ar-sa', hi: 'hi-in', nl: 'nl-nl', pl: 'pl-pl',
+    tr: 'tr-tr', sv: 'sv-se', da: 'da-dk', nb: 'nb-no', fi: 'fi-fi', cs: 'cs-cz',
+    uk: 'uk-ua', th: 'th-th', id: 'id-id', vi: 'vi-vn'
+  };
+  if (COMMON[base] && has(COMMON[base])) return COMMON[base];
+  if (region && has(base + '-' + region.toLowerCase())) return base + '-' + region.toLowerCase();
+  const byBase = codes.find(c => c.startsWith(base + '-'));
+  if (byBase) return byBase;
+  // 兜底：美国英语（无则 all）
+  return has('en-us') ? 'en-us' : 'all';
+}
+
+// 语言代码 → 当前 UI 语言（document.documentElement.lang 由 I18N.apply 维护）下的显示名
+function ttsLangLabel(code) {
+  const uiLang = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+  const key = String(code || '').toLowerCase();
+  const entry = TTS_LANG_LABELS[key];
+  if (entry) return entry[uiLang] || entry.en || key;
+  const base = key.split('-')[0];
+  const baseEntry = TTS_LANG_LABELS[base];
+  const region = key.split('-').slice(1).join('-').toUpperCase();
+  if (baseEntry) return (baseEntry[uiLang] || baseEntry.en) + (region ? ' · ' + region : '');
+  return key;
+}
+
+// 过滤不可用语音：Google 系列语音在部分网络极慢/不可用（外网慢、大陆网连不上），直接隐藏避免困扰。
+// 若全部语音都被过滤（如系统只有 Google TTS），回退展示全部，避免空列表。
+function usableVoices() {
+  const usable = allVoices.filter(v => !/^google[\s-]/i.test(String(v.voiceName || '').trim()));
+  return usable.length ? usable : allVoices;
+}
+
+async function populateVoices() {
+  const select = document.getElementById('ttsVoice');
+  const langFilter = document.getElementById('ttsLangFilter');
+  if (!select || !langFilter) return;
+  try {
+    const voices = await new Promise((resolve) => {
+      chrome.tts.getVoices((voices) => resolve(voices));
+    });
+    allVoices = voices || [];
+    // 语言筛选下拉：显示可读名称（随界面语言中/英切换），value 仍为 BCP-47 代码；Google 语音不参与
+    const langSet = new Set();
+    for (const v of usableVoices()) {
+      if (v.lang) langSet.add(v.lang);
+    }
+    const codes = Array.from(langSet);
+    const uiLang = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    const prev = langFilter.value;
+    langFilter.innerHTML = `<option value="all">${I18N.t('allLanguages')}</option>`;
+    codes.sort((a, b) => ttsLangLabel(a).localeCompare(ttsLangLabel(b), uiLang));
+    for (const code of codes) {
+      const opt = document.createElement('option');
+      opt.value = code;
+      opt.textContent = ttsLangLabel(code);
+      langFilter.appendChild(opt);
+    }
+    // 选中值：首次按系统语言定默认；之后保留用户选择（含 all）。
+    // 注意：resolveDefaultFilterLang 返回小写 code，需映射回 option 的原始大小写（如 zh-CN），select 才能命中。
+    const mapToOption = (def) => (def === 'all' ? 'all' : (codes.find(c => c.toLowerCase() === def) || 'all'));
+    let val;
+    if (ttsLangFirstRender && codes.length > 0) {
+      // 首次拿到真实语音列表才应用系统语言默认（语音懒加载时首次可能为空，等 voiceschanged 再补）
+      val = mapToOption(resolveDefaultFilterLang(codes));
+      ttsLangFirstRender = false;
+    } else {
+      val = prev;
+    }
+    // 保留的值在当前列表里已不存在（语音列表变化）→ 按系统语言重算默认
+    if (val !== 'all' && !codes.some(c => c.toLowerCase() === String(val).toLowerCase())) {
+      val = mapToOption(resolveDefaultFilterLang(codes));
+    }
+    langFilter.value = val;
+    applyVoiceFilter();
+  } catch (e) {
+    console.warn('获取语音列表失败:', e);
+    select.innerHTML = `<option value="">${I18N.t('getVoicesFail')}</option>`;
+  }
+}
+
+function applyVoiceFilter() {
+  const select = document.getElementById('ttsVoice');
+  const langFilter = document.getElementById('ttsLangFilter');
+  if (!select || !langFilter) return;
+  const filterLang = langFilter.value;
+  const pool = usableVoices();
+  const filtered = filterLang === 'all' ? pool : pool.filter(v => v.lang === filterLang);
+  const unique = [];
+  const seen = new Set();
+  for (const v of filtered) {
+    const key = v.voiceName || v.lang;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(v);
+    }
+  }
+  unique.sort((a, b) => (a.voiceName || '').localeCompare(b.voiceName || ''));
+  select.innerHTML = '';
+  if (unique.length === 0) {
+    select.innerHTML = `<option value="">${I18N.t('noVoices')}</option>`;
+    return;
+  }
+  for (const v of unique) {
+    const opt = document.createElement('option');
+    opt.value = v.voiceName || '';
+    opt.textContent = `${v.voiceName || I18N.t('unnamed')} (${v.lang})${v.gender ? ' ' + v.gender : ''}`;
+    select.appendChild(opt);
+  }
+  if (select.options.length > 0) select.selectedIndex = 0;
+}
+
+function doSpeak(text, statusEl, triggerBtn) {
+  if (!text || !text.trim()) {
+    showStatus(I18N.t('noTextToSpeak'), 'info');
+    if (statusEl) statusEl.textContent = I18N.t('noText');
+    return;
+  }
+  // 本地朗读引擎分流：Kokoro / Qwen3 走本地服务 /speak（fetch + AudioContext 播放），否则系统 chrome.tts
+  const engine = (currentVoiceConfig && currentVoiceConfig.ttsEngine) || 'system';
+  if (engine !== 'system') {
+    speakLocalTts(text, statusEl, triggerBtn, engine);
+    return;
+  }
+  const voice = document.getElementById('ttsVoice')?.value || '';
+  const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
+  const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
+  const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
+  // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
+  runAction('tts', text, {
+    voice, rate, pitch, volume,
+    onEvent: (event) => {
+      // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
+      if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
+      else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
+      if (statusEl) {
+        if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
+        else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
+        else if (event.type === 'error') {
+          statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
+          showStatus(I18N.t('readErrorStatus'), 'error');
+        }
+      }
+    }
+  });
+  showStatus(I18N.t('startSpeaking'), 'success');
+  if (statusEl) statusEl.textContent = I18N.t('speakStarting');
+}
+
+// ========== 本地 TTS 朗读（Kokoro / Qwen3，走本地服务 /speak） ==========
+let localTtsAbort = null;   // AbortController：停止 = abort
+let localTtsActive = false;
+let localTtsCtx = null;     // AudioContext 单例
+let localTtsSrc = null;     // 当前播放 source（停止时停掉）
+
+// 按句切块（本地模型单次文本长度受限），每块 ≤ maxChars 字
+function splitLocalChunks(text, maxChars = 150) {
+  const sentences = String(text).split(/[。！？；….!?;\n]+/).map(s => s.trim()).filter(s => s.length > 0);
+  const chunks = [];
+  let cur = '';
+  for (const s of sentences) {
+    if (cur && cur.length + s.length + 1 > maxChars) { chunks.push(cur); cur = ''; }
+    cur += (cur ? '。' : '') + s;
+  }
+  if (cur) chunks.push(cur);
+  return chunks.length ? chunks : [String(text).slice(0, maxChars)];
+}
+
+async function speakLocalTts(text, statusEl, triggerBtn, engine) {
+  if (!LOCAL_TTS_ENGINES.includes(engine)) return;
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  if (localTtsActive) stopSpeaking();
+  localTtsAbort = new AbortController();
+  localTtsActive = true;
+  setSpeakButtonState(triggerBtn, true);
+  if (statusEl) statusEl.textContent = I18N.t('speakStarting');
+  showStatus(I18N.t('startSpeaking'), 'success');
+  const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
+  const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
+  const chunks = splitLocalChunks(text, 150);
+  try {
+    for (let i = 0; i < chunks.length; i++) {
+      if (localTtsAbort.signal.aborted) break;
+      // Kokoro：语速走服务端（保音高）；Qwen3：服务端无语速参数，用 playbackRate
+      const body = engine === 'kokoro'
+        ? { text: chunks[i], sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: Math.max(0.5, Math.min(2, rate)) }
+        : { text: chunks[i], voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto', speed: 1 };
+      const res = await fetch(serverUrl + '/speak?engine=' + engine, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: localTtsAbort.signal
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || '本地服务 HTTP ' + res.status);
+      }
+      const buf = await res.arrayBuffer();
+      const pcm = await decodeAndResample(buf, 24000);
+      if (localTtsAbort.signal.aborted || !pcm.length) continue;
+      await playLocalBuffer(pcm, engine === 'qwen3' ? rate : 1, volume);
+    }
+    if (localTtsAbort.signal.aborted) throw new DOMException('aborted', 'AbortError');
+    if (statusEl) statusEl.textContent = I18N.t('speakDone');
+    showStatus(I18N.t('speakDone'), 'success');
+  } catch (e) {
+    if (e.name === 'AbortError' || localTtsAbort.signal.aborted) {
+      if (statusEl) statusEl.textContent = '';
+      showStatus(I18N.t('stopSpeak'), 'info');
+    } else {
+      // fetch 网络层失败（本地服务未启动）→ 明确提示；HTTP 错误已含服务端 detail
+      const isConnErr = e instanceof TypeError && !/^本地服务|^HTTP/.test(String(e.message));
+      const msg = isConnErr ? I18N.t('ttsLocalServerOffline') : ((e && e.message) || I18N.t('unknown'));
+      if (statusEl) statusEl.textContent = I18N.t('speakError') + msg;
+      showStatus(I18N.t('readErrorStatus'), 'error');
+    }
+  } finally {
+    localTtsActive = false;
+    localTtsAbort = null;
+    localTtsSrc = null;
+    setSpeakButtonState(triggerBtn, false);
+  }
+}
+
+// 播放一段 PCM（AudioContext 单例，支持语速 playbackRate / 音量 gain）；resolve 于播完或停止
+function playLocalBuffer(pcm, playbackRate, volume) {
+  return new Promise((resolve) => {
+    try {
+      if (!localTtsCtx) localTtsCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = localTtsCtx;
+      ctx.resume().catch(() => {});
+      const buffer = ctx.createBuffer(1, pcm.length, 24000);
+      buffer.copyToChannel(pcm, 0);
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.playbackRate.value = playbackRate || 1;
+      const gain = ctx.createGain();
+      gain.gain.value = (typeof volume === 'number' && volume >= 0) ? volume : 1;
+      src.connect(gain);
+      gain.connect(ctx.destination);
+      localTtsSrc = src;
+      src.onended = () => resolve();
+      const signal = localTtsAbort ? localTtsAbort.signal : null;
+      if (signal) {
+        signal.addEventListener('abort', () => { try { src.stop(); } catch (e) {} resolve(); }, { once: true });
+      }
+      src.start();
+    } catch (e) {
+      resolve();
+    }
+  });
+}
+
+async function speakSelected() {
+  const statusEl = document.getElementById('ttsStatus');
+  try {
+    const text = await getSelectedText();
+    if (!text.trim()) {
+      showStatus(I18N.t('pleaseSelectText'), 'info');
+      if (statusEl) statusEl.textContent = I18N.t('noSelection');
+      return;
+    }
+    doSpeak(text, statusEl, document.getElementById('ttsSpeak'));
+  } catch (e) {
+    showStatus(I18N.t('speakFail') + e.message, 'error');
+    if (statusEl) statusEl.textContent = I18N.t('errorPrefix') + e.message;
+  }
+}
+
+async function speakFullPage(triggerBtn) {
+  const statusEl = document.getElementById('ttsStatus');
+  try {
+    const text = await getFullPageText();
+    if (!text.trim()) {
+      showStatus(I18N.t('pageNoText'), 'info');
+      if (statusEl) statusEl.textContent = I18N.t('noText');
+      return;
+    }
+    doSpeak(text, statusEl, triggerBtn || document.getElementById('ttsSpeakFull'));
+  } catch (e) {
+    showStatus(I18N.t('speakFail') + e.message, 'error');
+    if (statusEl) statusEl.textContent = I18N.t('errorPrefix') + e.message;
+  }
+}
+
+let activeSpeakBtn = null;   // 当前显示为「停止」的朗读按钮（三个朗读按钮之一）
+
+// 让某个朗读按钮进入/退出「停止」态：朗读中该按钮显示「⏹ 停止」并变红，点击即停止
+function setSpeakButtonState(btn, active) {
+  if (!btn) return;
+  if (active) {
+    if (activeSpeakBtn && activeSpeakBtn !== btn) setSpeakButtonState(activeSpeakBtn, false);
+    btn.dataset.origI18n = btn.dataset.i18n || btn.dataset.origI18n;
+    btn.dataset.origTitle = btn.dataset.i18nTitle || btn.dataset.origTitle || '';
+    btn.textContent = I18N.t('ttsStop');
+    if (btn.dataset.origTitle) btn.title = I18N.t('ttsStop');
+    btn.classList.add('speaking');
+    activeSpeakBtn = btn;
+  } else {
+    if (activeSpeakBtn === btn) activeSpeakBtn = null;
+    const labelKey = btn.dataset.origI18n || btn.dataset.i18n;
+    if (labelKey) btn.textContent = I18N.t(labelKey);
+    if (btn.dataset.origTitle) btn.title = I18N.t(btn.dataset.origTitle);
+    btn.classList.remove('speaking');
+  }
+}
+
+function stopSpeaking() {
+  // 本地 TTS 朗读中：abort 请求 + 停当前音频源
+  if (localTtsActive) {
+    if (localTtsAbort) localTtsAbort.abort();
+    if (localTtsSrc) { try { localTtsSrc.stop(); } catch (e) {} localTtsSrc = null; }
+    if (activeSpeakBtn) setSpeakButtonState(activeSpeakBtn, false);
+    localTtsActive = false;
+    localTtsAbort = null;
+    const statusEl = document.getElementById('ttsStatus');
+    if (statusEl) statusEl.textContent = '';   // 已停止只弹 toast，不占状态区
+    showStatus(I18N.t('stopSpeak'), 'info');
+    return;
+  }
+  chrome.tts.stop();
+  if (activeSpeakBtn) setSpeakButtonState(activeSpeakBtn, false);
+  const statusEl = document.getElementById('ttsStatus');
+  if (statusEl) statusEl.textContent = '';   // 已停止只弹 toast，不占状态区
+  showStatus(I18N.t('stopSpeak'), 'info');
+}
+
+// ========== 翻译功能 ==========
+// 翻译引擎（splitTextIntoChunks / translateFallback / translateSingleChunk / translateLongText）
+// 已统一收进 capabilities.js，由 execute({ action: 'translate' }) 调用。
+
+// 主翻译入口
+async function doTranslation(inputText) {
+  if (isTranslating) {
+    showStatus(I18N.t('translatingWait'), 'info');
+    return;
+  }
+  const resultDiv = document.getElementById('translateResult');
+  const statusEl = document.getElementById('translateStatus');
+  const copyBtn = document.getElementById('copyTranslateResult');
+  if (!resultDiv || !statusEl || !copyBtn) {
+    showStatus(I18N.t('translatePanelLoadFail'), 'error');
+    return;
+  }
+  if (!inputText || !inputText.trim()) {
+    showStatus(I18N.t('enterTextToTranslate'), 'info');
+    statusEl.textContent = I18N.t('enterTextStatus');
+    return;
+  }
+
+  isTranslating = true;
+  resultDiv.textContent = '';
+  statusEl.textContent = I18N.t('translating');
+  copyBtn.style.display = 'none';
+
+  const source = document.getElementById('translateSource')?.value || 'en';
+  const target = document.getElementById('translateTarget')?.value || 'zh-CN';
+
+  // 走统一管线 execute（capabilities.js）：动作 translate，输出 { ok, result: { ok, text } } / { ok:false, error }
+  try {
+    const out = await execute({
+      action: 'translate',
+      text: inputText,
+      options: {
+        source, target,
+        onProgress: (cur, total) => { statusEl.textContent = I18N.t('translatingProgress', cur, total); }
+      }
+    });
+    if (out.ok) {
+      resultDiv.textContent = out.result.text;
+      statusEl.textContent = I18N.t('translateDone');
+      showStatus(I18N.t('translateSuccess'), 'success');
+      copyBtn.style.display = 'inline-block';
+    } else {
+      resultDiv.textContent = I18N.t('translateErrorPrefix') + out.error;
+      statusEl.textContent = I18N.t('errorPrefix') + out.error;
+      showStatus(I18N.t('translateFail'), 'error');
+      copyBtn.style.display = 'none';
+    }
+  } catch (e) {
+    resultDiv.textContent = I18N.t('translateErrorPrefix') + e.message;
+    statusEl.textContent = I18N.t('errorPrefix') + e.message;
+    showStatus(I18N.t('translateFail'), 'error');
+    copyBtn.style.display = 'none';
+  } finally {
+    isTranslating = false;
+  }
+}
+
+async function translateInput() {
+  const input = document.getElementById('translateInput');
+  if (!input) return;
+  await doTranslation(input.value);
+}
+
+async function translateSelected() {
+  const text = await getSelectedText();
+  if (!text.trim()) {
+    showStatus(I18N.t('noSelectionAny'), 'info');
+    return;
+  }
+  const input = document.getElementById('translateInput');
+  if (input) input.value = text;
+  await doTranslation(text);
+}
+
+async function translateFullPage() {
+  const text = await getFullPageText();
+  if (!text.trim()) {
+    showStatus(I18N.t('pageNoText'), 'info');
+    return;
+  }
+  const input = document.getElementById('translateInput');
+  if (input) input.value = text;
+  await doTranslation(text);
+}
+
+function clearTranslate() {
+  const input = document.getElementById('translateInput');
+  const resultDiv = document.getElementById('translateResult');
+  const statusEl = document.getElementById('translateStatus');
+  const copyBtn = document.getElementById('copyTranslateResult');
+  if (input) input.value = '';
+  if (resultDiv) resultDiv.textContent = '';
+  if (statusEl) statusEl.textContent = '';
+  if (copyBtn) copyBtn.style.display = 'none';
+}
+
+// 统一复制：走 ACTIONS.copy（capabilities.js），失败时 execCommand 兜底
+async function copyTextWithFallback(text) {
+  const out = await runAction('copy', text);
+  if (out.ok) return true;
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function copyTranslateResult() {
+  const resultDiv = document.getElementById('translateResult');
+  if (!resultDiv) return;
+  const text = resultDiv.textContent.trim();
+  if (!text) return;
+  copyTextWithFallback(text).then((ok) => showToast(ok ? I18N.t('copySuccess') : I18N.t('copyFail')));
+}
+
+// ========== 卡片面板 ==========
+function cardTextValue() {
+  const input = document.getElementById('cardInput');
+  return input ? (input.value || '') : '';
+}
+
+// ========== 卡片背景/文本色（自定义取色器 + 配色方案） ==========
+// 颜色统一以取色器 input 为唯一来源（预设色块 / 配色方案点选都会同步到它）
+function currentColor(which) {
+  const id = which === 'bg' ? 'ctlBgColor' : 'ctlTextColor';
+  const el = document.getElementById(id);
+  // 默认：背景浅白 / 文本深黑（非纯白纯黑）
+  return (el && el.value) ? el.value : (which === 'bg' ? '#f6f5f2' : '#1a1a1a');
+}
+
+function setCurrentColor(which, hex) {
+  const id = which === 'bg' ? 'ctlBgColor' : 'ctlTextColor';
+  const input = document.getElementById(id);
+  if (input) input.value = hex;
+  // 同步预设色块高亮：命中某预设则点亮，否则全部熄灭
+  const wrapId = which === 'bg' ? 'ctlBg' : 'ctlColor';
+  const h = String(hex || '').toLowerCase();
+  document.querySelectorAll('#' + wrapId + ' .swatch').forEach(s => {
+    s.classList.toggle('sel', (s.dataset.c || '').toLowerCase() === h);
+  });
+}
+
+// ========== 卡片配色方案（card-colors.json 懒加载，源自 ~/documents/github/color 项目） ==========
+let CARD_COLORS = null;        // { sources, palettes[] }
+let paletteSource = '';        // 当前来源筛选（'' = 全部）
+let paletteTarget = 'bg';      // 弹窗应用目标（bg / text）
+
+async function openPalette(which) {
+  paletteTarget = which;
+  const overlay = document.getElementById('paletteOverlay');
+  if (!overlay) return;
+  if (!CARD_COLORS) {
+    try {
+      const res = await fetch('card-colors.json');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      CARD_COLORS = await res.json();
+    } catch (e) {
+      showStatus(I18N.t('cardPaletteLoadFail'), 'error');
+      return;
+    }
+  }
+  renderPaletteSrcs();
+  renderPaletteList();
+  overlay.classList.remove('hidden');
+}
+
+function closePalette() {
+  const overlay = document.getElementById('paletteOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+function renderPaletteSrcs() {
+  const wrap = document.getElementById('paletteSrcs');
+  if (!wrap || !CARD_COLORS) return;
+  wrap.innerHTML = '';
+  const srcs = CARD_COLORS.sources || {};
+  const mk = (s, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'palette-src' + (paletteSource === s ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      paletteSource = paletteSource === s ? '' : s;
+      renderPaletteSrcs();
+      renderPaletteList();
+    });
+    wrap.appendChild(b);
+  };
+  mk('', I18N.t('cardPaletteAll'));
+  for (const s of Object.keys(srcs)) mk(s, srcs[s]);
+}
+
+function renderPaletteList() {
+  const body = document.getElementById('paletteBody');
+  if (!body || !CARD_COLORS) return;
+  const palettes = CARD_COLORS.palettes || [];
+  const srcs = CARD_COLORS.sources || {};
+  body.innerHTML = '';
+  let shown = 0;
+  for (const p of palettes) {
+    if (paletteSource && p.source !== paletteSource) continue;
+    shown++;
+    const item = document.createElement('div');
+    item.className = 'palette-item';
+    const label = document.createElement('div');
+    label.className = 'palette-label';
+    label.textContent = p.label;
+    const tag = document.createElement('span');
+    tag.className = 'palette-src-tag';
+    tag.textContent = srcs[p.source] || p.source;
+    label.appendChild(tag);
+    item.appendChild(label);
+    const strip = document.createElement('div');
+    strip.className = 'palette-strip';
+    for (const hex of (p.colors || [])) {
+      const b = document.createElement('button');
+      b.style.background = hex;
+      b.title = hex;
+      b.addEventListener('click', () => {
+        setCurrentColor(paletteTarget, hex);
+        updateCardPreview();
+        closePalette();
+      });
+      strip.appendChild(b);
+    }
+    item.appendChild(strip);
+    body.appendChild(item);
+  }
+  if (!shown) {
+    const empty = document.createElement('div');
+    empty.className = 'palette-empty';
+    empty.textContent = I18N.t('cardPaletteEmpty');
+    body.appendChild(empty);
+  }
+}
+
+// 用输入框 + 控件状态刷新 HTML 实时预览（与 CardRenderer 渲染参数对齐）
+function updateCardPreview() {
+  const textEl = document.getElementById('cardText');
+  const cardEl = document.getElementById('elegantCard');
+  const fitEl = document.getElementById('ecFit');
+  if (!textEl || !cardEl) return;
+  const text = cardTextValue();
+  textEl.textContent = text || I18N.t('emptyPreview');
+  textEl.style.fontFamily = currentFontFamilyCSS();
+  const bg = currentColor('bg');
+  const color = currentColor('text');
+  cardEl.style.background = bg;
+  textEl.style.color = color;
+  cardEl.style.borderRadius = (document.getElementById('ctlRadius')?.value || 8) + 'px';
+  textEl.style.padding = (document.getElementById('ctlPad')?.value || 18) + 'px';
+  textEl.style.fontSize = (document.getElementById('ctlFontSize')?.value || 60) + 'px';
+  const fontSizeV = document.getElementById('ctlFontSizeV');
+  if (fontSizeV) fontSizeV.textContent = document.getElementById('ctlFontSize')?.value || 60;
+  // 文本框偏移（X/Y，作用于 .ec-fit 而非正文，保证与 canvas 逻辑像素一致；canvas 的 posX/posY 不随内容缩放）
+  const posX = getPos('X');
+  const posY = getPos('Y');
+  const posV = document.getElementById('ctlPosV');
+  if (posV) posV.textContent = posX + ', ' + posY;
+
+  // 宽高：宽度来自滑块；比例固定时锁定宽高比。正文按用户字号排版（不做等比缩放）：
+  // 放得下则垂直居中（与 canvas contentTop 一致）；放不下则顶对齐裁切（与 canvas 一致）。
+  const W = getCardWidth();
+  const ratio = document.getElementById('ctlRatio')?.value || '16:9';
+  const RATIOS = { '1:1': 1, '2:3': 3 / 2, '3:2': 2 / 3, '4:3': 3 / 4, '16:9': 9 / 16, '9:16': 16 / 9 };
+  const ratioH = RATIOS[ratio] || 0;
+  const H = ratioH ? Math.round(W * ratioH) : 0;
+  cardEl.style.width = W + 'px';
+  if (ratioH) {
+    cardEl.style.height = H + 'px';
+    cardEl.style.overflow = 'hidden';
+    cardEl.style.display = 'flex';
+    // 文本框自然高 > 卡片可用高 → 溢出裁切，顶对齐（与 canvas 相同）；否则垂直居中
+    const availH = H - 2 * 14;   // 与 .elegant-card padding:14 对齐
+    const fitH = fitEl ? fitEl.offsetHeight : 0;
+    cardEl.style.alignItems = fitH > availH ? 'flex-start' : 'center';
+    cardEl.style.justifyContent = 'center';
+  } else {
+    cardEl.style.height = '';
+    cardEl.style.overflow = '';
+    cardEl.style.display = '';
+    cardEl.style.alignItems = '';
+    cardEl.style.justifyContent = '';
+  }
+
+  // 正文字号完全由用户控制：固定比例下不再对 .ec-fit 整体缩放（尊重用户选择的字号），
+  // 文本过长时被卡片 overflow:hidden 裁切，与 canvas 一致（WYSIWYG）；文本框偏移仍以 translate 施加。
+  if (fitEl) {
+    fitEl.style.transform = 'translate(' + posX + 'px,' + posY + 'px)';
+  }
+  // 标题「TabU 摘录卡片」字号随卡片宽度联动（与 card.js titleSize 同公式，clamp 9~20）
+  const titleEl = cardEl.querySelector('.ec-title');
+  if (titleEl) {
+    titleEl.style.fontSize = Math.max(9, Math.min(20, Math.round(W / 62))) + 'px';
+  }
+
+  // 卡片预览整卡缩放：逻辑宽度默认 800，在窄面板里等比缩小避免横向溢出。
+  // transform 不改布局尺寸，需给 .ec-stage 设高度 = 卡片可视高，占住后续控件位置；
+  // 下载 PNG 仍按逻辑宽度 W 渲染，预览只是等比缩略（宽高比与 canvas 一致，WYSIWYG）。
+  const stageEl = document.getElementById('ecStage');
+  if (stageEl) {
+    const stageW = stageEl.clientWidth;
+    const scale = stageW > 0 ? Math.min(1, (stageW - EC_PREVIEW_GUTTER) / W) : 1;
+    cardPreviewScale = scale;
+    const visualH = ratioH ? H * scale : (cardEl.offsetHeight || H) * scale;
+    cardEl.style.transform = scale < 1 ? 'scale(' + scale + ')' : 'none';
+    stageEl.style.height = Math.round(visualH) + 'px';
+  }
+}
+
+function cardImportSelected() {
+  getSelectedText().then((text) => {
+    if (!text.trim()) { showStatus(I18N.t('noSelectionAny'), 'info'); return; }
+    const input = document.getElementById('cardInput');
+    if (input) input.value = text;
+    updateCardPreview();
+    showStatus(I18N.t('imported'), 'success');
+  });
+}
+
+async function cardPaste() {
+  try {
+    // 走统一文本来源 TEXT_SOURCES.clipboard（capabilities.js 通用粘贴文本）
+    const text = await TABU_CAPS.TEXT_SOURCES.clipboard.get();
+    if (!text || !text.trim()) { showStatus(I18N.t('clipboardEmpty'), 'error'); return; }
+    const input = document.getElementById('cardInput');
+    if (input) input.value = text;
+    updateCardPreview();
+    showStatus(I18N.t('pasteSuccess'), 'success');
+  } catch (e) {
+    showStatus(I18N.t('clipboardFail') + e.message, 'error');
+  }
+}
+
+// 收集控件参数，供 CardRenderer.render 使用（下载的 PNG 与预览一致，所见即所得）
+function getCardOptions() {
+  return {
+    width: getCardWidth(),
+    ratio: document.getElementById('ctlRatio')?.value || '16:9',
+    fontFamily: currentFontFamilyCSS(),
+    // 完整字体条目传给渲染管线：capabilities.downloadCardImage 渲染前先 loadFont 确保 canvas 字体就绪
+    font: selectedFontEntry(),
+    // 标题「芫荽」(Iansui)：渲染前同样确保已加载
+    titleFont: CARD_TITLE_FONT,
+    titleFontFamily: '"Iansui"',
+    bgColor: currentColor('bg'),
+    textColor: currentColor('text'),
+    fontSize: parseInt(document.getElementById('ctlFontSize')?.value) || 60,
+    radius: parseInt(document.getElementById('ctlRadius')?.value) || 8,
+    padding: parseInt(document.getElementById('ctlPad')?.value) || 18,
+    posX: getPos('X'),
+    posY: getPos('Y')
+  };
+}
+
+async function downloadCard() {
+  const text = cardTextValue();
+  if (!text.trim()) { showStatus(I18N.t('enterCardText'), 'info'); return; }
+  // 走统一动作 ACTIONS.card（capabilities.js：CardRenderer 渲染 → PNG 下载）
+  const out = await runAction('card', text, getCardOptions());
+  if (out.ok) showStatus(I18N.t('cardDownloaded'), 'success');
+  else showStatus(out.error || I18N.t('cardDownloadFail'), 'error');
+}
+
+function copyCardText() {
+  const text = cardTextValue();
+  if (!text.trim()) { showStatus(I18N.t('noCopyText'), 'info'); return; }
+  // 走统一动作 ACTIONS.copy（capabilities.js）
+  runAction('copy', text).then((out) => {
+    showToast(out.ok ? I18N.t('cardTextCopied') : I18N.t('copyFail'));
+  });
+}
+
+// ========== 卡片字体库（card-fonts.json 动态填充 + 按需加载） ==========
+// 数据源：004/demo/fonts/fonts.json（442→441 款，已筛选含 license）。仅库字体，按 group 分组。
+// 交互：分类 chips（点击直接筛选，替代下拉 optgroup 分组）+ 搜索（名称/拼音/家族/分类）+ 自定义下拉列表。
+let CARD_FONTS_LIST = [];
+let CARD_FONTS_LOADED = false;
+let FONT_PINYIN = {};          // char → 拼音（font-pinyin.json，搜索用；加载失败则仅名称/家族/分类搜索）
+let cardFontIndex = -1;         // 当前选中字体下标（-1 = 未选，回退系统字体）
+let activeFontGroup = '';       // 当前分类筛选（'' = 全部）
+let activeFontLang = '';        // 当前语言筛选（'' = 全部）
+let fontLangUserSet = false;    // 用户是否手动选过语言（手动后不再随界面语言改默认）
+let CARD_TITLE_FONT = null;     // 卡片标题专用字体「芫荽」(Iansui)
+let cardPreviewScale = 1;       // 卡片预览整卡缩放系数（默认宽度 800 时缩到面板内显示；拖拽按此换算）
+const EC_PREVIEW_GUTTER = 10;   // 整卡缩放进面板时两侧预留的阴影空隙（px，按比例折算进 scale）
+
+// 当前选中的库字体条目（未选返回 null）
+function selectedFontEntry() {
+  return CARD_FONTS_LIST[cardFontIndex] || null;
+}
+
+// 当前选中的 CSS font-family 串（库字体加引号防空格家族名被拆分；未选返回空串 → 系统字体）
+function currentFontFamilyCSS() {
+  const f = selectedFontEntry();
+  return f ? '"' + f.family + '"' : '';
+}
+
+// 把中文字符串转成拼音串（按字查 font-pinyin.json；非 CJK 原样小写拼接）
+function fontPinyin(s) {
+  let out = '';
+  for (const ch of String(s || '').toLowerCase()) {
+    out += FONT_PINYIN[ch] || ((ch < '一' || ch > '鿿') ? ch : '');
+  }
+  return out;
+}
+
+// 单条字体是否命中查询（名称 / 家族 / 分类 / 拼音）
+function fontMatches(f, q) {
+  const name = String(f.name || '');
+  return name.toLowerCase().includes(q)
+    || String(f.family || '').toLowerCase().includes(q)
+    || String(f.category || '').toLowerCase().includes(q)
+    || fontPinyin(name).includes(q)
+    || fontPinyin(f.category || '').includes(q);
+}
+
+// 字体语言判断：langs 字段（card-fonts.json），支持中文/纯拉丁/日/韩/俄/希
+function fontLangs(f) {
+  return Array.isArray(f.langs) ? f.langs : [];
+}
+function fontHasLang(f, lang) {
+  return fontLangs(f).includes(lang);
+}
+function fontMatchesLang(f, key) {
+  if (!key) return true;
+  const L = fontLangs(f);
+  const has = k => L.includes(k);
+  switch (key) {
+    case 'cn':    return has('简体中文') || has('繁体中文');
+    case 'latin': return has('拉丁字母 (英)') && !has('简体中文') && !has('繁体中文') && !has('日文') && !has('谚文');
+    case 'jp':    return has('日文');
+    case 'kr':    return has('谚文');
+    case 'ru':    return has('西里尔字母 (俄)');
+    case 'gr':    return has('希腊文');
+    default:      return true;
+  }
+}
+
+// 语言徽标（下拉里显示，一眼看出支持哪种文字）
+function fontLangBadge(f) {
+  const L = fontLangs(f);
+  const has = k => L.includes(k);
+  if (has('简体中文') || has('繁体中文')) return '中';
+  if (has('日文')) return '日';
+  if (has('谚文')) return '韩';
+  if (has('西里尔字母 (俄)')) return '俄';
+  if (has('希腊文')) return '希';
+  if (has('拉丁字母 (英)')) return '拉';
+  return '';
+}
+
+// 同时满足「语言筛选 + 分类筛选」的字体数（chips 数量双向联动用）
+function countFonts(langKey, groupKey) {
+  let n = 0;
+  for (const f of CARD_FONTS_LIST) {
+    if (langKey && !fontMatchesLang(f, langKey)) continue;
+    if (groupKey && (f.group || '其他') !== groupKey) continue;
+    n++;
+  }
+  return n;
+}
+
+// 当前选中的字体是否仍满足语言/分类筛选
+function currentFontMatchesFilter() {
+  const f = selectedFontEntry();
+  if (!f) return false;
+  if (activeFontLang && !fontMatchesLang(f, activeFontLang)) return false;
+  if (activeFontGroup && (f.group || '其他') !== activeFontGroup) return false;
+  return true;
+}
+
+// 筛选变化后让选中字体跟随：当前选中不匹配且过滤列表非空时，自动选中第一个匹配字体并加载
+function syncSelectionToFilter() {
+  if (currentFontMatchesFilter()) return;
+  const idxs = filteredFontIndexes();
+  if (!idxs.length || idxs[0] === cardFontIndex) return;
+  cardFontIndex = idxs[0];
+  const f = CARD_FONTS_LIST[cardFontIndex];
+  const refresh = () => { renderFontList(); updateCardPreview(); };
+  if (f && typeof CardRenderer.loadFont === 'function') CardRenderer.loadFont(f).then(refresh).catch(refresh);
+  else refresh();
+}
+
+// 当前生效的字体下标列表（语言 chips + 分类 chips + 搜索三重过滤，保留原数组顺序）
+function filteredFontIndexes() {
+  const q = (document.getElementById('ctlFontSearch')?.value || '').trim().toLowerCase();
+  const out = [];
+  for (let i = 0; i < CARD_FONTS_LIST.length; i++) {
+    const f = CARD_FONTS_LIST[i];
+    if (activeFontLang && !fontMatchesLang(f, activeFontLang)) continue;
+    if (activeFontGroup && (f.group || '其他') !== activeFontGroup) continue;
+    if (q && !fontMatches(f, q)) continue;
+    out.push(i);
+  }
+  return out;
+}
+
+// 渲染语言 chips（全部 + 各语言，数量随当前分类联动：= 该语言 ∩ 当前分类）
+function renderFontLangs() {
+  const wrap = document.getElementById('ctlFontLangs');
+  if (!wrap || !CARD_FONTS_LIST.length) return;
+  wrap.innerHTML = '';
+  const langs = [
+    { key: '',       label: I18N.t('cardLangAll') },
+    { key: 'cn',     label: I18N.t('cardLangCN') },
+    { key: 'latin',  label: I18N.t('cardLangLatin') },
+    { key: 'jp',     label: I18N.t('cardLangJP') },
+    { key: 'kr',     label: I18N.t('cardLangKR') },
+    { key: 'ru',     label: I18N.t('cardLangRU') },
+    { key: 'gr',     label: I18N.t('cardLangGR') }
+  ];
+  // 折叠标题行摘要：当前语言 · 数量（随分类联动）
+  const active = langs.find((l) => l.key === activeFontLang) || langs[0];
+  const langSummary = document.getElementById('ctlLangSummary');
+  if (langSummary) langSummary.textContent = ' · ' + active.label + ' ' + countFonts(activeFontLang, activeFontGroup);
+  for (const l of langs) {
+    const cnt = countFonts(l.key, activeFontGroup);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'font-cat' + (activeFontLang === l.key ? ' active' : '');
+    b.textContent = l.label + ' ' + cnt;
+    b.addEventListener('click', () => {
+      fontLangUserSet = true;    // 手动选择后固定，不再跟随界面语言
+      activeFontLang = activeFontLang === l.key ? '' : l.key;
+      renderFontLangs();
+      renderFontCats();          // 联动：语言变化 → 分类数量跟着更新
+      syncSelectionToFilter();   // 选中字体跟随筛选（当前不匹配则自动换到第一个匹配字体）
+      renderFontList();
+      updateCardPreview();
+    });
+    wrap.appendChild(b);
+  }
+}
+
+// 渲染分类 chips（全部 + 各 group，数量随当前语言联动：= 该分类 ∩ 当前语言）
+function renderFontCats() {
+  const wrap = document.getElementById('ctlFontCats');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  const groups = [];
+  for (const f of CARD_FONTS_LIST) {
+    const g = f.group || '其他';
+    if (!groups.includes(g)) groups.push(g);
+  }
+  const mk = (g, label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'font-cat' + (activeFontGroup === g ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      activeFontGroup = activeFontGroup === g ? '' : g;
+      renderFontCats();
+      renderFontLangs();         // 联动：分类变化 → 语言数量跟着更新
+      syncSelectionToFilter();   // 选中字体跟随筛选（当前不匹配则自动换到第一个匹配字体）
+      renderFontList();
+      updateCardPreview();
+    });
+    wrap.appendChild(b);
+  };
+  mk('', I18N.t('cardFontAll') + ' ' + countFonts(activeFontLang, ''));
+  for (const g of groups) mk(g, g + ' ' + countFonts(activeFontLang, g));
+}
+
+// 渲染字体下拉列表 + 当前字段；列表受分类 chips 与搜索过滤，实时可见
+function renderFontList() {
+  const listEl = document.getElementById('ctlFontList');
+  const fieldEl = document.getElementById('ctlFontField');
+  if (!listEl) return;
+  const idxs = filteredFontIndexes();
+  listEl.innerHTML = '';
+  if (!idxs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'font-empty';
+    empty.textContent = I18N.t('cardFontEmpty');
+    listEl.appendChild(empty);
+  } else {
+    for (const i of idxs) {
+      const f = CARD_FONTS_LIST[i];
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'font-opt' + (i === cardFontIndex ? ' sel' : '');
+      row.addEventListener('click', () => selectFont(i));
+      const nm = document.createElement('span');
+      nm.textContent = f.name;
+      row.appendChild(nm);
+      // 语言徽标：中/拉/日/韩/俄/希
+      const lb = fontLangBadge(f);
+      if (lb) {
+        const badge = document.createElement('span');
+        badge.className = 'font-opt-lang';
+        badge.textContent = lb;
+        badge.title = (f.langs || []).join(' · ');
+        row.appendChild(badge);
+      }
+      if (f.license === '未知') {
+        const warn = document.createElement('span');
+        warn.className = 'font-opt-warn';
+        warn.textContent = '⚠ license';
+        row.appendChild(warn);
+      }
+      listEl.appendChild(row);
+    }
+  }
+  if (fieldEl) {
+    const cur = selectedFontEntry();
+    fieldEl.textContent = cur ? cur.name : I18N.t('cardFontPlaceholder');
+  }
+}
+
+// 选中字体：记录下标 → 按需加载 → 刷新预览与列表高亮，并收起列表
+function selectFont(i) {
+  if (i < 0 || i >= CARD_FONTS_LIST.length) return;
+  cardFontIndex = i;
+  const f = CARD_FONTS_LIST[i];
+  const refresh = () => { renderFontList(); updateCardPreview(); };
+  if (f && typeof CardRenderer.loadFont === 'function') CardRenderer.loadFont(f).then(refresh).catch(refresh);
+  else refresh();
+  closeFontList();
+}
+
+function toggleFontList() { const l = document.getElementById('ctlFontList'); if (l) l.classList.toggle('open'); }
+function closeFontList() { document.querySelectorAll('#ctlFontList.open').forEach(el => el.classList.remove('open')); }
+
+// 卡片宽度：以滑块为准（默认 800px，用户可调），不自动跟随面板宽度
+function getCardWidth() {
+  const el = document.getElementById('ctlCardW');
+  const v = el ? parseInt(el.value, 10) : 0;
+  return v > 0 ? v : 800;
+}
+
+// 文本框位置 X/Y（-100 ~ 100）
+const POS_LIMIT = 100;
+function getPos(axis) {
+  const el = document.getElementById('ctlPos' + axis);
+  const v = el ? parseInt(el.value, 10) : 0;
+  return Number.isFinite(v) ? Math.max(-POS_LIMIT, Math.min(POS_LIMIT, v)) : 0;
+}
+function setPos(x, y) {
+  const ex = document.getElementById('ctlPosX');
+  const ey = document.getElementById('ctlPosY');
+  if (ex) ex.value = String(Math.max(-POS_LIMIT, Math.min(POS_LIMIT, Math.round(x))));
+  if (ey) ey.value = String(Math.max(-POS_LIMIT, Math.min(POS_LIMIT, Math.round(y))));
+  updateCardPreview();
+}
+
+// 语言筛选默认跟随界面语言：英文模式默认「纯拉丁」（更贴合英文用户），中文模式默认「全部」；
+// 用户手动点过语言 chips 后不再覆盖（fontLangUserSet）。
+function applyFontLangDefault() {
+  if (fontLangUserSet) return;
+  const isZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+  activeFontLang = isZh ? '' : 'latin';
+}
+
+// 从 card-fonts.json 加载库（幂等）+ font-pinyin.json（拼音搜索）；失败仅提示
+async function initCardFonts() {
+  applyFontLangDefault();
+  if (CARD_FONTS_LOADED) { renderFontLangs(); renderFontCats(); renderFontList(); return; }
+  try {
+    const res = await fetch('card-fonts.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    CARD_FONTS_LIST = Array.isArray(data.fonts) ? data.fonts : [];
+    try {
+      const pr = await fetch('font-pinyin.json');
+      if (pr.ok) FONT_PINYIN = await pr.json();
+    } catch (e) { /* 拼音映射加载失败：仅名称/家族/分类搜索可用 */ }
+    CARD_FONTS_LOADED = true;
+  } catch (e) {
+    showStatus(I18N.t('cardFontsLoadFail'), 'error');
+    return;
+  }
+  // 标题专用字体「芫荽」(Iansui)：提前加载，canvas 与预览才可用（失败静默回退系统字体）
+  CARD_TITLE_FONT = CARD_FONTS_LIST.find(f => String(f.family || '').toLowerCase() === 'iansui') || null;
+  if (CARD_TITLE_FONT && typeof CardRenderer.loadFont === 'function') {
+    CardRenderer.loadFont(CARD_TITLE_FONT);
+  }
+  // 默认选中第一款库字体并加载
+  if (CARD_FONTS_LIST.length) {
+    cardFontIndex = 0;
+    const f = selectedFontEntry();
+    if (f && typeof CardRenderer.loadFont === 'function') await CardRenderer.loadFont(f);
+  } else {
+    cardFontIndex = -1;
+  }
+  renderFontLangs();
+  renderFontCats();
+  renderFontList();
+  updateCardPreview();
+}
+
+// 卡片默认示例文本跟随界面语言（仅当输入框仍是默认示例时替换，避免覆盖用户已编辑内容）
+function syncCardSampleLang() {
+  const input = document.getElementById('cardInput');
+  if (!input) return;
+  const zhSample = I18N.raw('cardSampleText', 'zh');
+  const enSample = I18N.raw('cardSampleText', 'en');
+  const cur = input.value;
+  if (cur === zhSample || cur === enSample) {
+    input.value = I18N.t('cardSampleText');
+    updateCardPreview();
+  }
+}
+
+// ========== 截图 ==========
+let shotDataUrl = '';
+
+async function captureScreenshot() {
+  showStatus(I18N.t('capturing'), 'info');
+  const r = await sendMessage('captureViewport');
+  if (!r || !r.success) {
+    showStatus((r && r.message) || I18N.t('screenshotFail'), 'error');
+    return;
+  }
+  shotDataUrl = r.dataUrl;
+  const overlay = document.getElementById('shotOverlay');
+  const img = document.getElementById('shotImg');
+  if (!overlay || !img) return;
+  img.src = shotDataUrl;
+  overlay.classList.remove('hidden');
+}
+
+function closeScreenshot() {
+  const overlay = document.getElementById('shotOverlay');
+  if (overlay) overlay.classList.add('hidden');
+}
+
+async function downloadScreenshot() {
+  if (!shotDataUrl) return;
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+  try {
+    await chrome.downloads.download({ url: shotDataUrl, filename: `tabu-screenshot-${stamp}.png` });
+    showStatus(I18N.t('screenshotDownloaded'), 'success');
+  } catch (e) {
+    showStatus(I18N.t('downloadFail') + e.message, 'error');
+  }
+}
+
+async function copyScreenshot() {
+  if (!shotDataUrl) return;
+  try {
+    const blob = await (await fetch(shotDataUrl)).blob();
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+    showStatus(I18N.t('screenshotCopied'), 'success');
+  } catch (e) {
+    showStatus(I18N.t('copyImageFail') + e.message, 'error');
+  }
+}
+
+// ========== 面板控制 ==========
+// ========== 保存/恢复翻译语言设置 ==========
+async function saveTranslateSettings() {
+  const source = document.getElementById('translateSource')?.value;
+  const target = document.getElementById('translateTarget')?.value;
+  if (source !== undefined && target !== undefined) {
+    await chrome.storage.local.set({ translateSource: source, translateTarget: target });
+  }
+}
+
+async function loadTranslateSettings() {
+  const result = await chrome.storage.local.get(['translateSource', 'translateTarget']);
+  const sourceSelect = document.getElementById('translateSource');
+  const targetSelect = document.getElementById('translateTarget');
+  if (sourceSelect && result.translateSource) {
+    sourceSelect.value = result.translateSource;
+  }
+  if (targetSelect && result.translateTarget) {
+    targetSelect.value = result.translateTarget;
+  }
+}
+
+// ========== 注入标签页 ==========
+let injectBusy = false; // 注入进行中锁
+// 自定义 API（P0-B）：当前配置（loadAiConfig / saveAiConfig 维护）+ 流式中止句柄
+let currentAiConfig = { aiProvider: 'openai', aiBaseUrl: '', aiApiKey: '', aiModel: '', aiAllowAnyHost: false };
+let aiAbortController = null;
+
+// 注入模板已统一收进 capabilities.js 的 PROCESSORS（translate/summarize/explain/polish/custom）
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function injectGetInput() {
+  const input = document.getElementById('injectInput');
+  return input ? (input.value || '').trim() : '';
+}
+
+function injectSetInput(text) {
+  const input = document.getElementById('injectInput');
+  if (input) input.value = text || '';
+}
+
+function injectSite() {
+  return document.getElementById('injectSite')?.value || 'chatgpt';
+}
+
+async function injectCaptureSelected() {
+  const text = await getSelectedText();
+  if (!text.trim()) { showStatus(I18N.t('noSelectionAny'), 'info'); return; }
+  injectSetInput(text);
+  showStatus(I18N.t('captureSelDone'), 'success');
+}
+
+async function injectCaptureFull() {
+  const text = await getFullPageText();
+  if (!text.trim()) { showStatus(I18N.t('pageNoText'), 'info'); return; }
+  injectSetInput(text);
+  showStatus(I18N.t('captureFullDone'), 'success');
+}
+
+async function injectRun(prompt) {
+  if (injectBusy) { showStatus(I18N.t('injectBusy'), 'info'); return; }
+  if (!prompt || !prompt.trim()) { showStatus(I18N.t('enterTextToSend'), 'info'); return; }
+  // 首开面板时 loadAiConfig 可能未完成，config 为空则先向 storage 确认一次
+  if (!currentAiConfig.aiBaseUrl) {
+    try {
+      const r = await chrome.storage.local.get('aiBaseUrl');
+      if (r.aiBaseUrl) currentAiConfig.aiBaseUrl = String(r.aiBaseUrl || '').trim();
+    } catch (e) {}
+  }
+  // 后端模式：'api' → 流式（需已配置）；'inject' → 页面注入
+  const mode = await getEffectiveAiMode();
+  if (mode === 'api') {
+    if (!currentAiConfig.aiBaseUrl) {
+      showStatus(I18N.t('aiBackendApiNoConfig'), 'info');
+      return;
+    }
+    return injectRunApi(prompt);
+  }
+  injectBusy = true;
+  const sendBtn = document.getElementById('injectSend');
+  const stopBtn = document.getElementById('injectStop');
+  const statusEl = document.getElementById('injectStatus');
+  const resultEl = document.getElementById('injectResult');
+  const copyBtn = document.getElementById('injectCopyResult');
+  if (sendBtn) sendBtn.disabled = true;
+  if (stopBtn) stopBtn.style.display = 'inline-block';
+  if (statusEl) statusEl.textContent = I18N.t('sending');
+  if (resultEl) resultEl.textContent = '';
+  if (copyBtn) copyBtn.style.display = 'none';
+
+  // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
+  execute({ action: 'inject', text: prompt, options: { site: injectSite() } })
+    .then((out) => {
+      if (out.ok) {
+        if (resultEl) resultEl.textContent = out.result.text;
+        if (copyBtn) copyBtn.style.display = 'inline-block';
+        if (statusEl) statusEl.textContent = I18N.t('injectDone');
+        showStatus(I18N.t('injectSuccess'), 'success');
+      } else {
+        const msg = out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError'));
+        if (resultEl) resultEl.textContent = '❌ ' + msg;
+        if (statusEl) statusEl.textContent = I18N.t('injectFailed');
+      }
+      renderInjectHistory();
+    })
+    .catch(() => {
+      if (statusEl) statusEl.textContent = I18N.t('requestException');
+    })
+    .finally(() => {
+      injectBusy = false;
+      if (sendBtn) sendBtn.disabled = false;
+      if (stopBtn) stopBtn.style.display = 'none';
+    });
+}
+
+// 自定义 API 流式发送（P2）：aiContext 取 session + 多轮历史 → askApiStream 逐字渲染 → 完成写历史
+async function injectRunApi(prompt) {
+  injectBusy = true;
+  const sendBtn = document.getElementById('injectSend');
+  const stopBtn = document.getElementById('injectStop');
+  const statusEl = document.getElementById('injectStatus');
+  const resultEl = document.getElementById('injectResult');
+  const copyBtn = document.getElementById('injectCopyResult');
+  const reasoningEl = document.getElementById('injectReasoning');
+  if (sendBtn) sendBtn.disabled = true;
+  if (stopBtn) stopBtn.style.display = 'inline-block';
+  if (statusEl) statusEl.textContent = I18N.t('sending');
+  if (resultEl) resultEl.textContent = '';
+  if (copyBtn) copyBtn.style.display = 'none';
+  if (reasoningEl) { reasoningEl.textContent = ''; reasoningEl.classList.add('hidden'); }
+
+  const controller = new AbortController();
+  aiAbortController = controller;
+  let acc = '';
+  let contentStarted = false;
+  try {
+    // 多轮上下文：session 内历史消息（后台重建）
+    const ctx = await sendMessage('aiContext');
+    const session = (ctx && ctx.session) || '';
+    const history = (ctx && ctx.history) || [];
+    if (ctx && ctx.error) throw new Error(ctx.error);
+
+    const r = await TABU_CAPS.askApiStream(prompt, currentAiConfig, history, {
+      signal: controller.signal,
+      onDelta: (t) => {
+        // 正文开始 → 收起思考预览，正文即时渲染
+        contentStarted = true;
+        if (reasoningEl) reasoningEl.classList.add('hidden');
+        acc += t;
+        if (resultEl) resultEl.textContent = acc;
+      },
+      // 推理/思考增量：思考型模型（DeepSeek V4 思考 / Kimi k3 / Qwen thinking / Claude extended thinking）先吐思考再吐正文，
+      // 展示"思考中…"进度避免长时间空白；只显示末尾一段，避免撑高面板
+      onReasoning: (t) => {
+        if (contentStarted || !reasoningEl) return;
+        reasoningEl.textContent = (reasoningEl.textContent + t).slice(-600);
+        reasoningEl.classList.remove('hidden');
+      }
+    });
+
+    if (r && r.aborted) {
+      if (reasoningEl) reasoningEl.classList.add('hidden');
+      if (statusEl) statusEl.textContent = I18N.t('injectStopped');
+      return;
+    }
+    const answer = (r && r.answer) || acc;
+    if (reasoningEl) reasoningEl.classList.add('hidden');
+    if (resultEl) resultEl.textContent = answer;
+    if (copyBtn) copyBtn.style.display = 'inline-block';
+    if (statusEl) statusEl.textContent = I18N.t('injectDone');
+    showStatus(I18N.t('injectSuccess'), 'success');
+    // 会话历史写库（site:'api' + session，供多轮跟随）
+    if (session && answer) {
+      sendMessage('saveAiConversation', { session, prompt, answer }).catch(() => {});
+    }
+  } catch (e) {
+    const aborted = controller.signal.aborted;
+    if (reasoningEl) reasoningEl.classList.add('hidden');
+    if (aborted) {
+      if (statusEl) statusEl.textContent = I18N.t('injectStopped');
+    } else {
+      if (resultEl) resultEl.textContent = '❌ ' + (e.message || I18N.t('unknownError'));
+      if (statusEl) statusEl.textContent = I18N.t('injectFailed');
+    }
+  } finally {
+    injectBusy = false;
+    if (aiAbortController === controller) aiAbortController = null;
+    if (sendBtn) sendBtn.disabled = false;
+    if (stopBtn) stopBtn.style.display = 'none';
+    renderInjectHistory();
+  }
+}
+
+// 合并后的发送：填写了自定义模板（injectCustomTpl）就套用模板，否则原样发送
+function injectSend() {
+  const tplInput = document.getElementById('injectCustomTpl');
+  const tpl = (tplInput && tplInput.value || '').trim();
+  if (tpl) {
+    const text = injectGetInput();
+    if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
+    injectRun(TABU_CAPS.PROCESSORS.custom.apply(text, tpl));
+  } else {
+    injectRun(injectGetInput());
+  }
+}
+
+function injectSendTemplate(type) {
+  const text = injectGetInput();
+  if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
+  // 模板统一来自 capabilities.js 的 PROCESSORS
+  const proc = TABU_CAPS.PROCESSORS[type];
+  if (!proc) return;
+  injectRun(proc.apply(text));
+}
+
+function injectStop() {
+  // API 模式：真正中断流式请求；页面注入模式：无法中断生成，仅释放 UI 锁
+  if (aiAbortController) aiAbortController.abort();
+  injectBusy = false;
+  const sendBtn = document.getElementById('injectSend');
+  const stopBtn = document.getElementById('injectStop');
+  const statusEl = document.getElementById('injectStatus');
+  if (sendBtn) sendBtn.disabled = false;
+  if (stopBtn) stopBtn.style.display = 'none';
+  if (statusEl) statusEl.textContent = I18N.t('injectStopped');
+}
+
+async function injectNewChat() {
+  // API 模式：重置会话（新 session 清空多轮上下文），无需操作真实 AI 页面
+  if (await getEffectiveAiMode() === 'api') {
+    const r = await sendMessage('resetAiSession');
+    const resultEl = document.getElementById('injectResult');
+    const copyBtn = document.getElementById('injectCopyResult');
+    if (resultEl) resultEl.textContent = '';
+    if (copyBtn) copyBtn.style.display = 'none';
+    if (r && r.error) { showStatus(r.error, 'error'); return; }
+    showStatus(I18N.t('aiSessionReset'), 'success');
+    return;
+  }
+  const site = injectSite();
+  showStatus(I18N.t('newChatStarting'), 'info');
+  const r = await sendMessage('newConversation', { site });
+  showStatus(r && r.success ? r.message : (r && r.message || I18N.t('newChatFail')), r && r.success ? 'success' : 'error');
+}
+
+function fmtTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleString();
+}
+
+async function renderInjectHistory() {
+  const listEl = document.getElementById('injectHistory');
+  if (!listEl) return;
+  const list = await sendMessage('getConversations', { limit: 50 });
+  if (!list || list.length === 0) {
+    listEl.innerHTML = `<div class="inject-empty">${I18N.t('noHistory')}</div>`;
+    return;
+  }
+  const siteLabel = { chatgpt: 'ChatGPT', claude: 'Claude', kimi: 'Kimi', deepseek: 'DeepSeek', api: 'API' };
+  let html = '';
+  for (const c of list) {
+    const label = siteLabel[c.site] || c.site;
+    const promptSnip = (c.prompt || '').replace(/\n+/g, ' ').slice(0, 60);
+    html += `
+      <div class="inject-history-item" data-id="${c.id}">
+        <div class="ih-top">
+          <span class="ih-site">${label}</span>
+          <span class="ih-time">${fmtTime(c.timestamp)}</span>
+        </div>
+        <div class="ih-snippet">${escapeHtml(promptSnip)}</div>
+        <div class="ih-body">${escapeHtml(c.prompt)}\n\n${I18N.t('replyDivider')}\n${escapeHtml(c.answer)}</div>
+        <div class="ih-actions">
+          <button class="btn small secondary ih-toggle">${I18N.t('expand')}</button>
+          <button class="btn small danger ih-delete">${I18N.t('deleteBtn')}</button>
+        </div>
+      </div>
+    `;
+  }
+  listEl.innerHTML = html;
+
+  listEl.querySelectorAll('.inject-history-item').forEach(item => {
+    const toggle = item.querySelector('.ih-toggle');
+    const body = item.querySelector('.ih-body');
+    if (toggle) toggle.addEventListener('click', () => {
+      body.classList.toggle('open');
+      toggle.textContent = body.classList.contains('open') ? I18N.t('collapse') : I18N.t('expand');
+    });
+    const del = item.querySelector('.ih-delete');
+    if (del) del.addEventListener('click', async () => {
+      await sendMessage('deleteConversation', { id: item.dataset.id });
+      renderInjectHistory();
+    });
+  });
+}
+
+async function clearInjectHistory() {
+  if (!confirm(I18N.t('confirmClearInjectHistory'))) return;
+  await sendMessage('clearConversations');
+  renderInjectHistory();
+  showStatus(I18N.t('cleared'), 'success');
+}
+
+function injectCopyResult() {
+  const el = document.getElementById('injectResult');
+  if (!el || !el.textContent.trim()) return;
+  copyTextWithFallback(el.textContent.trim()).then((ok) => showToast(ok ? I18N.t('copySuccess') : I18N.t('copyFail')));
+}
+
+// 清空 AI 输入与结果（免费浏览器版 / 自填 API 版共用）
+function injectClear() {
+  const input = document.getElementById('injectInput');
+  const result = document.getElementById('injectResult');
+  const reasoning = document.getElementById('injectReasoning');
+  const copyBtn = document.getElementById('injectCopyResult');
+  const statusEl = document.getElementById('injectStatus');
+  if (input) input.value = '';
+  if (result) result.textContent = '';
+  if (reasoning) { reasoning.textContent = ''; reasoning.classList.add('hidden'); }
+  if (copyBtn) copyBtn.style.display = 'none';
+  if (statusEl) statusEl.textContent = '';
+}
+
+// ========== 蓝层：系统设置 / 版本保留 / 数据管理 ==========
+function speakInputText() {
+  const input = document.getElementById('ttsInput');
+  doSpeak(input ? input.value : '', document.getElementById('ttsStatus'), document.getElementById('ttsSpeakInput'));
+}
+
+async function loadBridgeTokenSetting() {
+  const input = document.getElementById('bridgeTokenInput');
+  if (!input) return;
+  const r = await chrome.storage.local.get('bridgeToken');
+  input.value = (r.bridgeToken || '').trim();
+}
+
+async function saveBridgeToken() {
+  const input = document.getElementById('bridgeTokenInput');
+  const v = input ? input.value.trim() : '';
+  await chrome.storage.local.set({ bridgeToken: v });
+  showStatus(I18N.t(v ? 'bridgeTokenSaved' : 'bridgeTokenCleared'), 'success');
+}
+
+async function loadInjectSwitchState() {
+  const sw = document.getElementById('injectSwitch');
+  if (!sw) return;
+  const r = await chrome.storage.local.get('inputInjectEnabled');
+  sw.classList.toggle('on', !!r.inputInjectEnabled);
+}
+
+async function toggleInjectSwitch() {
+  const sw = document.getElementById('injectSwitch');
+  if (!sw) return;
+  const r = await chrome.storage.local.get('inputInjectEnabled');
+  const next = !r.inputInjectEnabled;
+  await chrome.storage.local.set({ inputInjectEnabled: next });
+  sw.classList.toggle('on', next);
+  showStatus(I18N.t(next ? 'injectSwitchOn' : 'injectSwitchOff'), next ? 'success' : 'info');
+}
+
+// ========== 蓝区「AI 服务」设置（P0-B）+ 红区后端切换 ==========
+// 提供商目录/默认模型来自共享 ai-api.js 的 AI_PROVIDERS（2026-08 核对）。
+
+function aiField(id) {
+  return document.getElementById(id);
+}
+
+function getAiDefaultModel(provider) {
+  const meta = (typeof AI_PROVIDERS !== 'undefined' && AI_PROVIDERS[provider]) || null;
+  return meta ? meta.defaultModel : '';
+}
+
+function populateModelDatalist(provider) {
+  const dl = aiField('aiModelList');
+  const model = aiField('aiModel');
+  const meta = (typeof AI_PROVIDERS !== 'undefined' && AI_PROVIDERS[provider]) || AI_PROVIDERS.custom;
+  if (dl) dl.innerHTML = (meta.models || []).map((m) => `<option value="${m}"></option>`).join('');
+  if (model) {
+    model.placeholder = meta.defaultModel || '…';
+    model.setAttribute('list', 'aiModelList');
+  }
+}
+
+// 切换提供商：填充默认 Base URL（仅当输入框为空、或仍是对应其他提供商的默认值，避免覆盖自定义地址）+ 模型建议
+function onAiProviderChange() {
+  const sel = aiField('aiProvider');
+  const provider = (sel && sel.value) || 'openai';
+  const base = aiField('aiBaseUrl');
+  if (base) {
+    const current = base.value.trim();
+    const isOtherDefault = Object.keys(AI_PROVIDERS)
+      .filter((k) => k !== provider)
+      .some((k) => AI_PROVIDERS[k].baseUrl === current);
+    if (!current || isOtherDefault) {
+      base.value = (AI_PROVIDERS[provider] && AI_PROVIDERS[provider].baseUrl) || '';
+    }
+  }
+  populateModelDatalist(provider);
+}
+
+async function loadAiConfig() {
+  const r = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'aiApiKey', 'aiModel', 'aiAllowAnyHost']);
+  currentAiConfig = {
+    aiProvider: r.aiProvider || 'openai',
+    aiBaseUrl: String(r.aiBaseUrl || '').trim(),
+    aiApiKey: String(r.aiApiKey || '').trim(),
+    aiModel: String(r.aiModel || '').trim(),
+    aiAllowAnyHost: !!r.aiAllowAnyHost
+  };
+  const p = aiField('aiProvider'); if (p) p.value = currentAiConfig.aiProvider;
+  const b = aiField('aiBaseUrl'); if (b) b.value = currentAiConfig.aiBaseUrl;
+  const k = aiField('aiApiKey'); if (k) k.value = currentAiConfig.aiApiKey;
+  const m = aiField('aiModel'); if (m) m.value = currentAiConfig.aiModel;
+  const sw = aiField('aiAllowAnySwitch'); if (sw) sw.classList.toggle('on', currentAiConfig.aiAllowAnyHost);
+  populateModelDatalist(currentAiConfig.aiProvider);
+  await syncAiBackendUi();
+}
+
+function collectAiFormConfig() {
+  return {
+    aiProvider: (aiField('aiProvider') && aiField('aiProvider').value) || 'openai',
+    aiBaseUrl: (aiField('aiBaseUrl') && aiField('aiBaseUrl').value || '').trim(),
+    aiApiKey: (aiField('aiApiKey') && aiField('aiApiKey').value || '').trim(),
+    aiModel: (aiField('aiModel') && aiField('aiModel').value || '').trim(),
+    aiAllowAnyHost: !!(aiField('aiAllowAnySwitch') && aiField('aiAllowAnySwitch').classList.contains('on'))
+  };
+}
+
+async function saveAiConfig() {
+  const cfg = collectAiFormConfig();
+  await chrome.storage.local.set(cfg);
+  currentAiConfig = cfg;
+  await syncAiBackendUi();
+  showStatus(I18N.t('aiSvcSaved'), 'success');
+}
+
+async function testAiConnection() {
+  const cfg = collectAiFormConfig();
+  if (!cfg.aiBaseUrl) { showStatus(I18N.t('aiNoBaseUrl'), 'info'); return; }
+  const statusEl = aiField('aiTestStatus');
+  const btn = aiField('aiTestBtn');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = I18N.t('aiTesting');
+  const r = await sendMessage('askViaApi', { prompt: 'ping', config: cfg });
+  if (statusEl) {
+    if (r && r.answer) statusEl.textContent = '✅ ' + I18N.t('aiTestOk');
+    else statusEl.textContent = '❌ ' + ((r && r.error) || I18N.t('aiTestFail'));
+  }
+  if (btn) btn.disabled = false;
+}
+
+function toggleAiKeyVisible() {
+  const input = aiField('aiApiKey');
+  const btn = aiField('aiKeyToggle');
+  if (!input || !btn) return;
+  const isPwd = input.type === 'password';
+  input.type = isPwd ? 'text' : 'password';
+  btn.textContent = isPwd ? I18N.t('aiKeyHide') : I18N.t('aiKeyShow');
+}
+
+function toggleAiAllowAny() {
+  const sw = aiField('aiAllowAnySwitch');
+  if (sw) sw.classList.toggle('on');
+}
+
+// ========== 语音服务（ASR 转写） ==========
+// 蓝区「语音服务」设置 + 红区「转写」面板。
+// ASR 后端：微软 Azure（REST）/ OpenAI Whisper（兼容服务）/ 阿里云（DashScope）/ 本地服务（本地部署 HTTP）。
+const ASR_BACKEND_IDS = ['azure', 'openai', 'aliyun', 'local'];
+const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice'];
+
+// 本地 TTS 引擎常量（引擎名与 /speak?engine= 对应）
+const LOCAL_TTS_ENGINES = ['kokoro', 'qwen3'];
+const QWEN3_VOICES = ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee'];
+const KOKORO_SID_HINT = { 18: '· 混合推荐', 48: '· 中文', 49: '· 中文', 50: '· 中文', 51: '· 中文', 52: '· 中文' };
+
+let currentVoiceConfig = {
+  voiceAzureKey: '',
+  voiceAzureRegion: '',
+  voiceOpenaiKey: '',
+  voiceOpenaiBase: '',
+  voiceAliyunKey: '',
+  voiceLocalServer: 'http://127.0.0.1:9528',
+  asrBackend: 'azure',
+  asrMicDeviceId: '',
+  ttsEngine: 'system',   // system | kokoro | qwen3（朗读引擎）
+  ttsLocalSid: 18,       // Kokoro 音色号
+  ttsLocalVoice: 'Vivian' // Qwen3 预设音色
+};
+let currentAsrBackend = 'azure';
+
+function voiceField(id) { return document.getElementById(id); }
+
+async function loadVoiceConfig() {
+  const r = await chrome.storage.local.get(ASR_STORAGE_KEYS);
+  currentVoiceConfig = {
+    voiceAzureKey: String(r.voiceAzureKey || '').trim(),
+    voiceAzureRegion: String(r.voiceAzureRegion || '').trim(),
+    voiceOpenaiKey: String(r.voiceOpenaiKey || '').trim(),
+    voiceOpenaiBase: String(r.voiceOpenaiBase || 'https://api.openai.com/v1').trim(),
+    voiceAliyunKey: String(r.voiceAliyunKey || '').trim(),
+    voiceLocalServer: String(r.voiceLocalServer || 'http://127.0.0.1:9528').trim(),
+    asrMicDeviceId: String(r.asrMicDeviceId || '').trim(),
+    ttsEngine: (r.ttsEngine === 'kokoro' || r.ttsEngine === 'qwen3') ? r.ttsEngine : 'system',
+    ttsLocalSid: (!isNaN(Number(r.ttsLocalSid)) && Number(r.ttsLocalSid) >= 0) ? Number(r.ttsLocalSid) : 18,
+    ttsLocalVoice: String(r.ttsLocalVoice || 'Vivian').trim()
+  };
+  const key = voiceField('voiceAzureKey'); if (key) key.value = currentVoiceConfig.voiceAzureKey;
+  const reg = voiceField('voiceAzureRegion'); if (reg) reg.value = currentVoiceConfig.voiceAzureRegion;
+  const ok = voiceField('voiceOpenaiKey'); if (ok) ok.value = currentVoiceConfig.voiceOpenaiKey;
+  const ob = voiceField('voiceOpenaiBase'); if (ob) ob.value = currentVoiceConfig.voiceOpenaiBase;
+  const ak = voiceField('voiceAliyunKey'); if (ak) ak.value = currentVoiceConfig.voiceAliyunKey;
+  const ls = voiceField('voiceLocalServer'); if (ls) ls.value = currentVoiceConfig.voiceLocalServer;
+  currentAsrBackend = ASR_BACKEND_IDS.includes(r.asrBackend) ? r.asrBackend : 'azure';
+  syncAsrBackendUi();
+  syncTtsEngineUi();
+}
+
+function collectVoiceConfig() {
+  return {
+    voiceAzureKey: (voiceField('voiceAzureKey') && voiceField('voiceAzureKey').value || '').trim(),
+    voiceAzureRegion: (voiceField('voiceAzureRegion') && voiceField('voiceAzureRegion').value || '').trim(),
+    voiceOpenaiKey: (voiceField('voiceOpenaiKey') && voiceField('voiceOpenaiKey').value || '').trim(),
+    voiceOpenaiBase: (voiceField('voiceOpenaiBase') && voiceField('voiceOpenaiBase').value || '').trim(),
+    voiceAliyunKey: (voiceField('voiceAliyunKey') && voiceField('voiceAliyunKey').value || '').trim(),
+    voiceLocalServer: (voiceField('voiceLocalServer') && voiceField('voiceLocalServer').value || '').trim(),
+    ttsEngine: (voiceField('ttsEngine') && voiceField('ttsEngine').value) || currentVoiceConfig.ttsEngine || 'system',
+    ttsLocalSid: currentVoiceConfig.ttsLocalSid,
+    ttsLocalVoice: currentVoiceConfig.ttsLocalVoice
+  };
+}
+
+async function saveVoiceConfig() {
+  currentVoiceConfig = collectVoiceConfig();
+  await chrome.storage.local.set(currentVoiceConfig);
+  showStatus(I18N.t('voiceSvcSaved'), 'success');
+}
+
+// OpenAI 兼容 ASR 的 Key：独立字段优先，否则复用 AI 服务里的 OpenAI Key
+function getOpenaiAsrKey() {
+  if (currentVoiceConfig.voiceOpenaiKey) return currentVoiceConfig.voiceOpenaiKey;
+  if (typeof currentAiConfig !== 'undefined' && currentAiConfig.aiProvider === 'openai') {
+    return currentAiConfig.aiApiKey || '';
+  }
+  return '';
+}
+
+// 蓝区「测试识别」：检测本地 ASR 服务是否在线（本地后端的主要入口）
+async function testVoiceConfig() {
+  const statusEl = voiceField('voiceTestStatus');
+  const btn = voiceField('voiceTestBtn');
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = I18N.t('asrTesting');
+  currentVoiceConfig = collectVoiceConfig();
+  try {
+    const serverUrl = currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528';
+    const r = await fetch(serverUrl.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(5000) });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.ok) {
+      const t = data.tts || {};
+      const ttsInfo = (t.kokoro === 'ready' ? 'Kokoro ✓' : 'Kokoro ✗')
+        + ' · ' + (t.qwen3 === 'reachable' ? 'Qwen3 ✓' : 'Qwen3 ✗');
+      if (statusEl) statusEl.textContent = '✅ 本地服务在线：' + (data.engines || []).join(', ') + ' ｜ TTS ' + ttsInfo;
+    } else {
+      if (statusEl) statusEl.textContent = '❌ 本地服务未就绪（请先 cd asr-server && npm start）';
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ 本地服务连接失败：' + (e.message || '请先启动 asr-server');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ---- 朗读引擎 UI（系统 / Kokoro / Qwen3）----
+// 引擎设置存 storage，朗读面板与蓝区语音服务卡共用，双向同步
+function syncTtsEngineUi() {
+  const engine = currentVoiceConfig.ttsEngine;
+  const selPanel = voiceField('ttsEngine');
+  const selBlue = voiceField('ttsEngineBlue');
+  if (selPanel) selPanel.value = engine;
+  if (selBlue) selBlue.value = engine;
+  const isLocal = LOCAL_TTS_ENGINES.includes(engine);
+  const sysRow = document.getElementById('ttsSysVoiceRow');
+  const localRow = document.getElementById('ttsLocalVoiceRow');
+  if (sysRow) sysRow.classList.toggle('hidden', isLocal);
+  if (localRow) localRow.classList.toggle('hidden', !isLocal);
+  populateLocalVoices();
+}
+
+function setTtsEngine(engine) {
+  if (!['system', 'kokoro', 'qwen3'].includes(engine)) return;
+  currentVoiceConfig.ttsEngine = engine;
+  chrome.storage.local.set({ ttsEngine: engine });
+  syncTtsEngineUi();
+}
+
+// 填充本地音色下拉（Kokoro 从 /health 拿音色数；Qwen3 用预设 speaker 名）
+async function populateLocalVoices() {
+  const sel = voiceField('ttsLocalVoice');
+  const selBlue = voiceField('ttsLocalVoiceBlue');
+  if (!sel && !selBlue) return;
+  const engine = currentVoiceConfig.ttsEngine;
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  let options = [];
+  let selected = '';
+  if (engine === 'kokoro') {
+    let count = 53;
+    try {
+      const r = await fetch(serverUrl + '/health', { signal: AbortSignal.timeout(4000) });
+      const data = await r.json().catch(() => ({}));
+      if (data && data.tts && data.tts.kokoroSpeakers) count = data.tts.kokoroSpeakers;
+    } catch (e) { /* 服务未就绪时用默认 53 */ }
+    for (let i = 0; i < count; i++) {
+      options.push({ value: String(i), label: 'sid ' + i + (KOKORO_SID_HINT[i] ? ' ' + KOKORO_SID_HINT[i] : '') });
+    }
+    selected = String(currentVoiceConfig.ttsLocalSid);
+  } else if (engine === 'qwen3') {
+    options = QWEN3_VOICES.map(v => ({ value: v, label: v }));
+    selected = currentVoiceConfig.ttsLocalVoice || 'Vivian';
+  }
+  const apply = (select) => {
+    if (!select) return;
+    select.innerHTML = '';
+    if (!options.length) {
+      select.innerHTML = `<option value="">${I18N.t('ttsLocalNotReady', I18N.t('ttsLocalServerOffline'))}</option>`;
+      return;
+    }
+    for (const o of options) {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.label;
+      select.appendChild(opt);
+    }
+    if (options.some(o => o.value === selected)) select.value = selected;
+    else select.selectedIndex = 0;
+  };
+  apply(sel);
+  apply(selBlue);
+}
+
+// 音色选择变化 → 写入 storage（Kokoro 存 sid 数字，Qwen3 存 speaker 名）
+function saveLocalVoice(sel) {
+  if (!sel || !sel.value) return;
+  const engine = currentVoiceConfig.ttsEngine;
+  if (engine === 'kokoro') {
+    currentVoiceConfig.ttsLocalSid = Number(sel.value);
+    chrome.storage.local.set({ ttsLocalSid: Number(sel.value) });
+  } else if (engine === 'qwen3') {
+    currentVoiceConfig.ttsLocalVoice = sel.value;
+    chrome.storage.local.set({ ttsLocalVoice: sel.value });
+  }
+}
+
+// ---- 转写面板：后端切换 ----
+function setAsrBackend(id) {
+  if (!ASR_BACKEND_IDS.includes(id)) return;
+  currentAsrBackend = id;
+  chrome.storage.local.set({ asrBackend: id });
+  syncAsrBackendUi();
+}
+
+function syncAsrBackendUi() {
+  const map = { asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
+  document.querySelectorAll('#panel-asr .ai-backend').forEach(btn => {
+    btn.classList.toggle('active', map[btn.id] === currentAsrBackend);
+  });
+  if (!asrRecording) {
+    const cfg = currentVoiceConfig;
+    const missing = (currentAsrBackend === 'azure' && (!cfg.voiceAzureKey || !cfg.voiceAzureRegion)) ||
+                    (currentAsrBackend === 'openai' && !getOpenaiAsrKey()) ||
+                    (currentAsrBackend === 'aliyun' && !cfg.voiceAliyunKey);
+    setAsrStatus(missing ? I18N.t('asrNoConfig') : I18N.t('asrStatusIdle'), missing);
+  }
+}
+
+function setAsrStatus(msg, isError) {
+  const el = document.getElementById('asrStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('error', !!isError);
+}
+
+// ---- 录音（四后端共用）：getUserMedia → MediaRecorder → decode → 16kHz 单声道 Float32 ----
+let asrRecorder = null;
+let asrStream = null;
+let asrChunks = [];
+let asrRecording = false;
+
+// ---- 对话面板（Chat）：独立录音状态（与转写面板隔离） ----
+let chatRecorder = null;
+let chatStream = null;
+let chatChunks = [];
+let chatRecording = false;
+let chatHasAudio = false;   // 本次已录音（发送时走 /voice-chat）
+let chatAudioPcm = null;    // 录音 16k Float32 PCM（发送时直接封 WAV）
+let chatLastAnswer = '';    // 最近一次 LLM 回答（朗读/复制用）
+
+async function toggleAsrRecord() {
+  if (asrRecording) { stopAsrRecording(); return; }
+  setAsrStatus('🎙 ' + I18N.t('asrStarting'));
+  try {
+    // ⚠️ 关闭音频处理（echoCancellation/noiseSuppression/autoGainControl）：
+    // Chrome 默认处理会把部分 USB 麦（如 Insta360）压成静音（RMS=0），识别需要原始信号。
+    // 并支持指定麦克风设备（多麦时避免选错）。
+    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (currentVoiceConfig.asrMicDeviceId) audioConstraints.deviceId = { exact: currentVoiceConfig.asrMicDeviceId };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    asrStream = stream;
+    asrChunks = [];
+    let mime = '';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
+    else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
+    asrRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    asrRecorder.ondataavailable = (e) => { if (e.data && e.data.size) asrChunks.push(e.data); };
+    asrRecorder.onstop = onAsrRecordingDone;
+    asrRecorder.start();
+    asrRecording = true;
+    updateAsrRecordUi();
+    // 录音启动延迟（getUserMedia/编码器预热）会导致开头截断：
+    // 先显示「准备…」，约 0.6s 后录音确已开始，再提示说话
+    setAsrStatus('🎙 ' + I18N.t('asrPreparing'));
+    setTimeout(() => { if (asrRecording) setAsrStatus(I18N.t('asrRecording')); }, 600);
+  } catch (e) {
+    // MV3 侧边栏无法弹授权弹窗：NotAllowedError 时引导去可见授权页授权一次
+    const name = e && (e.name || e.message);
+    if (name && /NotAllowed|PermissionDismissed|SecurityError/.test(name)) {
+      setAsrStatus(I18N.t('asrMicPermNeeded'), true);
+    } else {
+      setAsrStatus(I18N.t('asrMicrophoneDenied'), true);
+    }
+  }
+}
+
+// 打开麦克风授权页（新标签页可见扩展页，弹出授权弹窗）
+async function openMicPermissionPage() {
+  await sendMessage('openMicPermission');
+  setAsrStatus(I18N.t('asrMicPermHint'));
+}
+
+// 枚举麦克风设备，填充设备选择下拉；授权后可取到设备名
+async function loadAsrDevices() {
+  const sel = document.getElementById('asrMicDevice');
+  if (!sel) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === 'audioinput');
+    const cur = currentVoiceConfig.asrMicDeviceId;
+    sel.innerHTML = '';
+    if (!mics.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '默认麦克风';
+      sel.appendChild(opt);
+    } else {
+      mics.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ('麦克风 ' + (i + 1));
+        sel.appendChild(opt);
+      });
+      if (mics.some(d => d.deviceId === cur)) sel.value = cur;
+    }
+  } catch (e) { /* 未授权时 deviceId 为空，保留默认 */ }
+}
+
+function stopAsrRecording() {
+  if (asrRecorder && asrRecorder.state !== 'inactive') asrRecorder.stop();
+}
+
+function updateAsrRecordUi() {
+  const btn = document.getElementById('asrRecord');
+  if (!btn) return;
+  btn.textContent = asrRecording ? I18N.t('asrRecordStop') : I18N.t('asrRecordStart');
+  btn.classList.toggle('recording', asrRecording);
+  if (asrRecording) setAsrStatus(I18N.t('asrRecording'));
+}
+
+async function onAsrRecordingDone() {
+  const recorder = asrRecorder;
+  asrRecorder = null;
+  asrRecording = false;
+  updateAsrRecordUi();
+  if (asrStream) { asrStream.getTracks().forEach(t => t.stop()); asrStream = null; }
+  const type = (recorder && recorder.mimeType) || 'audio/webm';
+  const blob = new Blob(asrChunks, { type });
+  asrChunks = [];
+  try {
+    const buf = await blob.arrayBuffer();
+    const pcm16 = await decodeAndResample(buf, 16000);
+    if (pcm16.length < 4800) { setAsrStatus(I18N.t('asrAudioTooShort'), true); return; } // < 0.3s
+    // 自动增益：弱麦克风（如部分 USB 麦）采集音量偏低时放大到合理范围
+    let peak = 0;
+    for (let i = 0; i < pcm16.length; i++) peak = Math.max(peak, Math.abs(pcm16[i]));
+    if (peak > 0.01 && peak < 0.5) {
+      const gain = 0.8 / peak;
+      for (let i = 0; i < pcm16.length; i++) pcm16[i] = Math.max(-1, Math.min(1, pcm16[i] * gain));
+    }
+    // 静音检测：RMS 过低说明麦克风没真正录到声音（识别模型会因此幻觉）
+    let sum = 0;
+    for (let i = 0; i < pcm16.length; i++) sum += pcm16[i] * pcm16[i];
+    const rms = Math.sqrt(sum / pcm16.length);
+    if (rms < 0.01) {
+      setAsrStatus(I18N.t('asrSilent', rms.toFixed(4)), true);
+      return;
+    }
+    setAsrStatus('⏳ ' + I18N.t('asrTesting'));
+    const text = await runAsr(pcm16);
+    const out = document.getElementById('asrResult');
+    if (out) out.value = text || '';
+    setAsrStatus(text ? '✅ ' + I18N.t('asrTestOk') : I18N.t('asrNoAudioError'));
+  } catch (e) {
+    setAsrStatus(I18N.t('asrError', (e && e.message) || I18N.t('asrNoAudioError')), true);
+  }
+}
+
+// ========== 对话面板（Chat）：本地 LLM 文本/语音对话，验证 /chat 与 /voice-chat ==========
+function setChatStatus(msg, isError) {
+  const el = document.getElementById('chatStatus');
+  if (el) { el.textContent = msg; el.classList.toggle('error', !!isError); }
+}
+
+// 填充麦克风设备下拉（对话面板）
+async function loadChatMicDevices() {
+  const sel = document.getElementById('chatMicDevice');
+  if (!sel) return;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter(d => d.kind === 'audioinput');
+    const cur = currentVoiceConfig.asrMicDeviceId;
+    sel.innerHTML = '';
+    if (!mics.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '默认麦克风';
+      sel.appendChild(opt);
+    } else {
+      mics.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ('麦克风 ' + (i + 1));
+        sel.appendChild(opt);
+      });
+      if (mics.some(d => d.deviceId === cur)) sel.value = cur;
+    }
+  } catch (e) { /* 未授权时 deviceId 为空，保留默认 */ }
+}
+
+function updateChatRecordUi() {
+  const btn = document.getElementById('chatRecord');
+  if (!btn) return;
+  btn.textContent = chatRecording ? I18N.t('chatRecordStop') : I18N.t('chatRecord');
+  btn.classList.toggle('recording', chatRecording);
+}
+
+function stopChatRecording() {
+  if (chatRecorder && chatRecorder.state !== 'inactive') chatRecorder.stop();
+}
+
+async function toggleChatRecord() {
+  if (chatRecording) { stopChatRecording(); return; }
+  setChatStatus('🎙 ' + I18N.t('asrStarting'));
+  try {
+    // ⚠️ 与转写面板同策略：关闭音频处理（部分 USB 麦会被压成静音），支持指定设备
+    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (currentVoiceConfig.asrMicDeviceId) audioConstraints.deviceId = { exact: currentVoiceConfig.asrMicDeviceId };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    chatStream = stream;
+    chatChunks = [];
+    let mime = '';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
+    else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
+    chatRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chatRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chatChunks.push(e.data); };
+    chatRecorder.onstop = onChatRecordingDone;
+    chatRecorder.start();
+    chatRecording = true;
+    updateChatRecordUi();
+    setChatStatus('🎙 ' + I18N.t('asrPreparing'));
+    setTimeout(() => { if (chatRecording) setChatStatus(I18N.t('asrRecording')); }, 600);
+  } catch (e) {
+    const name = e && (e.name || e.message);
+    if (name && /NotAllowed|PermissionDismissed|SecurityError/.test(name)) {
+      // MV3 侧边栏无法弹授权弹窗：引导去可见授权页授权一次（与转写面板共享授权）
+      setChatStatus(I18N.t('asrMicPermNeeded'), true);
+      sendMessage('openMicPermission').catch(() => {});
+    } else {
+      setChatStatus(I18N.t('asrMicrophoneDenied'), true);
+    }
+  }
+}
+
+async function onChatRecordingDone() {
+  const recorder = chatRecorder;
+  chatRecorder = null;
+  chatRecording = false;
+  updateChatRecordUi();
+  if (chatStream) { chatStream.getTracks().forEach(t => t.stop()); chatStream = null; }
+  const type = (recorder && recorder.mimeType) || 'audio/webm';
+  const blob = new Blob(chatChunks, { type });
+  chatChunks = [];
+  try {
+    const buf = await blob.arrayBuffer();
+    const pcm16 = await decodeAndResample(buf, 16000);
+    if (pcm16.length < 4800) { setChatStatus(I18N.t('asrAudioTooShort'), true); return; }
+    // 自动增益 + 静音诊断（同转写面板）
+    let peak = 0;
+    for (let i = 0; i < pcm16.length; i++) peak = Math.max(peak, Math.abs(pcm16[i]));
+    if (peak > 0.01 && peak < 0.5) {
+      const gain = 0.8 / peak;
+      for (let i = 0; i < pcm16.length; i++) pcm16[i] = Math.max(-1, Math.min(1, pcm16[i] * gain));
+    }
+    let sum = 0;
+    for (let i = 0; i < pcm16.length; i++) sum += pcm16[i] * pcm16[i];
+    const rms = Math.sqrt(sum / pcm16.length);
+    if (rms < 0.01) { setChatStatus(I18N.t('asrSilent', rms.toFixed(4)), true); return; }
+    setChatStatus('⏳ ' + I18N.t('asrTesting'));
+    const text = await asrViaLocal(pcm16); // 复用本地识别（SenseVoice 中文优先）
+    chatHasAudio = true;
+    chatAudioPcm = pcm16;
+    const input = document.getElementById('chatInput');
+    if (input) input.value = text || '';
+    setChatStatus(text ? '✅ ' + I18N.t('chatRecognized') + '：' + text + '（' + I18N.t('chatSend') + '）' : I18N.t('asrNoAudioError'));
+  } catch (e) {
+    setChatStatus(I18N.t('asrError', (e && e.message) || I18N.t('asrNoAudioError')), true);
+  }
+}
+
+// 渲染识别文本 + LLM 回答
+function renderChatResult(recognized, answer) {
+  const box = document.getElementById('chatResult');
+  if (box) {
+    box.classList.remove('hidden');
+    let html = '';
+    if (recognized) html += '<div class="chat-msg chat-user"><b>' + I18N.t('chatRecognized') + '</b> ' + escapeHtml(recognized) + '</div>';
+    if (answer) html += '<div class="chat-msg chat-bot"><b>' + I18N.t('chatAnswer') + '</b> ' + escapeHtml(answer) + '</div>';
+    box.innerHTML = html;
+  }
+  const speakBtn = document.getElementById('chatSpeakAnswer');
+  if (speakBtn) speakBtn.disabled = !answer;
+}
+
+// 发送：纯文本 → /chat；有录音 → /voice-chat（识别→LLM→朗读，返回 base64 音频自动播放）
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = (input && input.value || '').trim();
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  const sendBtn = document.getElementById('chatSend');
+  if (!text && !chatHasAudio) { setChatStatus(I18N.t('chatNoText'), true); return; }
+  // 本地服务在线预检
+  try {
+    const h = await fetch(serverUrl + '/health', { signal: AbortSignal.timeout(3000) });
+    if (!h.ok) throw new Error('health');
+  } catch (e) {
+    setChatStatus(I18N.t('chatServerOffline'), true);
+    return;
+  }
+  if (sendBtn) sendBtn.disabled = true;
+  try {
+    if (chatHasAudio) {
+      const wav = encodeWav(float32ToInt16(chatAudioPcm), 16000);
+      const ttsEngine = currentVoiceConfig.ttsEngine === 'qwen3' ? 'qwen3' : 'kokoro';
+      const res = await fetch(serverUrl + '/voice-chat?ttsEngine=' + ttsEngine + '&asrEngine=auto&llmEngine=llama-cpp&fmt=json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: wav,
+        signal: AbortSignal.timeout(120000)
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
+      const data = await res.json();
+      const recognized = data.recognized || text;
+      chatLastAnswer = data.answer || '';
+      renderChatResult(recognized, chatLastAnswer);
+      setChatStatus('✅ ' + I18N.t('chatAnswer'));
+      if (data.audioBase64) {
+        const bin = atob(data.audioBase64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const pcm = await decodeAndResample(arr.buffer, 24000);
+        await playLocalBuffer(pcm, 1, 1);
+      }
+      chatHasAudio = false;
+      chatAudioPcm = null;
+    } else {
+      const res = await fetch(serverUrl + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [{ role: 'user', content: text }] }),
+        signal: AbortSignal.timeout(120000)
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
+      const data = await res.json();
+      chatLastAnswer = data.text || '';
+      renderChatResult('', chatLastAnswer);
+      setChatStatus('✅ ' + I18N.t('chatAnswer'));
+    }
+  } catch (e) {
+    setChatStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+// 朗读最近一次回答（走本地 /speak；qwen3 不可达时自动回退 kokoro）
+function chatSpeakFetch(serverUrl, engine, text) {
+  const body = engine === 'qwen3'
+    ? { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto' }
+    : { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: 1 };
+  return fetch(serverUrl + '/speak?engine=' + engine, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60000)
+  });
+}
+
+async function playSpeakResponse(res) {
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const buf = await res.arrayBuffer();
+  const pcm = await decodeAndResample(buf, 24000);
+  await playLocalBuffer(pcm, 1, 1);
+}
+
+async function chatSpeakAnswer() {
+  if (!chatLastAnswer) return;
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  const ttsEngine = currentVoiceConfig.ttsEngine === 'qwen3' ? 'qwen3' : 'kokoro';
+  try {
+    await playSpeakResponse(await chatSpeakFetch(serverUrl, ttsEngine, chatLastAnswer));
+  } catch (e) {
+    if (ttsEngine === 'qwen3') {
+      try {
+        await playSpeakResponse(await chatSpeakFetch(serverUrl, 'kokoro', chatLastAnswer));
+        return;
+      } catch (e2) { /* 回退也失败 → 走下方报错 */ }
+    }
+    setChatStatus(I18N.t('chatError') + ((e && e.message) || ''), true);
+  }
+}
+
+function chatCopyAnswer() {
+  if (!chatLastAnswer) return;
+  navigator.clipboard.writeText(chatLastAnswer)
+    .then(() => setChatStatus('✅ 已复制回答'))
+    .catch(() => setChatStatus(I18N.t('chatError'), true));
+}
+
+function chatClear() {
+  const input = document.getElementById('chatInput');
+  if (input) input.value = '';
+  chatHasAudio = false;
+  chatAudioPcm = null;
+  chatLastAnswer = '';
+  const box = document.getElementById('chatResult');
+  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
+  const speakBtn = document.getElementById('chatSpeakAnswer');
+  if (speakBtn) speakBtn.disabled = true;
+  setChatStatus(I18N.t('chatStatusIdle'));
+}
+
+async function runAsr(pcm16) {
+  if (currentAsrBackend === 'azure') return await asrViaAzure(pcm16);
+  if (currentAsrBackend === 'openai') return await asrViaOpenai(pcm16);
+  if (currentAsrBackend === 'aliyun') return await asrViaAliyun(pcm16);
+  if (currentAsrBackend === 'local') return await asrViaLocal(pcm16);
+  throw new Error(I18N.t('asrNoAudioError'));
+}
+
+// 本地服务（本地部署 asr-server）：POST WAV → http://127.0.0.1:9528/transcribe
+// 不指定 engine → 服务端自动选（SenseVoice 中文优先，否则 whisper 兜底）
+async function asrViaLocal(pcm16) {
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  const wav = encodeWav(float32ToInt16(pcm16), 16000);
+  const res = await fetch(serverUrl + '/transcribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'audio/wav' },
+    body: wav,
+    signal: AbortSignal.timeout(60000)
+  });
+  if (!res.ok) throw new Error('本地服务 HTTP ' + res.status + '（请确认 asr-server 已启动）');
+  const data = await res.json().catch(() => ({}));
+  if (data.text) return data.text;
+  throw new Error('本地服务: ' + (data.error || '未返回结果'));
+}
+
+// 微软 Azure（REST，≤60s 短音频）：POST WAV，Ocp-Apim-Subscription-Key 认证
+async function asrViaAzure(pcm16) {
+  const cfg = currentVoiceConfig;
+  if (!cfg.voiceAzureKey || !cfg.voiceAzureRegion) throw new Error(I18N.t('asrNoConfig'));
+  const region = cfg.voiceAzureRegion.replace(/^https?:\/\//, '').split('.')[0];
+  const lang = String(document.documentElement.lang).startsWith('zh') ? 'zh-CN' : 'en-US';
+  const url = `https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${lang}&format=detailed`;
+  const wav = encodeWav(float32ToInt16(pcm16), 16000);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Ocp-Apim-Subscription-Key': cfg.voiceAzureKey,
+      'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+      'Accept': 'application/json'
+    },
+    body: wav,
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) throw new Error('Azure HTTP ' + res.status);
+  const data = await res.json();
+  if (data.RecognitionStatus === 'Success' && data.DisplayText) return data.DisplayText;
+  throw new Error('Azure: ' + (data.RecognitionStatus || '未返回结果'));
+}
+
+// OpenAI Whisper（OpenAI 兼容，可用 SiliconFlow/Groq 等改 Base）：multipart POST /audio/transcriptions
+async function asrViaOpenai(pcm16) {
+  const cfg = currentVoiceConfig;
+  const key = getOpenaiAsrKey();
+  if (!key) throw new Error(I18N.t('asrNoConfig'));
+  const base = (cfg.voiceOpenaiBase || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const wav = encodeWav(float32ToInt16(pcm16), 16000);
+  const form = new FormData();
+  form.append('model', 'whisper-1');
+  form.append('response_format', 'json');
+  form.append('file', new Blob([wav], { type: 'audio/wav' }), 'recording.wav');
+  const res = await fetch(base + '/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key },
+    body: form,
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) throw new Error('OpenAI HTTP ' + res.status);
+  const data = await res.json();
+  if (data.text) return data.text;
+  throw new Error('OpenAI: ' + (data.error && data.error.message || '未返回结果'));
+}
+
+// 阿里云 DashScope（Qwen-ASR，OpenAI 兼容 chat/completions）：base64 WAV → 文本
+// 参考：https://www.alibabacloud.com/help/en/model-studio/qwen-asr-api-reference
+async function asrViaAliyun(pcm16) {
+  const cfg = currentVoiceConfig;
+  if (!cfg.voiceAliyunKey) throw new Error(I18N.t('asrNoConfig'));
+  const wav = encodeWav(float32ToInt16(pcm16), 16000);
+  // 转 base64 data URL（≤10MB，短录音足够）
+  let binary = '';
+  const bytes = new Uint8Array(wav.buffer || wav);
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  const dataUrl = 'data:audio/wav;base64,' + btoa(binary);
+  const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + cfg.voiceAliyunKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'qwen3-asr-flash',
+      messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: dataUrl }] }],
+      stream: false,
+      asr_options: { language: String(document.documentElement.lang).startsWith('zh') ? 'zh' : undefined }
+    }),
+    signal: AbortSignal.timeout(60000)
+  });
+  if (!res.ok) throw new Error('阿里云 HTTP ' + res.status);
+  const data = await res.json();
+  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (text) return String(text).trim();
+  throw new Error('阿里云: ' + (data.error && data.error.message || '未返回结果'));
+}
+
+// ---- 音频工具：解码 / 重采样 / 编码 ----
+// 健壮版：OfflineAudioContext 解码 + 高质量重采样到 16k 单声道，
+// 兼容各种采样率/声道的麦克风（USB 麦常见 48k/96k、多声道）。
+async function decodeAndResample(arrayBuffer, targetRate = 16000) {
+  // 1. 解码（OfflineAudioContext 解码不依赖运行中的 AudioContext，更可靠）
+  const decodeCtx = new OfflineAudioContext(1, 1, targetRate);
+  const audioBuf = await decodeCtx.decodeAudioData(arrayBuffer);
+  // 2. 多声道 → 单声道（平均）
+  const chCount = Math.max(1, audioBuf.numberOfChannels);
+  const len = audioBuf.length;
+  const mono = new Float32Array(len);
+  for (let c = 0; c < chCount; c++) {
+    const d = audioBuf.getChannelData(c);
+    for (let i = 0; i < len; i++) mono[i] += d[i] / chCount;
+  }
+  const srcRate = audioBuf.sampleRate;
+  if (srcRate === targetRate) return mono;
+  // 3. 高质量重采样：经 OfflineAudioContext 渲染到目标采样率（自动低通滤波，避免抽样混叠）
+  const outLen = Math.max(1, Math.ceil(len * targetRate / srcRate));
+  const offCtx = new OfflineAudioContext(1, outLen, targetRate);
+  const monoBuf = new AudioBuffer({ length: len, numberOfChannels: 1, sampleRate: srcRate });
+  monoBuf.copyToChannel(mono, 0);
+  const src = offCtx.createBufferSource();
+  src.buffer = monoBuf;
+  src.connect(offCtx.destination);
+  src.start(0);
+  const rendered = await offCtx.startRendering();
+  return rendered.getChannelData(0);
+}
+
+function float32ToInt16(pcm) {
+  const out = new Int16Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) {
+    out[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * 32767))) | 0;
+  }
+  return out;
+}
+
+// 16-bit 单声道 PCM → WAV（44 字节头）
+function encodeWav(int16, sampleRate = 16000) {
+  const n = int16.length;
+  const buffer = new ArrayBuffer(44 + n * 2);
+  const view = new DataView(buffer);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); view.setUint32(4, 36 + n * 2, true); w(8, 'WAVE');
+  w(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  w(36, 'data'); view.setUint32(40, n * 2, true);
+  new Int16Array(buffer, 44).set(int16);
+  return new Uint8Array(buffer);
+}
+
+// 清洗识别文本：去掉 <|...|>（SenseVoice 语种/情感标记等）并压缩空白
+function cleanAsrText(text) {
+  return String(text || '').replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// ---- 结果操作：复制 / 发给朗读 / 翻译 / AI ----
+async function asrCopyResult() {
+  const out = document.getElementById('asrResult');
+  if (!out || !out.value) return;
+  try {
+    await navigator.clipboard.writeText(out.value);
+    showStatus('✅ ' + I18N.t('copied'), 'success');
+  } catch (e) {
+    out.select();
+    document.execCommand('copy');
+    showStatus('✅ ' + I18N.t('copied'), 'success');
+  }
+}
+
+function asrClearResult() {
+  const out = document.getElementById('asrResult');
+  if (out) out.value = '';
+  setAsrStatus(I18N.t('asrStatusIdle'));
+}
+
+function asrSendToTts() {
+  const out = document.getElementById('asrResult');
+  if (!out || !out.value.trim()) return;
+  switchTool('tts');
+  const input = document.getElementById('ttsInput');
+  if (input) input.value = out.value;
+  speakInputText();
+}
+
+async function asrSendToTrans() {
+  const out = document.getElementById('asrResult');
+  if (!out || !out.value.trim()) return;
+  switchTool('ai');
+  await setAiMode('trans');
+  const input = document.getElementById('translateInput');
+  if (input) input.value = out.value;
+  translateInput();
+}
+
+async function asrSendToAi() {
+  const out = document.getElementById('asrResult');
+  if (!out || !out.value.trim()) return;
+  switchTool('ai');
+  // 仅处于「免费翻译」模式时 AI 主体隐藏，先切到「免费浏览器版」注入模式再发送
+  const mode = await getEffectiveAiMode();
+  if (mode === 'trans') await setAiMode('inject');
+  injectSetInput(out.value);
+  injectSend();
+}
+
+// AI 面板后端模式：'trans' 免费翻译（MyMemory）/ 'inject' 免费浏览器版（页面注入）/ 'api' 自填 API 版
+// 用户显式选择前：已配置 API 默认走 api，否则 inject（保持历史行为）
+async function getEffectiveAiMode() {
+  const r = await chrome.storage.local.get('aiMode');
+  if (r.aiMode === 'trans' || r.aiMode === 'inject' || r.aiMode === 'api') return r.aiMode;
+  return 'trans'; // 首次默认选中「免费翻译」界面
+}
+
+async function setAiMode(mode) {
+  await chrome.storage.local.set({ aiMode: mode });
+  await syncAiBackendUi();
+}
+
+// 同步后端切换 UI + 红区提示 + 站点下拉置灰：
+//   trans 模式：显示「免费翻译」界面（MyMemory），AI 主体整体隐藏
+//   inject 模式：站点下拉可用，提示隐藏
+//   api 模式：站点下拉置灰（API 忽略 site）；已配置显示「API 模式 · 模型 @ host」，未配置提示去蓝区设置
+async function syncAiBackendUi() {
+  const mode = await getEffectiveAiMode();
+  const transBtn = aiField('aiBackendTrans');
+  const injectBtn = aiField('aiBackendInject');
+  const apiBtn = aiField('aiBackendApi');
+  if (transBtn) transBtn.classList.toggle('active', mode === 'trans');
+  if (injectBtn) injectBtn.classList.toggle('active', mode === 'inject');
+  if (apiBtn) apiBtn.classList.toggle('active', mode === 'api');
+
+  // 免费翻译模式：只显示翻译界面；AI 主体（inject/api）整体隐藏
+  const transMode = aiField('transMode');
+  const aiMain = aiField('aiMain');
+  if (transMode) transMode.classList.toggle('hidden', mode !== 'trans');
+  if (aiMain) aiMain.classList.toggle('hidden', mode === 'trans');
+
+  const hint = aiField('aiModeHint');
+  const siteRow = document.querySelector('.ai-site-row');
+  const apiConfigured = !!currentAiConfig.aiBaseUrl;
+  if (siteRow) siteRow.classList.toggle('api-mode', mode === 'api');
+  if (hint) {
+    if (mode === 'api') {
+      if (apiConfigured) {
+        let host = '?';
+        try { host = new URL(currentAiConfig.aiBaseUrl).host; } catch (e) {}
+        hint.textContent = I18N.t('aiModeApi', currentAiConfig.aiModel || getAiDefaultModel(currentAiConfig.aiProvider), host);
+      } else {
+        hint.textContent = I18N.t('aiBackendApiNoConfig');
+      }
+      hint.classList.remove('hidden');
+    } else if (mode === 'inject') {
+      // 免费浏览器版说明：需先打开并登录对话界面（站点名与下方「发送到」选中项一致）
+      const siteSel = document.getElementById('injectSite');
+      const siteName = (siteSel && siteSel.selectedOptions[0]) ? siteSel.selectedOptions[0].textContent.trim() : '';
+      hint.textContent = I18N.t('aiBackendInjectHint', siteName);
+      hint.classList.remove('hidden');
+    } else {
+      hint.classList.add('hidden');
+    }
+  }
+}
+
+async function loadVersionSettings() {
+  const r = await chrome.storage.local.get(['bookmarkMaxVersions', 'historyMaxVersions']);
+  const bm = document.getElementById('bmMaxVersions');
+  const hist = document.getElementById('histMaxVersions');
+  if (bm) bm.value = r.bookmarkMaxVersions || 20;
+  if (hist) hist.value = r.historyMaxVersions || 20;
+}
+
+async function saveBmMaxVersions() {
+  const input = document.getElementById('bmMaxVersions');
+  const v = Math.max(1, Math.min(100, parseInt(input?.value) || 20));
+  await chrome.storage.local.set({ bookmarkMaxVersions: v });
+  showStatus(I18N.t('bmMaxSaved'), 'success');
+}
+
+async function saveHistMaxVersions() {
+  const input = document.getElementById('histMaxVersions');
+  const v = Math.max(1, Math.min(100, parseInt(input?.value) || 20));
+  await chrome.storage.local.set({ historyMaxVersions: v });
+  showStatus(I18N.t('histMaxSaved'), 'success');
+}
+
+// ========== 定时保存快照 ==========
+const AUTO_SAVE_INTERVAL_VALUES = ['0', '1', '6', '12', '24', '48'];
+function autoSaveTimeInput() { return document.getElementById('autoSaveDailyAt'); }
+
+async function loadAutoSaveSettings() {
+  const sel = document.getElementById('autoSaveInterval');
+  const timeInput = autoSaveTimeInput();
+  if (sel && timeInput) {
+    const r = await chrome.storage.local.get(['autoSnapshotIntervalHours', 'autoSnapshotDailyAt']);
+    const dailyAt = r.autoSnapshotDailyAt;
+    if (typeof dailyAt === 'string' && /^\d{2}:\d{2}$/.test(dailyAt)) {
+      sel.value = 'daily';
+      timeInput.value = dailyAt;
+    } else {
+      sel.value = String(r.autoSnapshotIntervalHours ?? 12);
+      if (!AUTO_SAVE_INTERVAL_VALUES.includes(sel.value)) sel.value = '12';
+    }
+    timeInput.hidden = sel.value !== 'daily';
+  }
+  const last = document.getElementById('autoSaveLastAt');
+  if (last) {
+    const r = await chrome.storage.local.get('lastAutoSnapshotAt');
+    last.textContent = r.lastAutoSnapshotAt ? new Date(r.lastAutoSnapshotAt).toLocaleString() : '—';
+  }
+}
+
+async function saveAutoSaveInterval() {
+  const sel = document.getElementById('autoSaveInterval');
+  const timeInput = autoSaveTimeInput();
+  const v = sel?.value || '0';
+  if (v === 'daily') {
+    const t = (timeInput?.value || '21:00');
+    await chrome.storage.local.set({ autoSnapshotDailyAt: t });
+    await chrome.storage.local.remove('autoSnapshotIntervalHours');
+    await sendMessage('rescheduleAutoSnapshot'); // 让后台按新调度重建 alarm
+    showStatus(I18N.t('autoSaveDailySaved', t), 'success');
+  } else {
+    const hours = Math.max(0, parseInt(v) || 0);
+    await chrome.storage.local.set({ autoSnapshotIntervalHours: hours });
+    await chrome.storage.local.remove('autoSnapshotDailyAt');
+    await sendMessage('rescheduleAutoSnapshot'); // 让后台按新周期重建 alarm
+    showStatus(hours > 0 ? I18N.t('autoSaveSaved', hours) : I18N.t('autoSaveOffMsg'), 'success');
+  }
+}
+
+// ========== 关于：反馈 / 评价弹窗（可手动关闭） ==========
+function openAboutModal(kind) {
+  const modal = document.getElementById('aboutModal');
+  if (!modal) return;
+  document.getElementById('aboutModalTitle').textContent = I18N.t(kind === 'review' ? 'aboutReview' : 'aboutFeedback');
+  document.getElementById('aboutModalMsg').textContent = I18N.t(kind === 'review' ? 'aboutReviewMsg' : 'aboutFeedbackMsg');
+  modal.classList.remove('hidden');
+}
+function closeAboutModal() {
+  const modal = document.getElementById('aboutModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function clearSnapshotsData() {
+  if (!confirm(I18N.t('confirmClearSnapshots'))) return;
+  const r = await sendMessage('clearAllSnapshots');
+  if (r && r.success) {
+    showStatus(I18N.t('clearedAllSnapshots'), 'success');
+    await loadStats();
+  } else {
+    showStatus(I18N.t('clearFail'), 'error');
+  }
+}
+
+async function clearBookmarkVersionsData() {
+  if (!confirm(I18N.t('confirmClearBmVersions'))) return;
+  const r = await sendMessage('clearAllBookmarkVersions');
+  if (r && r.success) {
+    showStatus(I18N.t('clearedBmVersions'), 'success');
+    await loadStats();
+  } else {
+    showStatus(I18N.t('clearFail'), 'error');
+  }
+}
+
+async function clearHistoryVersionsData() {
+  if (!confirm(I18N.t('confirmClearHistVersions'))) return;
+  const r = await sendMessage('clearAllHistoryVersions');
+  if (r && r.success) {
+    showStatus(I18N.t('clearedHistVersions'), 'success');
+    await loadStats();
+  } else {
+    showStatus(I18N.t('clearFail'), 'error');
+  }
+}
+
+// 从 JSON 文件导入备份
+async function importDataFromFile(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    showStatus(I18N.t('importing'), 'info');
+    const r = await sendMessage('importData', { jsonData: text });
+    if (r && r.success) showStatus(I18N.t('importSuccess', r.count), 'success');
+    else showStatus(I18N.t('importFail') + ((r && r.message) || I18N.t('unknownError')), 'error');
+  } catch (e) {
+    showStatus(I18N.t('importFail') + e.message, 'error');
+  }
+}
+
+// ========== 初始化 ==========
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('TabU sidepanel loaded');
+  const yearEl = document.getElementById('year');
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
+
+  // ===== 红蓝层切换 =====
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.addEventListener('click', () => switchLayer(btn.dataset.layer));
+  });
+
+  // ===== 文本工具切换（朗读/翻译/AI/卡片） =====
+  document.querySelectorAll('.tool-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchTool(btn.dataset.tool));
+  });
+
+  // ===== 头部动作 =====
+  const btnExport = document.getElementById('btnExport');
+  if (btnExport) btnExport.addEventListener('click', exportData);
+  const btnIncog = document.getElementById('btnIncognito');
+  if (btnIncog) btnIncog.addEventListener('click', createIncognitoWindow);
+
+  // ===== 朗读 =====
+  // 三个朗读按钮即「开始/停止」开关：朗读中点击同按钮 = 停止
+  const ttsSpeak = document.getElementById('ttsSpeak');
+  if (ttsSpeak) ttsSpeak.addEventListener('click', () => {
+    if (activeSpeakBtn === ttsSpeak) stopSpeaking(); else speakSelected();
+  });
+  const ttsSpeakFull = document.getElementById('ttsSpeakFull');
+  if (ttsSpeakFull) ttsSpeakFull.addEventListener('click', () => {
+    if (activeSpeakBtn === ttsSpeakFull) stopSpeaking(); else speakFullPage(ttsSpeakFull);
+  });
+  // 折叠态「朗读全文」按钮：同样是 开始/停止 开关
+  const ttsSpeakFullMini = document.getElementById('ttsSpeakFullMini');
+  if (ttsSpeakFullMini) ttsSpeakFullMini.addEventListener('click', () => {
+    if (activeSpeakBtn === ttsSpeakFullMini) stopSpeaking(); else speakFullPage(ttsSpeakFullMini);
+  });
+  // 折叠态「展开」按钮：展开显示朗读全功能
+  const ttsExpandBtn = document.getElementById('ttsExpand');
+  if (ttsExpandBtn) ttsExpandBtn.addEventListener('click', () => {
+    const mini = document.querySelector('.tts-mini');
+    const full = document.getElementById('ttsFull');
+    if (mini) mini.classList.add('hidden');
+    if (full) full.classList.remove('hidden');
+  });
+  const ttsSpeakInput = document.getElementById('ttsSpeakInput');
+  if (ttsSpeakInput) ttsSpeakInput.addEventListener('click', () => {
+    if (activeSpeakBtn === ttsSpeakInput) stopSpeaking(); else speakInputText();
+  });
+  const langFilter = document.getElementById('ttsLangFilter');
+  if (langFilter) langFilter.addEventListener('change', applyVoiceFilter);
+  // OS TTS 引擎常懒加载语音：等 voiceschanged 再补一次列表（首次可能返回空）
+  if (chrome.tts && chrome.tts.onVoicesChanged) {
+    chrome.tts.onVoicesChanged.addListener(() => { if (allVoices.length === 0) populateVoices(); });
+  }
+  // 滑块标签
+  ['ttsRate', 'ttsPitch', 'ttsVolume'].forEach(id => {
+    const input = document.getElementById(id);
+    const label = document.getElementById(id + 'Label');
+    if (input && label) {
+      input.addEventListener('input', () => {
+        label.textContent = parseFloat(input.value).toFixed(1);
+      });
+    }
+  });
+  // 朗读引擎 + 本地音色（朗读面板 / 蓝区共用，双向同步）
+  const ttsEngineSel = document.getElementById('ttsEngine');
+  if (ttsEngineSel) ttsEngineSel.addEventListener('change', () => setTtsEngine(ttsEngineSel.value));
+  const ttsEngineBlue = document.getElementById('ttsEngineBlue');
+  if (ttsEngineBlue) ttsEngineBlue.addEventListener('change', () => setTtsEngine(ttsEngineBlue.value));
+  const ttsLocalVoiceSel = document.getElementById('ttsLocalVoice');
+  if (ttsLocalVoiceSel) ttsLocalVoiceSel.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceSel));
+  const ttsLocalVoiceBlue = document.getElementById('ttsLocalVoiceBlue');
+  if (ttsLocalVoiceBlue) ttsLocalVoiceBlue.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceBlue));
+  // 蓝区「测试朗读」：读一句样例，验证本地 TTS
+  const ttsLocalTestBtn = document.getElementById('ttsLocalTestBtn');
+  if (ttsLocalTestBtn) ttsLocalTestBtn.addEventListener('click', () => {
+    const engine = currentVoiceConfig.ttsEngine;
+    if (!LOCAL_TTS_ENGINES.includes(engine)) {
+      const tip = I18N.t('ttsLocalNeedServer');
+      showStatus(tip, 'error');
+      if (voiceField('voiceTestStatus')) voiceField('voiceTestStatus').textContent = tip;
+      return;
+    }
+    speakLocalTts(I18N.t('ttsLocalSample'), voiceField('voiceTestStatus'), ttsLocalTestBtn, engine);
+  });
+
+  // ===== 翻译 =====
+  const transDo = document.getElementById('translateDo');
+  if (transDo) transDo.addEventListener('click', translateInput);
+  const transSel = document.getElementById('translateSelected');
+  if (transSel) transSel.addEventListener('click', translateSelected);
+  const transFull = document.getElementById('translateFull');
+  if (transFull) transFull.addEventListener('click', translateFullPage);
+  const transClear = document.getElementById('translateClear');
+  if (transClear) transClear.addEventListener('click', clearTranslate);
+  const copyBtn = document.getElementById('copyTranslateResult');
+  if (copyBtn) copyBtn.addEventListener('click', copyTranslateResult);
+  const sourceSelect = document.getElementById('translateSource');
+  const targetSelect = document.getElementById('translateTarget');
+  if (sourceSelect) sourceSelect.addEventListener('change', saveTranslateSettings);
+  if (targetSelect) targetSelect.addEventListener('change', saveTranslateSettings);
+
+  // 防止按钮按下时抢走焦点，导致网页上的文字选区被清除
+  ['translateSelected', 'ttsSpeak', 'cardImportSel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('mousedown', (e) => e.preventDefault());
+  });
+
+
+  // ===== 卡片 =====
+  // 卡片控件标签栏（字体/样式/位置/颜色），避免所有控件堆叠占高
+  document.querySelectorAll('.card-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.card-tab').forEach(b => b.classList.toggle('active', b === btn));
+      const ctab = btn.dataset.ctab;
+      document.querySelectorAll('.card-ctab').forEach(p => p.classList.toggle('hidden', p.dataset.ctab !== ctab));
+    });
+  });
+  const cardInputEl = document.getElementById('cardInput');
+  if (cardInputEl) cardInputEl.addEventListener('input', updateCardPreview);
+  const cardImportSelEl = document.getElementById('cardImportSel');
+  if (cardImportSelEl) cardImportSelEl.addEventListener('click', cardImportSelected);
+  const cardPasteEl = document.getElementById('cardPaste');
+  if (cardPasteEl) cardPasteEl.addEventListener('click', cardPaste);
+  const ctlFontFieldEl = document.getElementById('ctlFontField');
+  if (ctlFontFieldEl) ctlFontFieldEl.addEventListener('click', (e) => { e.stopPropagation(); toggleFontList(); });
+  const ctlFontSearchEl = document.getElementById('ctlFontSearch');
+  if (ctlFontSearchEl) {
+    // 搜索即实时过滤并展开列表（修复原 select 需点开才可见筛选结果的问题）
+    ctlFontSearchEl.addEventListener('focus', () => { const l = document.getElementById('ctlFontList'); if (l) l.classList.add('open'); });
+    ctlFontSearchEl.addEventListener('input', () => {
+      renderFontList();
+      if (ctlFontSearchEl.value.trim()) { const l = document.getElementById('ctlFontList'); if (l) l.classList.add('open'); }
+    });
+  }
+  // 点击面板其它区域时收起字体列表
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.font-ctrl')) closeFontList();
+  });
+  // 卡片比例 / 宽度
+  const ctlRatioEl = document.getElementById('ctlRatio');
+  if (ctlRatioEl) ctlRatioEl.addEventListener('change', updateCardPreview);
+  const ctlCardWEl = document.getElementById('ctlCardW');
+  const ctlCardWVEl = document.getElementById('ctlCardWV');
+  if (ctlCardWEl) {
+    ctlCardWEl.addEventListener('input', () => {
+      if (ctlCardWVEl) ctlCardWVEl.textContent = ctlCardWEl.value;
+      updateCardPreview();
+    });
+    // 默认宽度 800px（HTML value=800）；不自动跟随面板宽度
+    if (ctlCardWVEl) ctlCardWVEl.textContent = ctlCardWEl.value;
+  }
+  // 侧边栏宽度可被用户拖拽，窗口 resize 时重算卡片预览缩放（卡片已迁至蓝区，蓝层激活时才更新）
+  window.addEventListener('resize', () => {
+    const app = document.getElementById('app');
+    if (app && app.dataset.layer === 'blue') updateCardPreview();
+  });
+  document.querySelectorAll('#ctlBg .swatch, #ctlColor .swatch').forEach(s => {
+    s.style.background = s.dataset.c; // 色块背景取自 data-c，否则看不见颜色
+    s.addEventListener('click', () => {
+      const which = s.parentElement.id === 'ctlBg' ? 'bg' : 'text';
+      setCurrentColor(which, s.dataset.c);
+      updateCardPreview();
+    });
+  });
+  // 自定义取色器：自由选色（命中预设则点亮对应色块）
+  [['bg', 'ctlBgColor'], ['text', 'ctlTextColor']].forEach(([which, id]) => {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('input', () => {
+      setCurrentColor(which, input.value);
+      updateCardPreview();
+    });
+  });
+  // 配色方案弹窗
+  document.querySelectorAll('.palette-btn').forEach(b => {
+    b.addEventListener('click', () => openPalette(b.dataset.which === 'text' ? 'text' : 'bg'));
+  });
+  const paletteCloseEl = document.getElementById('paletteClose');
+  if (paletteCloseEl) paletteCloseEl.addEventListener('click', closePalette);
+  const paletteOverlayEl = document.getElementById('paletteOverlay');
+  if (paletteOverlayEl) paletteOverlayEl.addEventListener('click', (e) => { if (e.target === paletteOverlayEl) closePalette(); });
+  ['ctlRadius', 'ctlPad', 'ctlFontSize'].forEach(id => {
+    const input = document.getElementById(id);
+    const label = document.getElementById(id + 'V');
+    if (input) {
+      input.addEventListener('input', () => {
+        if (label) label.textContent = input.value;
+        updateCardPreview();
+      });
+    }
+  });
+  // 文本框位置：X/Y 滑块（标签在 updateCardPreview 里统一更新为 "x, y"）
+  ['ctlPosX', 'ctlPosY'].forEach(id => {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('input', () => updateCardPreview());
+  });
+  const ctlPosReset = document.getElementById('ctlPosReset');
+  if (ctlPosReset) ctlPosReset.addEventListener('click', () => setPos(0, 0));
+  // 卡片内直接拖拽文本框移动位置（作用于 .ec-fit，translate 在 scale 外 → 1:1 映射 canvas posX/posY）
+  // 整卡被预览缩放后，屏幕像素 → 逻辑像素按 cardPreviewScale 换算，文本框跟随光标移动 1:1
+  const ecFitEl = document.getElementById('ecFit');
+  if (ecFitEl) {
+    let drag = null;
+    ecFitEl.addEventListener('pointerdown', (e) => {
+      drag = { sx: e.clientX, sy: e.clientY, px: getPos('X'), py: getPos('Y') };
+      ecFitEl.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    ecFitEl.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const k = cardPreviewScale || 1;
+      setPos(drag.px + (e.clientX - drag.sx) / k, drag.py + (e.clientY - drag.sy) / k);
+    });
+    const endDrag = () => { drag = null; };
+    ecFitEl.addEventListener('pointerup', endDrag);
+    ecFitEl.addEventListener('pointercancel', endDrag);
+  }
+  const cardDownloadEl = document.getElementById('cardDownload');
+  if (cardDownloadEl) cardDownloadEl.addEventListener('click', downloadCard);
+  const cardCopyTextEl = document.getElementById('cardCopyText');
+  if (cardCopyTextEl) cardCopyTextEl.addEventListener('click', copyCardText);
+
+  // ===== 截图浮层 =====
+  const shotCloseEl = document.getElementById('shotClose');
+  if (shotCloseEl) shotCloseEl.addEventListener('click', closeScreenshot);
+  const shotDownloadEl = document.getElementById('shotDownload');
+  if (shotDownloadEl) shotDownloadEl.addEventListener('click', downloadScreenshot);
+  const shotCopyEl = document.getElementById('shotCopy');
+  if (shotCopyEl) shotCopyEl.addEventListener('click', copyScreenshot);
+
+  // ===== 注入（AI 面板） =====
+  const captureSelEl = document.getElementById('injectCaptureSel');
+  if (captureSelEl) captureSelEl.addEventListener('click', injectCaptureSelected);
+  const captureFullEl = document.getElementById('injectCaptureFull');
+  if (captureFullEl) captureFullEl.addEventListener('click', injectCaptureFull);
+  const newChatEl = document.getElementById('injectNewChat');
+  if (newChatEl) newChatEl.addEventListener('click', injectNewChat);
+  const sendEl = document.getElementById('injectSend');
+  if (sendEl) sendEl.addEventListener('click', injectSend);
+  const stopEl = document.getElementById('injectStop');
+  if (stopEl) stopEl.addEventListener('click', injectStop);
+  // 自定义模板输入框：回车走合并后的发送（自动套用模板）
+  const customTplEl = document.getElementById('injectCustomTpl');
+  if (customTplEl) customTplEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') injectSend(); });
+  document.querySelectorAll('#panel-ai [data-tpl]').forEach(btn => {
+    btn.addEventListener('click', () => injectSendTemplate(btn.dataset.tpl));
+  });
+  const copyResultEl = document.getElementById('injectCopyResult');
+  if (copyResultEl) copyResultEl.addEventListener('click', injectCopyResult);
+  const injectClearEl = document.getElementById('injectClear');
+  if (injectClearEl) injectClearEl.addEventListener('click', injectClear);
+  // 免费浏览器版说明跟随「发送到」站点变化
+  const injectSiteSel = document.getElementById('injectSite');
+  if (injectSiteSel) injectSiteSel.addEventListener('change', syncAiBackendUi);
+  const clearHistoryEl = document.getElementById('injectClearHistory');
+  if (clearHistoryEl) clearHistoryEl.addEventListener('click', clearInjectHistory);
+
+  // ===== 蓝层：数据工具 =====
+  const blueScreenshot = document.getElementById('blueScreenshot');
+  if (blueScreenshot) blueScreenshot.addEventListener('click', captureScreenshot);
+  const bluePrint = document.getElementById('bluePrint');
+  if (bluePrint) bluePrint.addEventListener('click', printCurrentTab);
+  const blueMail = document.getElementById('blueMail');
+  if (blueMail) blueMail.addEventListener('click', mailExport);
+  const blueExport = document.getElementById('blueExport');
+  if (blueExport) blueExport.addEventListener('click', exportData);
+  const blueImport = document.getElementById('blueImport');
+  const blueImportFile = document.getElementById('blueImportFile');
+  if (blueImport && blueImportFile) {
+    blueImport.addEventListener('click', () => blueImportFile.click());
+    blueImportFile.addEventListener('change', (e) => {
+      importDataFromFile(e.target.files && e.target.files[0]);
+      e.target.value = ''; // 允许重复选择同一文件
+    });
+  }
+
+  // ===== 蓝层：系统设置 =====
+  const bridgeTokenSave = document.getElementById('bridgeTokenSave');
+  if (bridgeTokenSave) bridgeTokenSave.addEventListener('click', saveBridgeToken);
+  const injectSwitch = document.getElementById('injectSwitch');
+  if (injectSwitch) injectSwitch.addEventListener('click', toggleInjectSwitch);
+  // ===== 蓝层：AI 服务（P0-B） =====
+  const aiSaveBtn = document.getElementById('aiSaveBtn');
+  if (aiSaveBtn) aiSaveBtn.addEventListener('click', saveAiConfig);
+  const aiTestBtn = document.getElementById('aiTestBtn');
+  if (aiTestBtn) aiTestBtn.addEventListener('click', testAiConnection);
+  const aiKeyToggle = document.getElementById('aiKeyToggle');
+  if (aiKeyToggle) aiKeyToggle.addEventListener('click', toggleAiKeyVisible);
+  const aiAllowAnySwitch = document.getElementById('aiAllowAnySwitch');
+  if (aiAllowAnySwitch) aiAllowAnySwitch.addEventListener('click', toggleAiAllowAny);
+  const aiProviderSel = document.getElementById('aiProvider');
+  if (aiProviderSel) aiProviderSel.addEventListener('change', onAiProviderChange);
+  // 红区 AI 后端切换（免费翻译 / 免费浏览器版 / 自填 API 版）
+  const aiBackendTrans = document.getElementById('aiBackendTrans');
+  if (aiBackendTrans) aiBackendTrans.addEventListener('click', () => setAiMode('trans'));
+  const aiBackendInject = document.getElementById('aiBackendInject');
+  if (aiBackendInject) aiBackendInject.addEventListener('click', () => setAiMode('inject'));
+  const aiBackendApi = document.getElementById('aiBackendApi');
+  if (aiBackendApi) aiBackendApi.addEventListener('click', () => setAiMode('api'));
+
+  // ===== 语音服务（蓝区设置） =====
+  const voiceSaveBtn = document.getElementById('voiceSaveBtn');
+  if (voiceSaveBtn) voiceSaveBtn.addEventListener('click', saveVoiceConfig);
+  const voiceTestBtn = document.getElementById('voiceTestBtn');
+  if (voiceTestBtn) voiceTestBtn.addEventListener('click', testVoiceConfig);
+
+  // ===== 转写面板（ASR） =====
+  const asrRecordBtn = document.getElementById('asrRecord');
+  if (asrRecordBtn) asrRecordBtn.addEventListener('click', toggleAsrRecord);
+  const asrMicPermBtn = document.getElementById('asrMicPerm');
+  if (asrMicPermBtn) asrMicPermBtn.addEventListener('click', openMicPermissionPage);
+  const asrMicDeviceSel = document.getElementById('asrMicDevice');
+  if (asrMicDeviceSel) asrMicDeviceSel.addEventListener('change', () => {
+    currentVoiceConfig.asrMicDeviceId = asrMicDeviceSel.value || '';
+    chrome.storage.local.set({ asrMicDeviceId: asrMicDeviceSel.value || '' });
+  });
+  loadAsrDevices();
+  const asrClearBtn = document.getElementById('asrClear');
+  if (asrClearBtn) asrClearBtn.addEventListener('click', asrClearResult);
+  const asrCopyBtn = document.getElementById('asrCopy');
+  if (asrCopyBtn) asrCopyBtn.addEventListener('click', asrCopyResult);
+  const asrSendTtsBtn = document.getElementById('asrSendTts');
+  if (asrSendTtsBtn) asrSendTtsBtn.addEventListener('click', asrSendToTts);
+  const asrSendTransBtn = document.getElementById('asrSendTrans');
+  if (asrSendTransBtn) asrSendTransBtn.addEventListener('click', asrSendToTrans);
+  const asrSendAiBtn = document.getElementById('asrSendAi');
+  if (asrSendAiBtn) asrSendAiBtn.addEventListener('click', asrSendToAi);
+
+  // ===== 对话面板（Chat）：本地 LLM 文本/语音对话 =====
+  const chatRecordBtn = document.getElementById('chatRecord');
+  if (chatRecordBtn) chatRecordBtn.addEventListener('click', toggleChatRecord);
+  const chatSendBtn = document.getElementById('chatSend');
+  if (chatSendBtn) chatSendBtn.addEventListener('click', sendChat);
+  const chatClearBtn = document.getElementById('chatClear');
+  if (chatClearBtn) chatClearBtn.addEventListener('click', chatClear);
+  const chatMicPermBtn = document.getElementById('chatMicPerm');
+  if (chatMicPermBtn) chatMicPermBtn.addEventListener('click', openMicPermissionPage);
+  const chatMicDeviceSel = document.getElementById('chatMicDevice');
+  if (chatMicDeviceSel) chatMicDeviceSel.addEventListener('change', () => {
+    currentVoiceConfig.asrMicDeviceId = chatMicDeviceSel.value || '';
+    chrome.storage.local.set({ asrMicDeviceId: chatMicDeviceSel.value || '' });
+  });
+  const chatSpeakBtn = document.getElementById('chatSpeakAnswer');
+  if (chatSpeakBtn) { chatSpeakBtn.disabled = true; chatSpeakBtn.addEventListener('click', chatSpeakAnswer); }
+  const chatCopyBtn = document.getElementById('chatCopyAnswer');
+  if (chatCopyBtn) chatCopyBtn.addEventListener('click', chatCopyAnswer);
+  // 后端切换
+  const asrBackendMap = { asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
+  Object.entries(asrBackendMap).forEach(([id, backend]) => {
+    const btn = document.getElementById(id);
+    if (btn) btn.addEventListener('click', () => setAsrBackend(backend));
+  });
+  const bmMaxVersionsSave = document.getElementById('bmMaxVersionsSave');
+  if (bmMaxVersionsSave) bmMaxVersionsSave.addEventListener('click', saveBmMaxVersions);
+  const histMaxVersionsSave = document.getElementById('histMaxVersionsSave');
+  if (histMaxVersionsSave) histMaxVersionsSave.addEventListener('click', saveHistMaxVersions);
+
+  // ===== 蓝层：数据管理 =====
+  const clearSnapshotsBtn = document.getElementById('clearSnapshots');
+  if (clearSnapshotsBtn) clearSnapshotsBtn.addEventListener('click', clearSnapshotsData);
+  const clearBookmarkVersionsBtn = document.getElementById('clearBookmarkVersions');
+  if (clearBookmarkVersionsBtn) clearBookmarkVersionsBtn.addEventListener('click', clearBookmarkVersionsData);
+  const clearHistoryVersionsBtn = document.getElementById('clearHistoryVersions');
+  if (clearHistoryVersionsBtn) clearHistoryVersionsBtn.addEventListener('click', clearHistoryVersionsData);
+
+  // ===== 蓝层：定时保存快照 =====
+  const autoSaveIntervalSave = document.getElementById('autoSaveIntervalSave');
+  if (autoSaveIntervalSave) autoSaveIntervalSave.addEventListener('click', saveAutoSaveInterval);
+  const autoSaveIntervalSel = document.getElementById('autoSaveInterval');
+  if (autoSaveIntervalSel) {
+    autoSaveIntervalSel.addEventListener('change', () => {
+      const t = autoSaveTimeInput();
+      if (t) t.hidden = autoSaveIntervalSel.value !== 'daily';
+    });
+  }
+
+  // ===== 蓝层：关于（反馈 / 评价弹窗） =====
+  const aboutFeedback = document.getElementById('aboutFeedback');
+  if (aboutFeedback) aboutFeedback.addEventListener('click', () => openAboutModal('feedback'));
+  const aboutReview = document.getElementById('aboutReview');
+  if (aboutReview) aboutReview.addEventListener('click', () => openAboutModal('review'));
+  const aboutModalClose = document.getElementById('aboutModalClose');
+  if (aboutModalClose) aboutModalClose.addEventListener('click', closeAboutModal);
+  const aboutModal = document.getElementById('aboutModal');
+  if (aboutModal) {
+    aboutModal.addEventListener('click', (e) => { if (e.target === aboutModal) closeAboutModal(); });
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && aboutModal && !aboutModal.classList.contains('hidden')) closeAboutModal();
+  });
+
+  // ===== 语言切换（汉/EN） =====
+  const btnLang = document.getElementById('btnLang');
+  if (btnLang) btnLang.addEventListener('click', () => I18N.toggle());
+
+  // ===== 初始数据加载（语言切换后由 I18N 触发 refreshAll 重渲染） =====
+  I18N.onApply(refreshAll);
+  I18N.init().then(() => console.log('i18n ready'));
+});
+
+// 语言切换 / 首次加载时：重新渲染全部动态列表，保证文案随语言更新
+function refreshAll() {
+  populateVoices();
+  syncCardSampleLang();
+  Promise.all([
+    loadStats().catch(e => console.error(e)),
+    loadTranslateSettings(),
+    renderInjectHistory().catch(e => console.error(e)),
+    loadBridgeTokenSetting().catch(e => console.error(e)),
+    loadInjectSwitchState().catch(e => console.error(e)),
+    loadVersionSettings().catch(e => console.error(e)),
+    loadAiConfig().catch(e => console.error(e)),
+    loadVoiceConfig().catch(e => console.error(e)),
+    loadAutoSaveSettings().catch(e => console.error(e)),
+    initCardFonts().catch(e => console.error(e))
+  ]).then(() => { console.log('所有数据加载完成'); });
+}

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TabU · 麦克风授权</title>
+  <style>
+    body { font: 14px/1.7 -apple-system, "PingFang SC", sans-serif; background: #f2f4f8; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.08); padding: 40px 48px; max-width: 440px; text-align: center; }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    .desc { color: #666; font-size: 13px; margin-bottom: 24px; }
+    .row { display: flex; justify-content: center; gap: 12px; }
+    button { font-size: 15px; padding: 12px 28px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; cursor: pointer; font-weight: 600; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { opacity: .6; cursor: default; }
+    button.ghost { background: #e5e7eb; color: #374151; }
+    button.ghost:hover { background: #d1d5db; }
+    .status { margin-top: 18px; font-size: 13px; min-height: 20px; }
+    .ok { color: #16a34a; font-weight: 600; }
+    .err { color: #dc2626; }
+    .foot { margin-top: 20px; font-size: 12px; color: #9ca3af; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 data-i18n="micPermTitle">🎤 授权麦克风</h1>
+    <div class="desc" data-i18n="micPermDesc">浏览器会弹出麦克风使用授权。允许后本页会自动关闭，回到侧边栏即可使用「转写」录音。</div>
+    <div class="row">
+      <button id="micGrant" data-i18n="micPermGrant">点击授权</button>
+    </div>
+    <div id="micStatus" class="status"></div>
+    <div class="foot" data-i18n="micPermFoot">未出现弹窗？请检查地址栏左侧的麦克风图标与系统「隐私与安全性」中的麦克风设置。</div>
+  </div>
+  <script src="i18n.js"></script>
+  <script src="mic-permission.js"></script>
+</body>
+</html>

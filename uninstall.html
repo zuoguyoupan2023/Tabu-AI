@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>真的要离开 TabU 吗？</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --red-a: #7f1d1d; --red-b: #b91c1c; --red-grad: linear-gradient(135deg, #991b1b, #dc2626);
+    --blue-a: #1e3a8a; --blue-b: #2563eb; --blue-grad: linear-gradient(135deg, #1e40af, #3b82f6);
+    --line: rgba(255,255,255,.22);
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(1100px 700px at 12% -8%, rgba(220,38,38,.32), transparent 60%),
+      radial-gradient(1100px 700px at 108% 112%, rgba(59,130,246,.38), transparent 60%),
+      linear-gradient(135deg, var(--red-a) 0%, #7f1d1d 38%, #1e3a8a 78%, var(--blue-a) 100%);
+    color: #fff; min-height: 100vh; padding: 28px 16px; line-height: 1.6;
+  }
+  body::before, body::after { content: ""; position: fixed; border-radius: 50%; filter: blur(90px); opacity: .28; z-index: 0; pointer-events: none; }
+  body::before { width: 360px; height: 360px; background: #f87171; top: -110px; right: -120px; }
+  body::after  { width: 320px; height: 320px; background: #60a5fa; bottom: -120px; left: -100px; }
+
+  /* 语言切换按钮：右上角固定，文案由 i18n.js apply() 更新 */
+  .lang-btn {
+    position: fixed; top: 16px; right: 16px; z-index: 3;
+    background: rgba(0,0,0,.32); color: #fff; border: 1px solid rgba(255,255,255,.32);
+    border-radius: 30px; padding: 6px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+    transition: background .15s, transform .15s;
+  }
+  .lang-btn:hover { background: rgba(0,0,0,.48); transform: translateY(-1px); }
+
+  .card {
+    position: relative; z-index: 1; max-width: 640px; margin: 0 auto;
+    background: rgba(255,255,255,.10);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,.24); border-radius: 24px;
+    box-shadow: 0 24px 70px rgba(0,0,0,.40); padding: 34px 36px;
+    animation: rise .5s ease both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+  /* ===== 挽留区 ===== */
+  .retention { text-align: center; }
+  .emoji { font-size: 46px; }
+  .retention h1 { font-size: 26px; font-weight: 800; margin: 6px 0 6px; }
+  .retention .sub { color: rgba(255,255,255,.85); font-size: 14px; }
+  .free-tip {
+    margin: 16px auto 4px; max-width: 480px; font-size: 13px;
+    background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 10px 14px;
+  }
+  .retention .actions { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; align-items: center; }
+  .btn { border: none; cursor: pointer; padding: 11px 26px; border-radius: 40px; font-size: 15px; font-weight: 600; transition: transform .15s, box-shadow .15s, background .15s, opacity .15s; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: linear-gradient(120deg, #dc2626, #b91c1c 55%, #2563eb); color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
+  .btn-glass { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.3); }
+  .btn-link { background: transparent; color: rgba(255,255,255,.7); border: none; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; padding: 8px 10px; }
+
+  .divider { border: none; border-top: 1px solid rgba(255,255,255,.16); margin: 26px 0 20px; }
+
+  /* ===== 调查区 ===== */
+  .survey h2 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .survey .hint { font-size: 13px; color: rgba(255,255,255,.75); margin-bottom: 14px; }
+  .reason-list { display: flex; flex-direction: column; gap: 8px; }
+  .reason { display: flex; align-items: center; gap: 10px; background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 11px 14px; font-size: 14px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .reason:hover { background: rgba(0,0,0,.26); }
+  .reason.selected { border-color: #fca5a5; background: rgba(220,38,38,.18); }
+  .reason input { accent-color: #dc2626; width: 16px; height: 16px; flex: none; cursor: pointer; }
+  .reason label { cursor: pointer; }
+
+  .feedback-block { margin-top: 18px; }
+  .feedback-block label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .feedback-block textarea {
+    width: 100%; min-height: 96px; resize: vertical; border-radius: 12px;
+    background: rgba(0,0,0,.24); border: 1px solid rgba(255,255,255,.18); color: #fff;
+    padding: 10px 12px; font-size: 14px; font-family: inherit; line-height: 1.5;
+  }
+  .feedback-block textarea::placeholder { color: rgba(255,255,255,.5); }
+  .feedback-block textarea:focus { outline: none; border-color: rgba(255,255,255,.4); }
+
+  .submit-row { margin-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .submit-row .tip { font-size: 12px; color: rgba(255,255,255,.65); }
+  .btn-submit { background: #fff; color: #b91c1c; box-shadow: 0 6px 20px rgba(0,0,0,.25); }
+  .btn-submit:hover { background: #fff7f7; }
+  .btn-submit:disabled { opacity: .5; cursor: default; transform: none; }
+
+  #submitResult { margin-top: 12px; font-size: 13px; color: #fecaca; text-align: center; display: none; }
+  #submitResult.ok { color: #bbf7d0; }
+
+  .footer { margin-top: 24px; text-align: center; color: rgba(255,255,255,.6); font-size: 12px; border-top: 1px solid rgba(255,255,255,.14); padding-top: 14px; }
+
+  @media (max-width: 520px) { .card { padding: 24px 18px; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <button class="lang-btn" id="btnLang" title="切换语言">EN</button>
+  <div class="card">
+    <!-- ===== 挽留区 ===== -->
+    <section class="retention">
+      <div class="emoji">🧩</div>
+      <h1 data-i18n="uninstallRetentionH1">真的要离开 TabU 吗？</h1>
+      <div class="sub" data-i18n="uninstallSub">在离开之前，能告诉我们你的想法吗？我们随时欢迎你回来！</div>
+      <div class="free-tip" data-i18n-html="uninstallFreeTip">💡 核心功能全部<strong>免费</strong>：一键快照 · 去重 · 全局搜索 · 书签/历史版本 · 朗读/翻译</div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btnReinstall" data-i18n="uninstallReinstall">💡 想重新使用</button>
+        <button class="btn btn-link" id="btnProceed" data-i18n="uninstallProceed">继续卸载</button>
+      </div>
+    </section>
+
+    <hr class="divider">
+
+    <!-- ===== 卸载原因调查 ===== -->
+    <section class="survey">
+      <h2 data-i18n="uninstallSurveyTitle">可以告诉我们卸载原因吗？</h2>
+      <div class="hint" data-i18n="uninstallSurveyHint">这将帮助我们做得更好，仅匿名统计</div>
+      <div class="reason-list" id="reasonList">
+        <div class="reason"><input type="radio" name="reason" id="r1" value="" data-reason-key="uninstallReason1"><label for="r1" data-i18n="uninstallReason1">不需要这些功能</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r2" value="" data-reason-key="uninstallReason2"><label for="r2" data-i18n="uninstallReason2">界面或功能太复杂</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r3" value="" data-reason-key="uninstallReason3"><label for="r3" data-i18n="uninstallReason3">有 Bug 或崩溃</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r4" value="" data-reason-key="uninstallReason4"><label for="r4" data-i18n="uninstallReason4">占用资源高</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r5" value="" data-reason-key="uninstallReason5"><label for="r5" data-i18n="uninstallReason5">缺少我需要的功能</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r6" value="" data-reason-key="uninstallReason6"><label for="r6" data-i18n="uninstallReason6">我用了其他类似扩展</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r7" value="" data-reason-key="uninstallReason7"><label for="r7" data-i18n="uninstallReason7">不再使用</label></div>
+        <div class="reason"><input type="radio" name="reason" id="r8" value="" data-reason-key="uninstallReason8"><label for="r8" data-i18n="uninstallReason8">其他</label></div>
+      </div>
+
+      <div class="feedback-block">
+        <label for="feedbackText" data-i18n="uninstallFeedbackLabel">想让我们改进什么？（可选）</label>
+        <textarea id="feedbackText" data-i18n-placeholder="uninstallFeedbackPlaceholder" placeholder="你的建议将帮助我们做得更好…"></textarea>
+      </div>
+
+      <div class="submit-row">
+        <span class="tip" data-i18n="uninstallTip">💾 所有数据仅保存在本地 · 反馈匿名</span>
+        <button class="btn btn-submit" id="btnSubmit" data-i18n="uninstallSubmit">📮 发送反馈</button>
+      </div>
+      <div id="submitResult"></div>
+    </section>
+
+    <div class="footer" data-i18n="uninstallFooter">TabU Browser Manager · 感谢你的使用，再见 👋</div>
+  </div>
+
+  <!-- 与欢迎页一致：i18n.js 在中英文切换 + chrome.storage/localStorage 双环境读写；脚本放外部文件便于部署 -->
+  <script src="i18n.js"></script>
+  <script src="uninstall.js"></script>
+</body>
+</html>
