@@ -513,6 +513,14 @@
                 <span id="voiceTestStatus" class="ai-test-status"></span>
               </div>
               <div class="hint" data-i18n="voiceSvcHint">供「转写」面板使用：云端需填凭据；本地需先运行 <code>cd asr-server && npm start</code>（首次自动下载模型）。Key 仅存本机。</div>
+              <div class="ai-svc-sep" data-i18n="voiceModelsLabel">🧩 本地模型管理</div>
+              <div id="modelManager" class="model-manager">
+                <div class="hint" data-i18n="modelManagerHint">模型下载到本机（hf-mirror 镜像），下载后即可选对应引擎使用；qwen3/whisper 首次使用时自动下载。</div>
+              </div>
+              <div class="ai-config-actions">
+                <button type="button" class="mini-btn" id="modelRefreshBtn" data-i18n="modelRefresh">刷新状态</button>
+                <span id="modelManagerStatus" class="ai-test-status"></span>
+              </div>
             </div>
           </div>
         </section>

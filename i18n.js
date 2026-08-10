@@ -360,6 +360,16 @@ const I18N = (() => {
       voiceSvcSaved: '语音服务设置已保存',
       voiceTestBtn: '测试识别',
       voiceSvcHint: '供「转写」面板使用：云端（微软/OpenAI/阿里云）需填凭据；「本地服务」需先在电脑运行 <code>cd asr-server && npm start</code>（首次自动下载模型，离线隐私识别）。Key 仅存本机。',
+      // 本地模型管理（014 §5.2）
+      voiceModelsLabel: '🧩 本地模型管理',
+      modelManagerHint: '模型下载到本机（hf-mirror 镜像），下载后即可选对应引擎使用；qwen3/whisper 首次使用时自动下载。',
+      modelRefresh: '刷新状态',
+      modelLoading: '加载模型状态…',
+      modelServerOffline: '本地服务未启动，无法读取模型状态（<code>cd asr-server && npm run all</code>）。',
+      modelStatusInstalled: '已安装',
+      modelStatusMissing: '未安装',
+      modelStatusDownloading: '下载中…',
+      modelInstall: '安装',
 
       // 蓝层：定时保存快照
       secAutoSave: '⏰ 定时保存快照',
@@ -1026,6 +1036,16 @@ const I18N = (() => {
       voiceSvcSaved: 'Voice service settings saved',
       voiceTestBtn: 'Test recognition',
       voiceSvcHint: 'Used by the Transcribe panel: cloud (Azure/OpenAI/Alibaba) needs credentials; "Local service" runs a server on your computer (<code>cd asr-server && npm start</code>, downloads models on first run, offline & private). Keys stay on this device.',
+      // Local model management (014 §5.2)
+      voiceModelsLabel: '🧩 Local Models',
+      modelManagerHint: 'Models download to your machine (hf-mirror); pick the engine after install. qwen3/whisper auto-download on first use.',
+      modelRefresh: 'Refresh',
+      modelLoading: 'Loading model status…',
+      modelServerOffline: 'Local service is offline — cannot read model status (<code>cd asr-server && npm run all</code>).',
+      modelStatusInstalled: 'Installed',
+      modelStatusMissing: 'Not installed',
+      modelStatusDownloading: 'Downloading…',
+      modelInstall: 'Install',
 
       // Blue: auto-save snapshots
       secAutoSave: '⏰ Auto-save snapshots',

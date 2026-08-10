@@ -2215,6 +2215,95 @@ function saveLocalVoice(sel) {
   }
 }
 
+// ---- 本地模型管理（014 §5.2：/models 清单 + /install-model NDJSON 进度）----
+const MODEL_CAT_LABEL = { tts: 'TTS', asr: 'ASR', llm: 'LLM' };
+
+function loadVoiceModels() {
+  const box = document.getElementById('modelManager');
+  const statusEl = document.getElementById('modelManagerStatus');
+  const btn = document.getElementById('modelRefreshBtn');
+  if (!box) return;
+  if (btn) btn.disabled = true;
+  if (statusEl) statusEl.textContent = I18N.t('modelLoading');
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  fetch(serverUrl + '/models', { signal: AbortSignal.timeout(5000) })
+    .then(async (r) => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !Array.isArray(data.models)) throw new Error('bad');
+      renderModelRows(box, data.models);
+      if (statusEl) statusEl.textContent = '';
+    })
+    .catch(() => {
+      box.innerHTML = `<div class="hint" style="color:#f87171;">${I18N.t('modelServerOffline')}</div>`;
+      if (statusEl) statusEl.textContent = '';
+    })
+    .finally(() => { if (btn) btn.disabled = false; });
+}
+
+function renderModelRows(box, models) {
+  box.innerHTML = models.map(m => `
+    <div class="model-row" data-engine="${m.engine}">
+      <span class="model-info">${MODEL_CAT_LABEL[m.category] || m.category} · ${m.label}<em>${m.size}</em></span>
+      <span class="model-status${m.installed ? ' ok' : ''}">${m.installed ? I18N.t('modelStatusInstalled') : I18N.t('modelStatusMissing')}</span>
+      <button type="button" class="mini-btn"${m.installed ? ' disabled' : ''}>${I18N.t('modelInstall')}</button>
+    </div>`).join('');
+  box.querySelectorAll('.model-row').forEach(row => {
+    const btn = row.querySelector('.mini-btn');
+    if (!btn || btn.disabled) return;
+    btn.addEventListener('click', () => installModel(row, btn));
+  });
+}
+
+async function installModel(row, btn) {
+  const engine = row.dataset.engine;
+  const statusEl = row.querySelector('.model-status');
+  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  btn.disabled = true;
+  statusEl.className = 'model-status downloading';
+  statusEl.textContent = I18N.t('modelStatusDownloading');
+  try {
+    const res = await fetch(serverUrl + '/install-model?engine=' + encodeURIComponent(engine), { method: 'POST' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      statusEl.className = 'model-status';
+      statusEl.textContent = '❌ ' + (data.error || ('HTTP ' + res.status));
+      return;
+    }
+    // NDJSON 流式读安装进度（每行 {type:'log'|'done'|'error', message}）
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (!line) continue;
+        let obj;
+        try { obj = JSON.parse(line); } catch { continue; }
+        if (obj.type === 'log') {
+          statusEl.className = 'model-status downloading';
+          statusEl.textContent = '⏳ ' + String(obj.message || '');
+        } else if (obj.type === 'done') {
+          statusEl.className = 'model-status ok';
+          statusEl.textContent = '✅ ' + String(obj.message || I18N.t('modelStatusInstalled'));
+        } else if (obj.type === 'error') {
+          throw new Error(String(obj.message || '安装失败'));
+        }
+      }
+    }
+    loadVoiceModels(); // 安装完成 → 刷新状态
+  } catch (e) {
+    statusEl.className = 'model-status';
+    statusEl.textContent = '❌ ' + ((e && e.message) || e);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // ---- 转写面板：后端切换 ----
 function setAsrBackend(id) {
   if (!ASR_BACKEND_IDS.includes(id)) return;
@@ -3387,6 +3476,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     speakLocalTts(I18N.t('ttsLocalSample'), voiceField('voiceTestStatus'), ttsLocalTestBtn, engine);
   });
+
+  // 本地模型管理（014 §5.2）：刷新按钮 + 首次加载状态
+  const modelRefreshBtn = document.getElementById('modelRefreshBtn');
+  if (modelRefreshBtn) modelRefreshBtn.addEventListener('click', loadVoiceModels);
+  loadVoiceModels();
 
   // ===== 翻译 =====
   const transDo = document.getElementById('translateDo');
