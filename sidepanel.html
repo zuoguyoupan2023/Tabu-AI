@@ -30,13 +30,9 @@
 </head>
 <body>
   <div class="app" id="app" data-layer="red">
-    <!-- ===== 头部：TabU + 文字按钮 + 红蓝胶囊 ===== -->
+    <!-- ===== 头部：TabU + 红蓝胶囊（无痕/导出为 Tabu 版专属，已移除） ===== -->
     <header class="app-header">
       <h1>TabU</h1>
-      <div class="header-tools">
-        <button id="btnIncognito" class="h-text" data-i18n="incognito" data-i18n-title="incognitoTitle" title="新建无痕窗口">无痕</button>
-        <button id="btnExport" class="h-text" data-i18n="export" data-i18n-title="exportTitle" title="导出数据">导出</button>
-      </div>
       <div class="header-right">
         <button id="btnLang" class="lang-btn" data-i18n-title="switchToEn" title="切换语言">EN</button>
         <div class="layer-switch">
@@ -53,16 +49,35 @@
         <!-- ===== 上半区：文本工具（朗读/翻译/AI/卡片）+ 工具面板 ===== -->
         <div class="upper-section" id="upper-section">
 
-        <!-- ① 文本工具：朗读 / 转写 / AI（翻译已并入 AI 面板的「免费翻译」模式，卡片已移至蓝区） -->
-        <div class="tool-tabs">
-          <button class="tool-tab active" data-tool="tts" data-i18n="tabTts">🗣 朗读</button>
-          <button class="tool-tab" data-tool="asr" data-i18n="tabAsr">🎙 转写</button>
-          <button class="tool-tab" data-tool="chat" data-i18n="tabChat">💬 对话</button>
-          <button class="tool-tab" data-tool="ai" data-i18n="tabAi">🚀 AI</button>
+        <!-- ① 顶部圆形语音工作台：一键「识别 → LLM → 输出并朗读」 -->
+        <div class="voice-workbench">
+          <button class="voice-circle" id="voiceCircleBtn" data-i18n-title="voiceCircleTitle" title="点击说话：识别 → LLM → 输出并朗读">
+            <span class="voice-circle-ico">🎤</span>
+          </button>
+          <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
+          <label class="voice-output-toggle"><input type="checkbox" id="voiceOutputShow" checked /> <span data-i18n="voiceOutputShow">显示输出</span></label>
         </div>
 
-        <!-- 朗读（默认展开） -->
-        <div class="tool-panel" id="panel-tts">
+        <!-- ② 输出栏（可显示/隐藏） -->
+        <div class="voice-output" id="voiceOutput">
+          <div class="voice-output-head">
+            <span data-i18n="voiceOutputTitle">📤 输出</span>
+            <button class="mini-btn" id="voiceOutputClear" data-i18n="voiceOutputClear">清空</button>
+          </div>
+          <div id="voiceOutputContent" class="voice-output-body">
+            <div class="voice-output-empty" id="voiceOutputEmpty" data-i18n="voiceOutputEmpty">输出将显示在这里…</div>
+          </div>
+        </div>
+
+        <!-- ③ 三个并列标签：朗读 / AI / 语音识别（默认都不选中，选中才展开内容） -->
+        <div class="tool-tabs">
+          <button class="tool-tab" data-tool="tts" data-i18n="tabTts">🗣 朗读</button>
+          <button class="tool-tab" data-tool="ai" data-i18n="tabAi">🚀 AI</button>
+          <button class="tool-tab" data-tool="asr" data-i18n="tabAsr">🎙 语音识别</button>
+        </div>
+
+        <!-- 朗读（默认折叠，点击「朗读」标签展开） -->
+        <div class="tool-panel hidden" id="panel-tts">
           <!-- 默认折叠态：仅「朗读全文」+「展开」，点击展开显示全功能 -->
           <div class="ops tts-mini">
             <button class="op primary" id="ttsSpeakFullMini" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
@@ -135,38 +150,41 @@
           <div id="asrStatus" class="tool-status" data-i18n="asrStatusIdle">选择上方后端，点击「开始录音」，说话后停止即可识别</div>
         </div>
 
-        <!-- 对话（Chat）：本地 LLM 文本/语音对话，验证 /chat 与 /voice-chat -->
-        <div class="tool-panel hidden" id="panel-chat">
-          <div class="ai-mode-hint trans-hint" id="chatHint" data-i18n="chatHint">💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端</div>
-          <textarea id="chatInput" class="input" data-i18n-placeholder="chatPlaceholder" placeholder="输入问题，或点录音说话…"></textarea>
-          <div class="asr-record-row">
-            <button class="op primary" id="chatRecord" data-i18n="chatRecord">🎤 录音</button>
-            <button class="op primary" id="chatSend" data-i18n="chatSend">➡ 发送</button>
-            <button class="op" id="chatClear" data-i18n="chatClear">清空</button>
-          </div>
-          <div class="asr-mic-row">
-            <button class="chip" id="chatMicPerm" data-i18n="chatMicPerm">🎤 授权麦克风</button>
-            <select id="chatMicDevice" class="row-select" style="flex:1;" data-i18n-title="asrMicDeviceTitle" title="选择麦克风设备"></select>
-          </div>
-          <div id="chatResult" class="chat-result hidden"></div>
-          <div class="ops">
-            <button class="op" id="chatSpeakAnswer" data-i18n="chatSpeakAnswer">🔊 朗读回答</button>
-            <button class="op" id="chatCopyAnswer" data-i18n="chatCopyAnswer">📋 复制回答</button>
-          </div>
-          <div id="chatStatus" class="tool-status" data-i18n="chatStatusIdle">输入问题或点录音开始，本地 LLM 实时回答</div>
-        </div>
-
-        <!-- AI（内置「免费翻译」模式，翻译已集成于此） -->
-        <!-- AI -->
+        <!-- AI（内置「对话(本地版)」+「浏览器版/API版」LLM 渠道 + 免费翻译特殊功能） -->
         <div class="tool-panel hidden" id="panel-ai">
-          <!-- AI 后端切换：免费翻译 / 免费浏览器版（页面注入）/ 自填 API 版 -->
+          <!-- LLM 渠道：本地版 / 浏览器版 / API版（免费翻译为特殊功能，非 LLM 渠道） -->
           <div class="ai-backend-row">
-            <button type="button" class="ai-backend" id="aiBackendTrans" data-i18n="aiBackendTrans">免费翻译</button>
-            <button type="button" class="ai-backend active" id="aiBackendInject" data-i18n="aiBackendInject">免费浏览器版</button>
-            <button type="button" class="ai-backend" id="aiBackendApi" data-i18n="aiBackendApi">自填 API 版</button>
+            <button type="button" class="ai-backend active" id="aiBackendLocal" data-i18n="aiBackendLocal">💻 本地版</button>
+            <button type="button" class="ai-backend" id="aiBackendInject" data-i18n="aiBackendInject">🌐 浏览器版</button>
+            <button type="button" class="ai-backend" id="aiBackendApi" data-i18n="aiBackendApi">🔑 API 版</button>
+          </div>
+          <div class="ai-backend-row ai-backend-special">
+            <button type="button" class="ai-backend special" id="aiBackendTrans" data-i18n="aiBackendTrans">🌐 免费翻译</button>
+            <span class="ai-special-note" data-i18n="aiSpecialNote">特殊功能（非 LLM 渠道）</span>
           </div>
 
-          <!-- 免费翻译模式：仅翻译，无 AI 功能；服务由 MyMemory 免费提供 -->
+          <!-- 本地版：LLM 对话（原「对话」面板迁入，默认渠道） -->
+          <div id="chatMain">
+            <div class="ai-mode-hint trans-hint" id="chatHint" data-i18n="chatHint">💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端</div>
+            <textarea id="chatInput" class="input" data-i18n-placeholder="chatPlaceholder" placeholder="输入问题，或点录音说话…"></textarea>
+            <div class="asr-record-row">
+              <button class="op primary" id="chatRecord" data-i18n="chatRecord">🎤 录音</button>
+              <button class="op primary" id="chatSend" data-i18n="chatSend">➡ 发送</button>
+              <button class="op" id="chatClear" data-i18n="chatClear">清空</button>
+            </div>
+            <div class="asr-mic-row">
+              <button class="chip" id="chatMicPerm" data-i18n="chatMicPerm">🎤 授权麦克风</button>
+              <select id="chatMicDevice" class="row-select" style="flex:1;" data-i18n-title="asrMicDeviceTitle" title="选择麦克风设备"></select>
+            </div>
+            <div id="chatResult" class="chat-result hidden"></div>
+            <div class="ops">
+              <button class="op" id="chatSpeakAnswer" data-i18n="chatSpeakAnswer">🔊 朗读回答</button>
+              <button class="op" id="chatCopyAnswer" data-i18n="chatCopyAnswer">📋 复制回答</button>
+            </div>
+            <div id="chatStatus" class="tool-status" data-i18n="chatStatusIdle">输入问题或点录音开始，本地 LLM 实时回答</div>
+          </div>
+
+          <!-- 免费翻译模式：仅翻译，无 AI 功能；服务由 MyMemory 免费提供（特殊功能） -->
           <div id="transMode" class="hidden">
             <div class="ai-mode-hint trans-hint" data-i18n="transServiceHint">🌐 免费翻译 · 由 MyMemory 免费提供</div>
             <div class="lang-row">
@@ -203,8 +221,8 @@
             <div id="translateStatus" class="tool-status"></div>
           </div>
 
-          <!-- AI 主体：免费浏览器版（页面注入）/ 自填 API 版 -->
-          <div id="aiMain">
+          <!-- AI 主体：免费浏览器版（页面注入）/ 自填 API 版（本地版对话在 chatMain） -->
+          <div id="aiMain" class="hidden">
             <div id="aiModeHint" class="ai-mode-hint hidden"></div>
             <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入文本，或点上方按钮抓取当前网页内容…"></textarea>
             <div class="ops">
