@@ -3631,6 +3631,12 @@ async function syncAiBackendUi() {
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
+// 维度标签页切换（识别/LLM/朗读）：只显示当前面板，其余隐藏
+function switchCapTab(name) {
+  document.querySelectorAll('.cap-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-captab') === name));
+  document.querySelectorAll('[data-captab-panel]').forEach(p => p.classList.toggle('hidden', p.getAttribute('data-captab-panel') !== name));
+}
+
 // 存储键：capSourceTts / capSourceLlm / capSourceAsr / capAutoFallback
 //  - 来源：'auto'（按可达性回退）| 'system'/'local'/'cloud'/'inject'
 //  - 选择非 auto 时，同步到底层引擎/后端；auto 仅作偏好，运行时按可达性决定。
@@ -3907,19 +3913,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const ttsSpeakFull = document.getElementById('ttsSpeakFull');
   if (ttsSpeakFull) ttsSpeakFull.addEventListener('click', () => {
     if (activeSpeakBtn === ttsSpeakFull) stopSpeaking(); else speakFullPage(ttsSpeakFull);
-  });
-  // 折叠态「朗读全文」按钮：同样是 开始/停止 开关
-  const ttsSpeakFullMini = document.getElementById('ttsSpeakFullMini');
-  if (ttsSpeakFullMini) ttsSpeakFullMini.addEventListener('click', () => {
-    if (activeSpeakBtn === ttsSpeakFullMini) stopSpeaking(); else speakFullPage(ttsSpeakFullMini);
-  });
-  // 折叠态「展开」按钮：展开显示朗读全功能
-  const ttsExpandBtn = document.getElementById('ttsExpand');
-  if (ttsExpandBtn) ttsExpandBtn.addEventListener('click', () => {
-    const mini = document.querySelector('.tts-mini');
-    const full = document.getElementById('ttsFull');
-    if (mini) mini.classList.add('hidden');
-    if (full) full.classList.remove('hidden');
   });
   const ttsSpeakInput = document.getElementById('ttsSpeakInput');
   if (ttsSpeakInput) ttsSpeakInput.addEventListener('click', () => {
@@ -4315,6 +4308,10 @@ document.addEventListener('DOMContentLoaded', () => {
   ['capSourceTts', 'capSourceLlm', 'capSourceAsr'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', applyCapSource);
+  });
+  // 能力来源维度标签页（识别/LLM/朗读）
+  document.querySelectorAll('.cap-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchCapTab(btn.getAttribute('data-captab')));
   });
 
   // ===== 初始数据加载（语言切换后由 I18N 触发 refreshAll 重渲染） =====

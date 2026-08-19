@@ -82,50 +82,42 @@
 
         <!-- 朗读（默认折叠，点击「朗读」标签展开） -->
         <div class="tool-panel hidden" id="panel-tts">
-          <!-- 默认折叠态：仅「朗读全文」+「展开」，点击展开显示全功能 -->
-          <div class="ops tts-mini">
-            <button class="op primary" id="ttsSpeakFullMini" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
-            <button class="op" id="ttsExpand" data-i18n="ttsExpand">展开</button>
-          </div>
-          <!-- 全功能态：默认隐藏 -->
-          <div id="ttsFull" class="hidden">
+          <!-- 朗读全功能态：完整显示（去折叠，同识别标签页风格） -->
+          <div id="ttsFull">
             <textarea id="ttsInput" class="input" data-i18n-placeholder="ttsPlaceholder" placeholder="输入文本…"></textarea>
             <div class="ops">
               <button class="op primary" id="ttsSpeak" data-i18n="ttsSpeakSel" data-i18n-title="ttsSpeakSelTitle" title="朗读当前网页选中的文本">▶ 朗读选中</button>
               <button class="op" id="ttsSpeakFull" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
               <button class="op" id="ttsSpeakInput" data-i18n="ttsSpeakInput" data-i18n-title="ttsSpeakInputTitle" title="朗读上方输入框内容">▶ 朗读输入框</button>
             </div>
-            <details class="fold">
-              <summary data-i18n="ttsSettings">⚙️ 语音设置 · 语速 / 音调 / 音量</summary>
-              <div class="fold-body">
-                <div class="voice-filter-row">
-                  <label><span data-i18n="ttsEngineLabel">朗读引擎</span>
-                    <select id="ttsEngine">
-                      <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
-                      <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
-                      <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
-                      <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
-                      <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
-                      <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
-                    </select>
-                  </label>
-                </div>
-                <div class="voice-filter-row" id="ttsSysVoiceRow">
-                  <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilter"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
-                  <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoice"></select></label>
-                </div>
-                <div class="voice-filter-row hidden" id="ttsLocalVoiceRow">
-                  <label><span data-i18n="ttsLocalVoiceLabel">音色</span> <select id="ttsLocalVoice"></select></label>
-                </div>
-                <div class="tts-sliders">
-                  <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="ttsRate" min="0.1" max="10" step="0.1" value="1" /><b id="ttsRateLabel">1.0</b></label>
-                  <label><span data-i18n="ttsPitchLabel">音调</span> <input type="range" id="ttsPitch" min="0" max="2" step="0.1" value="1" /><b id="ttsPitchLabel">1.0</b></label>
-                  <label><span data-i18n="ttsVolumeLabel">音量</span> <input type="range" id="ttsVolume" min="0" max="1" step="0.1" value="1" /><b id="ttsVolumeLabel">1.0</b></label>
-                </div>
-                <!-- 停止已集成到上方三个朗读按钮：朗读中该按钮变为「停止」，点击即可停止 -->
-                <div id="ttsStatus" class="tool-status"></div>
+            <div class="fold-body">
+              <div class="voice-filter-row">
+                <label><span data-i18n="ttsEngineLabel">朗读引擎</span>
+                  <select id="ttsEngine">
+                    <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
+                    <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
+                    <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
+                    <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
+                    <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
+                    <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
+                  </select>
+                </label>
               </div>
-            </details>
+              <div class="voice-filter-row" id="ttsSysVoiceRow">
+                <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilter"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
+                <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoice"></select></label>
+              </div>
+              <div class="voice-filter-row hidden" id="ttsLocalVoiceRow">
+                <label><span data-i18n="ttsLocalVoiceLabel">音色</span> <select id="ttsLocalVoice"></select></label>
+              </div>
+              <div class="tts-sliders">
+                <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="ttsRate" min="0.1" max="10" step="0.1" value="1" /><b id="ttsRateLabel">1.0</b></label>
+                <label><span data-i18n="ttsPitchLabel">音调</span> <input type="range" id="ttsPitch" min="0" max="2" step="0.1" value="1" /><b id="ttsPitchLabel">1.0</b></label>
+                <label><span data-i18n="ttsVolumeLabel">音量</span> <input type="range" id="ttsVolume" min="0" max="1" step="0.1" value="1" /><b id="ttsVolumeLabel">1.0</b></label>
+              </div>
+              <!-- 停止已集成到上方三个朗读按钮：朗读中该按钮变为「停止」，点击即可停止 -->
+              <div id="ttsStatus" class="tool-status"></div>
+            </div>
           </div>
         </div>
 
@@ -476,7 +468,12 @@
             <span class="lbl" data-i18n="injectSwitchLabel">⌨️ 注入输入开关</span>
             <span class="switch" id="injectSwitch" data-i18n-title="injectSwitchTitle" title="点击切换注入输入工具开关"></span>
           </div>
-          <div class="card">
+          <div class="cap-tab-bar">
+            <button type="button" class="cap-tab active" data-captab="asr" data-i18n="capTabAsr">🎙 识别</button>
+            <button type="button" class="cap-tab" data-captab="llm" data-i18n="capTabLlm">💬 LLM</button>
+            <button type="button" class="cap-tab" data-captab="tts" data-i18n="capTabTts">🗣 朗读</button>
+          </div>
+          <div class="card hidden" data-captab-panel="llm">
             <div class="card-title" data-i18n="aiSvcLabel">💬 LLM 对话</div>
             <div class="ai-config">
               <div class="ai-svc-sep" data-i18n="llmSourceLocalLabel">💻 本地（asr-server）</div>
@@ -519,7 +516,7 @@
               <div class="hint" data-i18n="aiSvcHint">配置后 AI 提问优先走 API（流式输出 + 多轮会话）；留空则保持页面注入。API Key 仅存本机。</div>
             </div>
           </div>
-          <div class="card">
+          <div class="card hidden" data-captab-panel="tts">
             <div class="card-title" data-i18n="ttsSvcLabel">🗣 TTS 朗读</div>
             <div class="ai-config">
               <div class="ai-svc-sep" data-i18n="ttsEngineSepLabel">🔀 朗读引擎（来源）</div>
@@ -603,7 +600,7 @@
               </div>
             </div>
           </div>
-          <div class="card">
+          <div class="card" data-captab-panel="asr">
             <div class="card-title" data-i18n="asrSvcLabel">🎙 ASR 识别（STT）</div>
             <div class="ai-config">
               <div class="ai-svc-sep" data-i18n="asrBackendSepLabel">🔀 识别后端（来源）</div>

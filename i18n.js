@@ -325,6 +325,9 @@ const I18N = (() => {
       capReachLocal: '本地',
       capReachSystem: '系统TTS',
       capReachCloud: '云端',
+      capTabAsr: '🎙 识别',
+      capTabLlm: '💬 LLM',
+      capTabTts: '🗣 朗读',
       capSourceHint: '选择后同步下方各维度的具体引擎/后端；「自动」按可达性选择：本地在线 → 本地，否则云端/系统。可点「检测可达性」刷新状态。',
 
       // 蓝层：AI 服务（自定义 API）
@@ -1074,6 +1077,9 @@ const I18N = (() => {
       capReachLocal: 'Local',
       capReachSystem: 'System TTS',
       capReachCloud: 'Cloud',
+      capTabAsr: '🎙 ASR',
+      capTabLlm: '💬 LLM',
+      capTabTts: '🗣 TTS',
       capSourceHint: 'Selecting syncs the per-dimension engine/backend below; "Auto" picks by reachability (local up → local, else cloud/system). Use "Probe" to refresh.',
 
       // Blue: AI service (custom API)

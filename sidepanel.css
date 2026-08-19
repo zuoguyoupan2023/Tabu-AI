@@ -113,6 +113,15 @@ input, select, textarea { font-family: var(--font); }
 .tool-tab.btn-card:not(.active) { filter: grayscale(1); opacity: .55; }
 .tool-tab.btn-card.lit { filter: none; opacity: 1; color: #93c5fd; border-bottom-color: #93c5fd; }
 .tool-tab.btn-card.active { filter: none; opacity: 1; color: #fff; border-bottom-color: #fff; }
+/* 能力来源设置 · 维度标签页（识别/LLM/朗读） */
+.cap-tab-bar { display: flex; gap: 6px; margin: 10px 0 2px; }
+.cap-tab {
+  flex: 1; font-size: 12px; font-weight: 600; color: var(--text, #333);
+  background: rgba(0,0,0,.16); border: 1px solid var(--line, #dfe4ec); border-radius: 8px;
+  padding: 7px 10px; cursor: pointer; transition: all .2s;
+}
+.cap-tab:hover { opacity: .9; }
+.cap-tab.active { background: var(--accent, #4f7cff); color: #fff; border-color: var(--accent, #4f7cff); font-weight: 700; }
 
 /* 工具面板：与子面板一致，透明背景，只留内部控件自身的深色/白色 */
 .tool-panel {
