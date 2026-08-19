@@ -3625,6 +3625,86 @@ async function syncAiBackendUi() {
   if (mode === 'local') loadChatMicDevices();
 }
 
+// ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
+// 存储键：capSourceTts / capSourceLlm / capSourceAsr / capAutoFallback
+//  - 来源：'auto'（按可达性回退）| 'system'/'local'/'cloud'/'inject'
+//  - 选择非 auto 时，同步到底层引擎/后端；auto 仅作偏好，运行时按可达性决定。
+async function loadCapSource() {
+  const r = await chrome.storage.local.get(['capSourceTts', 'capSourceLlm', 'capSourceAsr', 'capAutoFallback']);
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  set('capSourceTts', r.capSourceTts || 'auto');
+  set('capSourceLlm', r.capSourceLlm || 'auto');
+  set('capSourceAsr', r.capSourceAsr || 'auto');
+  const sw = document.getElementById('capAutoFallbackSwitch');
+  if (sw) sw.classList.toggle('on', !!r.capAutoFallback);
+}
+
+function toggleCapAutoFallback() {
+  const sw = document.getElementById('capAutoFallbackSwitch');
+  const on = sw ? sw.classList.toggle('on') : false;
+  chrome.storage.local.set({ capAutoFallback: on });
+  showStatus(I18N.t(on ? 'capAutoFallbackOn' : 'capAutoFallbackOff'), 'success');
+}
+
+async function applyCapSource() {
+  const get = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+  const tts = get('capSourceTts', 'auto');
+  const llm = get('capSourceLlm', 'auto');
+  const asr = get('capSourceAsr', 'auto');
+  await chrome.storage.local.set({ capSourceTts: tts, capSourceLlm: llm, capSourceAsr: asr });
+
+  // TTS：来源 → 具体引擎
+  if (tts !== 'auto') {
+    const engMap = { system: 'system', local: 'kokoro', cloud: 'cloud' };
+    const eng = engMap[tts] || 'system';
+    await chrome.storage.local.set({ ttsEngine: eng });
+    if (currentVoiceConfig) currentVoiceConfig.ttsEngine = eng;
+    const selBlue = document.getElementById('ttsEngineBlue');
+    if (selBlue) selBlue.value = eng;
+    const sel = document.getElementById('ttsEngine');
+    if (sel) sel.value = eng;
+  }
+  // LLM：来源 → aiMode
+  if (llm !== 'auto') {
+    const modeMap = { local: 'local', inject: 'inject', cloud: 'api' };
+    await setAiMode(modeMap[llm] || 'local');
+  }
+  // ASR：来源 → 后端
+  if (asr !== 'auto') {
+    setAsrBackend(asr === 'local' ? 'local' : 'azure');
+  }
+  showStatus(I18N.t('capSourceSaved'), 'success');
+}
+
+// 探测各来源可达性：本地 Tabu-Local /health、系统 TTS 语音数、云端配置
+async function probeReachability() {
+  const statusEl = document.getElementById('capReachStatus');
+  if (statusEl) statusEl.textContent = I18N.t('capProbeRunning');
+  let localOk = false, ttsDetail = '';
+  const serverUrl = (currentVoiceConfig && currentVoiceConfig.voiceLocalServer) || 'http://127.0.0.1:9528';
+  try {
+    const r = await fetch(serverUrl.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      localOk = true;
+      try {
+        const h = await r.json();
+        const kokoro = h.tts && (h.tts.kokoro === 'reachable' || h.tts.kokoro);
+        const qwen3 = h.tts && (h.tts.qwen3 === 'reachable' || h.tts.qwen3);
+        if (kokoro) ttsDetail += 'Kokoro✓';
+        if (qwen3) ttsDetail += (ttsDetail ? ',' : '') + 'Qwen3✓';
+      } catch (e) {}
+    }
+  } catch (e) {}
+  let sysVoices = 0;
+  try { sysVoices = await new Promise(res => { chrome.tts.getVoices(v => res(v ? v.length : 0)); }); } catch (e) {}
+  const cloudTtsConfigured = !!(currentVoiceConfig && currentVoiceConfig.cloudTtsBase && currentVoiceConfig.cloudTtsKey);
+  const cloudLlmConfigured = !!(currentAiConfig && currentAiConfig.aiBaseUrl);
+  const txt = I18N.t('capReachLocal') + ' ' + (localOk ? '●' : '○') + (ttsDetail ? '·' + ttsDetail : '')
+    + '   ' + I18N.t('capReachSystem') + ' ' + (sysVoices > 0 ? '●' : '○') + '(' + sysVoices + ')'
+    + '   ' + I18N.t('capReachCloud') + ' ' + (cloudTtsConfigured || cloudLlmConfigured ? '●' : '○');
+  if (statusEl) statusEl.textContent = txt;
+}
+
 async function loadVersionSettings() {
   const r = await chrome.storage.local.get(['bookmarkMaxVersions', 'historyMaxVersions']);
   const bm = document.getElementById('bmMaxVersions');
@@ -4177,6 +4257,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLang = document.getElementById('btnLang');
   if (btnLang) btnLang.addEventListener('click', () => I18N.toggle());
 
+  // ===== 统一能力来源设置区 =====
+  const capAutoFallbackSwitch = document.getElementById('capAutoFallbackSwitch');
+  if (capAutoFallbackSwitch) capAutoFallbackSwitch.addEventListener('click', toggleCapAutoFallback);
+  const capProbeBtn = document.getElementById('capProbeBtn');
+  if (capProbeBtn) capProbeBtn.addEventListener('click', probeReachability);
+  ['capSourceTts', 'capSourceLlm', 'capSourceAsr'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', applyCapSource);
+  });
+
   // ===== 初始数据加载（语言切换后由 I18N 触发 refreshAll 重渲染） =====
   I18N.onApply(refreshAll);
   I18N.init().then(() => console.log('i18n ready'));
@@ -4195,6 +4285,7 @@ function refreshAll() {
     loadVersionSettings().catch(e => console.error(e)),
     loadAiConfig().catch(e => console.error(e)),
     loadVoiceConfig().catch(e => console.error(e)),
+    loadCapSource().catch(e => console.error(e)),
     loadAutoSaveSettings().catch(e => console.error(e)),
     initCardFonts().catch(e => console.error(e))
   ]).then(() => { console.log('所有数据加载完成'); });

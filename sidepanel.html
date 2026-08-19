@@ -416,6 +416,46 @@
         <section class="sec">
           <div class="sec-title" data-i18n="secSystem">⚙️ 系统 / 设置</div>
           <div class="card">
+            <div class="card-title" data-i18n="capSourceTitle">🎛 能力来源（统一）</div>
+            <div class="ai-config">
+              <label class="cfg-row"><span data-i18n="capAutoFallbackLabel">可达性自动回退</span>
+                <span class="switch" id="capAutoFallbackSwitch" data-i18n-title="capAutoFallbackTitle" title="开启后，各能力维度按来源可达性自动回退"></span>
+              </label>
+              <div class="cfg-row">
+                <span data-i18n="capReachLabel">来源状态</span>
+                <button type="button" class="mini-btn" id="capProbeBtn" data-i18n="capProbe" style="flex:none;">检测可达性</button>
+                <span id="capReachStatus" class="ai-test-status" style="flex:1;margin-left:8px;"></span>
+              </div>
+              <div class="ai-svc-sep" data-i18n="ttsSvcLabel">🗣 TTS 朗读</div>
+              <label class="cfg-row"><span data-i18n="capSourceTtsLabel">朗读来源</span>
+                <select id="capSourceTts" class="row-select" style="flex:1;">
+                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
+                  <option value="system" data-i18n="capSourceSystem">🔊 系统</option>
+                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
+                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
+                </select>
+              </label>
+              <div class="ai-svc-sep" data-i18n="aiSvcLabel">💬 LLM 对话</div>
+              <label class="cfg-row"><span data-i18n="capSourceLlmLabel">对话来源</span>
+                <select id="capSourceLlm" class="row-select" style="flex:1;">
+                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
+                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
+                  <option value="inject" data-i18n="capSourceInject">🌐 页面注入</option>
+                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
+                </select>
+              </label>
+              <div class="ai-svc-sep" data-i18n="asrSvcLabel">🎙 ASR 识别</div>
+              <label class="cfg-row"><span data-i18n="capSourceAsrLabel">识别来源</span>
+                <select id="capSourceAsr" class="row-select" style="flex:1;">
+                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
+                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
+                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
+                </select>
+              </label>
+              <div class="hint" data-i18n="capSourceHint">选择后同步下方各维度的具体引擎/后端；「自动」按可达性选择。可点「检测可达性」刷新状态。</div>
+            </div>
+          </div>
+          <div class="card">
             <div class="card-title" data-i18n="statOverview">统计概览</div>
             <div class="stats">
               <div class="stat"><b id="statCurrent">0</b><span data-i18n="statCurrentLabel">当前标签</span></div>
