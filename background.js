@@ -903,9 +903,9 @@ async function getAiSessionContext() {
 // OpenAI 兼容：POST {base}/chat/completions（Bearer）；Anthropic 原生：POST {base}/messages。
 async function askViaApi(prompt, config, history) {
   const cfg = normalizeAiConfig(config);
-  if (!cfg.baseUrl) return { error: '未配置 Base URL，请在「AI 服务」设置中填写' };
+  if (!cfg.baseUrl) return { error: '未配置 Base URL，请在蓝区「💬 LLM 对话」卡填写' };
   if (!cfg.allowAnyHost && !isAllowedAiHost(cfg.baseUrl)) {
-    return { error: 'Base URL 不在默认允许列表，如需连接该域名请在「AI 服务」设置中开启「允许任意域名」' };
+    return { error: 'Base URL 不在默认允许列表，如需连接该域名请在蓝区「💬 LLM 对话」卡开启「允许任意域名」' };
   }
   const messages = (history || []).concat([{ role: 'user', content: String(prompt || '') }]);
   // 部分国内提供商默认输出上限偏低，思考型模型会吃满导致答案被截断 → 显式给足

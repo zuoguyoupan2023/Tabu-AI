@@ -381,9 +381,9 @@ async function sendToAI(site, prompt) {
 // opts: { signal, onDelta(text), onReasoning(text) }；返回 { answer } 或 { aborted: true }；出错 throw Error。
 async function askApiStream(prompt, config, history, opts = {}) {
   const cfg = normalizeAiConfig(config);
-  if (!cfg.baseUrl) throw new Error('未配置 Base URL，请在「AI 服务」设置中填写');
+  if (!cfg.baseUrl) throw new Error('未配置 Base URL，请在蓝区「💬 LLM 对话」卡填写');
   if (!cfg.allowAnyHost && !isAllowedAiHost(cfg.baseUrl)) {
-    throw new Error('Base URL 不在默认允许列表，如需连接该域名请在「AI 服务」设置中开启「允许任意域名」');
+    throw new Error('Base URL 不在默认允许列表，如需连接该域名请在蓝区「💬 LLM 对话」卡开启「允许任意域名」');
   }
   const messages = (history || []).concat([{ role: 'user', content: String(prompt || '') }]);
   const signal = opts.signal || undefined;

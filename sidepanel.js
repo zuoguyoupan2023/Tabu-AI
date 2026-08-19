@@ -637,7 +637,7 @@ async function playSpeakStream(res, playbackRate, volume) {
 }
 
 async function speakLocalTts(text, statusEl, triggerBtn, engine) {
-  if (!LOCAL_TTS_ENGINES.includes(engine)) return;
+  if (!SPEAK_ENGINES.includes(engine)) return;
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
   if (localTtsActive) stopSpeaking();
   localTtsAbort = new AbortController();
@@ -651,9 +651,12 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
   logDebug('tts', '发起朗读（' + engine + '，' + text.length + ' 字）');
   try {
     // 013-P1：整段提交，服务端逐句流式合成（不再客户端 ≤150 字切块 → 去双段切分）
-    const body = engine === 'kokoro'
-      ? { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: Math.max(0.5, Math.min(2, rate)) }
-      : { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto', speed: 1 };
+    let body;
+    if (engine === 'kokoro') body = { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: Math.max(0.5, Math.min(2, rate)) };
+    else if (engine === 'qwen3') body = { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto', speed: 1 };
+    else if (engine === 'azure') body = { text, azure: { key: currentVoiceConfig.azureTtsKey, region: currentVoiceConfig.azureTtsRegion, voice: currentVoiceConfig.azureTtsVoice } }; // 🟦 Azure（独立协议）
+    else if (engine === 'cosyvoice') body = { text, cosyvoice: { key: currentVoiceConfig.cosyTtsKey, model: currentVoiceConfig.cosyTtsModel, voice: currentVoiceConfig.cosyTtsVoice } }; // 🔵 CosyVoice（独立协议）
+    else body = { text, cloud: { baseUrl: currentVoiceConfig.cloudTtsBase, apiKey: currentVoiceConfig.cloudTtsKey, model: currentVoiceConfig.cloudTtsModel, voice: currentVoiceConfig.cloudTtsVoice } }; // cloud（🌐 云端 TTS）
     const res = await fetch(serverUrl + '/speak?engine=' + engine, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -665,7 +668,7 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
       throw new Error(data.error || '本地服务 HTTP ' + res.status);
     }
     const tRes = performance.now() - tClick; // 点击 → 响应头（服务端已开始流式）
-    const firstFrame = await playSpeakStream(res, engine === 'qwen3' ? rate : 1, volume);
+    const firstFrame = await playSpeakStream(res, (engine === 'qwen3' || engine === 'cloud') ? rate : 1, volume);
     if (firstFrame >= 0) {
       logDebug('tts', '点击→首帧 ' + (tRes + firstFrame).toFixed(0) + 'ms（请求 ' + tRes.toFixed(0) + ' + 流式首帧 ' + firstFrame.toFixed(0) + '）');
     }
@@ -2031,12 +2034,46 @@ function toggleAiAllowAny() {
 // 蓝区「语音服务」设置 + 红区「转写」面板。
 // ASR 后端：微软 Azure（REST）/ OpenAI Whisper（兼容服务）/ 阿里云（DashScope）/ 本地服务（本地部署 HTTP）。
 const ASR_BACKEND_IDS = ['azure', 'openai', 'aliyun', 'local'];
-const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice'];
+const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice', 'cloudTtsBase', 'cloudTtsKey', 'cloudTtsModel', 'cloudTtsVoice', 'ttsProvider', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'cosyTtsKey', 'cosyTtsModel', 'cosyTtsVoice', 'voiceCircleForceSystem'];
 
-// 本地 TTS 引擎常量（引擎名与 /speak?engine= 对应）
+// 本地 TTS 引擎（本地模型，朗读面板显示「音色」行）
 const LOCAL_TTS_ENGINES = ['kokoro', 'qwen3'];
+// 走本地服务 /speak 的所有朗读引擎（含云端 OpenAI 兼容，engine 名与 /speak?engine= 对应）
+const SPEAK_ENGINES = ['kokoro', 'qwen3', 'cloud', 'azure', 'cosyvoice'];
 const QWEN3_VOICES = ['Vivian', 'Serena', 'Uncle_Fu', 'Dylan', 'Eric', 'Ryan', 'Aiden', 'Ono_Anna', 'Sohee'];
 const KOKORO_SID_HINT = { 18: '· 混合推荐', 48: '· 中文', 49: '· 中文', 50: '· 中文', 51: '· 中文', 52: '· 中文' };
+
+// 云端 TTS 供应商预设（TTS_ENGINES.cloud，OpenAI 兼容 /audio/speech）：切换时自动填 Base URL + 模型/音色建议
+const TTS_CLOUD_PROVIDERS = {
+  openai: {
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['tts-1', 'tts-1-hd', 'gpt-4o-mini-tts'],
+    defaultModel: 'tts-1',
+    voices: ['alloy', 'coral', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
+    defaultVoice: 'alloy'
+  },
+  minimax: {
+    baseUrl: 'https://api.minimax.io/v1',
+    models: ['speech-02-turbo', 'speech-02-hd'],
+    defaultModel: 'speech-02-turbo',
+    voices: ['male-qn-qingse', 'female-shaonv', 'male-qn-jingying'],
+    defaultVoice: 'male-qn-qingse'
+  },
+  siliconflow: {
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    models: ['Fishtalk/Fish-Audio-1.5'],
+    defaultModel: 'Fishtalk/Fish-Audio-1.5',
+    voices: ['fishaudio/default', 'fishaudio/speaker'],
+    defaultVoice: 'fishaudio/default'
+  },
+  custom: {
+    baseUrl: '',
+    models: [],
+    defaultModel: 'tts-1',
+    voices: [],
+    defaultVoice: 'alloy'
+  }
+};
 
 let currentVoiceConfig = {
   voiceAzureKey: '',
@@ -2047,9 +2084,21 @@ let currentVoiceConfig = {
   voiceLocalServer: 'http://127.0.0.1:9528',
   asrBackend: 'azure',
   asrMicDeviceId: '',
-  ttsEngine: 'system',   // system | kokoro | qwen3（朗读引擎）
+  ttsEngine: 'system',   // system | kokoro | qwen3 | cloud（朗读引擎）
   ttsLocalSid: 18,       // Kokoro 音色号
-  ttsLocalVoice: 'Vivian' // Qwen3 预设音色
+  ttsLocalVoice: 'Vivian', // Qwen3 预设音色
+  cloudTtsBase: 'https://api.openai.com/v1',  // 🌐 云端 TTS（OpenAI 兼容 /audio/speech）
+  cloudTtsKey: '',
+  cloudTtsModel: 'tts-1',
+  cloudTtsVoice: 'alloy',
+  ttsProvider: 'openai',  // 云端 TTS 供应商（TTS_CLOUD_PROVIDERS key）
+  azureTtsKey: '',        // 🟦 微软 Azure（独立协议）
+  azureTtsRegion: '',
+  azureTtsVoice: 'zh-CN-XiaoxiaoNeural',
+  cosyTtsKey: '',         // 🔵 阿里云 CosyVoice（独立协议）
+  cosyTtsModel: 'cosyvoice-v1',
+  cosyTtsVoice: 'longxiaochun',
+  voiceCircleForceSystem: false  // 工作台朗读：true=固定系统 TTS（即时），false=跟随朗读引擎
 };
 let currentAsrBackend = 'azure';
 
@@ -2065,9 +2114,21 @@ async function loadVoiceConfig() {
     voiceAliyunKey: String(r.voiceAliyunKey || '').trim(),
     voiceLocalServer: String(r.voiceLocalServer || 'http://127.0.0.1:9528').trim(),
     asrMicDeviceId: String(r.asrMicDeviceId || '').trim(),
-    ttsEngine: (r.ttsEngine === 'kokoro' || r.ttsEngine === 'qwen3') ? r.ttsEngine : 'system',
+    ttsEngine: (['kokoro', 'qwen3', 'cloud'].includes(r.ttsEngine)) ? r.ttsEngine : 'system',
     ttsLocalSid: (!isNaN(Number(r.ttsLocalSid)) && Number(r.ttsLocalSid) >= 0) ? Number(r.ttsLocalSid) : 18,
-    ttsLocalVoice: String(r.ttsLocalVoice || 'Vivian').trim()
+    ttsLocalVoice: String(r.ttsLocalVoice || 'Vivian').trim(),
+    cloudTtsBase: String(r.cloudTtsBase || 'https://api.openai.com/v1').trim(),
+    cloudTtsKey: String(r.cloudTtsKey || '').trim(),
+    cloudTtsModel: String(r.cloudTtsModel || 'tts-1').trim(),
+    cloudTtsVoice: String(r.cloudTtsVoice || 'alloy').trim(),
+    ttsProvider: TTS_CLOUD_PROVIDERS[r.ttsProvider] ? r.ttsProvider : 'openai',
+    azureTtsKey: String(r.azureTtsKey || '').trim(),
+    azureTtsRegion: String(r.azureTtsRegion || '').trim(),
+    azureTtsVoice: String(r.azureTtsVoice || 'zh-CN-XiaoxiaoNeural').trim(),
+    cosyTtsKey: String(r.cosyTtsKey || '').trim(),
+    cosyTtsModel: String(r.cosyTtsModel || 'cosyvoice-v1').trim(),
+    cosyTtsVoice: String(r.cosyTtsVoice || 'longxiaochun').trim(),
+    voiceCircleForceSystem: !!r.voiceCircleForceSystem
   };
   const key = voiceField('voiceAzureKey'); if (key) key.value = currentVoiceConfig.voiceAzureKey;
   const reg = voiceField('voiceAzureRegion'); if (reg) reg.value = currentVoiceConfig.voiceAzureRegion;
@@ -2075,6 +2136,19 @@ async function loadVoiceConfig() {
   const ob = voiceField('voiceOpenaiBase'); if (ob) ob.value = currentVoiceConfig.voiceOpenaiBase;
   const ak = voiceField('voiceAliyunKey'); if (ak) ak.value = currentVoiceConfig.voiceAliyunKey;
   const ls = voiceField('voiceLocalServer'); if (ls) ls.value = currentVoiceConfig.voiceLocalServer;
+  const ctb = voiceField('cloudTtsBase'); if (ctb) ctb.value = currentVoiceConfig.cloudTtsBase;
+  const ctk = voiceField('cloudTtsKey'); if (ctk) ctk.value = currentVoiceConfig.cloudTtsKey;
+  const ctm = voiceField('cloudTtsModel'); if (ctm) ctm.value = currentVoiceConfig.cloudTtsModel;
+  const ctv = voiceField('cloudTtsVoice'); if (ctv) ctv.value = currentVoiceConfig.cloudTtsVoice;
+  const tp = voiceField('ttsProvider'); if (tp) tp.value = currentVoiceConfig.ttsProvider;
+  populateTtsCloudDatalist(currentVoiceConfig.ttsProvider);
+  const atk = voiceField('azureTtsKey'); if (atk) atk.value = currentVoiceConfig.azureTtsKey;
+  const atr = voiceField('azureTtsRegion'); if (atr) atr.value = currentVoiceConfig.azureTtsRegion;
+  const atv = voiceField('azureTtsVoice'); if (atv) atv.value = currentVoiceConfig.azureTtsVoice;
+  const csk = voiceField('cosyTtsKey'); if (csk) csk.value = currentVoiceConfig.cosyTtsKey;
+  const csm = voiceField('cosyTtsModel'); if (csm) csm.value = currentVoiceConfig.cosyTtsModel;
+  const csv = voiceField('cosyTtsVoice'); if (csv) csv.value = currentVoiceConfig.cosyTtsVoice;
+  const cfs = voiceField('voiceCircleForceSystem'); if (cfs) cfs.checked = currentVoiceConfig.voiceCircleForceSystem;
   currentAsrBackend = ASR_BACKEND_IDS.includes(r.asrBackend) ? r.asrBackend : 'azure';
   syncAsrBackendUi();
   syncTtsEngineUi();
@@ -2090,14 +2164,61 @@ function collectVoiceConfig() {
     voiceLocalServer: (voiceField('voiceLocalServer') && voiceField('voiceLocalServer').value || '').trim(),
     ttsEngine: (voiceField('ttsEngine') && voiceField('ttsEngine').value) || currentVoiceConfig.ttsEngine || 'system',
     ttsLocalSid: currentVoiceConfig.ttsLocalSid,
-    ttsLocalVoice: currentVoiceConfig.ttsLocalVoice
+    ttsLocalVoice: currentVoiceConfig.ttsLocalVoice,
+    cloudTtsBase: (voiceField('cloudTtsBase') && voiceField('cloudTtsBase').value || '').trim(),
+    cloudTtsKey: (voiceField('cloudTtsKey') && voiceField('cloudTtsKey').value || '').trim(),
+    cloudTtsModel: (voiceField('cloudTtsModel') && voiceField('cloudTtsModel').value || '').trim(),
+    cloudTtsVoice: (voiceField('cloudTtsVoice') && voiceField('cloudTtsVoice').value || '').trim(),
+    ttsProvider: (voiceField('ttsProvider') && voiceField('ttsProvider').value) || currentVoiceConfig.ttsProvider || 'openai',
+    azureTtsKey: (voiceField('azureTtsKey') && voiceField('azureTtsKey').value || '').trim(),
+    azureTtsRegion: (voiceField('azureTtsRegion') && voiceField('azureTtsRegion').value || '').trim(),
+    azureTtsVoice: (voiceField('azureTtsVoice') && voiceField('azureTtsVoice').value || 'zh-CN-XiaoxiaoNeural').trim(),
+    cosyTtsKey: (voiceField('cosyTtsKey') && voiceField('cosyTtsKey').value || '').trim(),
+    cosyTtsModel: (voiceField('cosyTtsModel') && voiceField('cosyTtsModel').value || 'cosyvoice-v1').trim(),
+    cosyTtsVoice: (voiceField('cosyTtsVoice') && voiceField('cosyTtsVoice').value || 'longxiaochun').trim(),
+    voiceCircleForceSystem: !!(voiceField('voiceCircleForceSystem') && voiceField('voiceCircleForceSystem').checked)
   };
 }
 
-async function saveVoiceConfig() {
-  currentVoiceConfig = collectVoiceConfig();
-  await chrome.storage.local.set(currentVoiceConfig);
-  showStatus(I18N.t('voiceSvcSaved'), 'success');
+// 蓝区「TTS 朗读」卡保存：云端 TTS + 工作台朗读（引擎/音色已随 change 即时保存）
+async function saveTtsConfig() {
+  const c = currentVoiceConfig;
+  const subset = {
+    cloudTtsBase: (voiceField('cloudTtsBase') && voiceField('cloudTtsBase').value || '').trim(),
+    cloudTtsKey: (voiceField('cloudTtsKey') && voiceField('cloudTtsKey').value || '').trim(),
+    cloudTtsModel: (voiceField('cloudTtsModel') && voiceField('cloudTtsModel').value || '').trim(),
+    cloudTtsVoice: (voiceField('cloudTtsVoice') && voiceField('cloudTtsVoice').value || '').trim(),
+    ttsProvider: (voiceField('ttsProvider') && voiceField('ttsProvider').value) || c.ttsProvider || 'openai',
+    azureTtsKey: (voiceField('azureTtsKey') && voiceField('azureTtsKey').value || '').trim(),
+    azureTtsRegion: (voiceField('azureTtsRegion') && voiceField('azureTtsRegion').value || '').trim(),
+    azureTtsVoice: (voiceField('azureTtsVoice') && voiceField('azureTtsVoice').value || 'zh-CN-XiaoxiaoNeural').trim(),
+    cosyTtsKey: (voiceField('cosyTtsKey') && voiceField('cosyTtsKey').value || '').trim(),
+    cosyTtsModel: (voiceField('cosyTtsModel') && voiceField('cosyTtsModel').value || 'cosyvoice-v1').trim(),
+    cosyTtsVoice: (voiceField('cosyTtsVoice') && voiceField('cosyTtsVoice').value || 'longxiaochun').trim(),
+    voiceCircleForceSystem: !!(voiceField('voiceCircleForceSystem') && voiceField('voiceCircleForceSystem').checked),
+    ttsEngine: c.ttsEngine,
+    ttsLocalSid: c.ttsLocalSid,
+    ttsLocalVoice: c.ttsLocalVoice
+  };
+  Object.assign(currentVoiceConfig, subset);
+  await chrome.storage.local.set(subset);
+  showStatus(I18N.t('ttsSvcSaved'), 'success');
+}
+
+// 蓝区「ASR 识别」卡保存：云端三家凭据 + 本地服务地址（供 ASR/TTS/LLM 本地共用）
+async function saveAsrConfig() {
+  const subset = {
+    voiceAzureKey: (voiceField('voiceAzureKey') && voiceField('voiceAzureKey').value || '').trim(),
+    voiceAzureRegion: (voiceField('voiceAzureRegion') && voiceField('voiceAzureRegion').value || '').trim(),
+    voiceOpenaiKey: (voiceField('voiceOpenaiKey') && voiceField('voiceOpenaiKey').value || '').trim(),
+    voiceOpenaiBase: (voiceField('voiceOpenaiBase') && voiceField('voiceOpenaiBase').value || '').trim(),
+    voiceAliyunKey: (voiceField('voiceAliyunKey') && voiceField('voiceAliyunKey').value || '').trim(),
+    voiceLocalServer: (voiceField('voiceLocalServer') && voiceField('voiceLocalServer').value || '').trim(),
+    asrBackend: currentAsrBackend
+  };
+  Object.assign(currentVoiceConfig, subset);
+  await chrome.storage.local.set(subset);
+  showStatus(I18N.t('asrSvcSaved'), 'success');
 }
 
 // OpenAI 兼容 ASR 的 Key：独立字段优先，否则复用 AI 服务里的 OpenAI Key
@@ -2109,15 +2230,27 @@ function getOpenaiAsrKey() {
   return '';
 }
 
-// 蓝区「测试识别」：检测本地 ASR 服务是否在线（本地后端的主要入口）
-async function testVoiceConfig() {
-  const statusEl = voiceField('voiceTestStatus');
-  const btn = voiceField('voiceTestBtn');
+// 蓝区「连接测试」：按当前选中的识别后端（本地 / Azure / OpenAI / 阿里云）验证凭据与连通性
+async function testAsrConnection() {
+  const statusEl = voiceField('asrTestStatus');
+  const btn = voiceField('asrConnTestBtn');
   if (btn) btn.disabled = true;
   if (statusEl) statusEl.textContent = I18N.t('asrTesting');
   currentVoiceConfig = collectVoiceConfig();
   try {
-    const serverUrl = currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528';
+    if (currentAsrBackend === 'local') await testLocalAsr(statusEl);
+    else await testCloudAsr(currentAsrBackend, statusEl);
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ ' + ((e && e.message) || String(e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// 本地后端测试：检测本地 ASR 服务是否在线（/health），报告引擎与 TTS 状态
+async function testLocalAsr(statusEl) {
+  const serverUrl = currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528';
+  try {
     const r = await fetch(serverUrl.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(5000) });
     const data = await r.json().catch(() => ({}));
     if (r.ok && data.ok) {
@@ -2130,12 +2263,198 @@ async function testVoiceConfig() {
     }
   } catch (e) {
     if (statusEl) statusEl.textContent = '❌ 本地服务连接失败：' + (e.message || '请先启动 asr-server');
-  } finally {
-    if (btn) btn.disabled = false;
   }
 }
 
-// ---- 朗读引擎 UI（系统 / Kokoro / Qwen3）----
+// 合成测试音：1.5s 双频提示音（440+880Hz）→ 16kHz Int16 PCM，非静音避免被判定「无有效音频」
+function makeTestTonePcm(rate = 16000, seconds = 1.5, amp = 0.3) {
+  const n = Math.floor(rate * seconds);
+  const out = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / rate;
+    out[i] = Math.round(amp * 32767 * (0.6 * Math.sin(2 * Math.PI * 440 * t) + 0.4 * Math.sin(2 * Math.PI * 880 * t)));
+  }
+  return out;
+}
+
+// 云端后端测试：合成测试音送所选供应商；HTTP 200 即连接成功（凭据/端点有效），有文本则附识别结果
+async function testCloudAsr(backend, statusEl) {
+  const labels = { azure: 'Azure', openai: 'OpenAI Whisper', aliyun: '阿里云' };
+  const label = labels[backend] || backend;
+  const pcm16 = makeTestTonePcm();
+  let text = '';
+  if (backend === 'azure') text = await testAsrAzure(pcm16);
+  else if (backend === 'openai') text = await testAsrOpenai(pcm16);
+  else if (backend === 'aliyun') text = await testAsrAliyun(pcm16);
+  const ok = '✅ ' + I18N.t('asrTestConnOk') + ' · ' + label;
+  if (statusEl) {
+    statusEl.textContent = text ? (ok + '｜识别到：' + text) : ok;
+  }
+}
+
+// 微软 Azure STT 连接测试：请求构造同 asrViaAzure，但 HTTP 200 即视为成功（NoMatch 不判失败）
+async function testAsrAzure(pcm16) {
+  const cfg = currentVoiceConfig;
+  if (!cfg.voiceAzureKey || !cfg.voiceAzureRegion) throw new Error(I18N.t('asrNoConfig'));
+  const region = cfg.voiceAzureRegion.replace(/^https?:\/\//, '').split('.')[0];
+  const lang = String(document.documentElement.lang).startsWith('zh') ? 'zh-CN' : 'en-US';
+  const url = `https://${region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1?language=${lang}&format=detailed`;
+  const wav = encodeWav(pcm16, 16000);
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Ocp-Apim-Subscription-Key': cfg.voiceAzureKey,
+      'Content-Type': 'audio/wav; codecs=audio/pcm; samplerate=16000',
+      'Accept': 'application/json'
+    },
+    body: wav,
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) throw new Error('Azure HTTP ' + res.status);
+  const data = await res.json().catch(() => ({}));
+  if (data.RecognitionStatus === 'Success') return data.DisplayText || '';
+  return ''; // NoMatch：连接成功但未识别到语音
+}
+
+// OpenAI Whisper 连接测试：multipart /audio/transcriptions，HTTP 200 即成功
+async function testAsrOpenai(pcm16) {
+  const cfg = currentVoiceConfig;
+  const key = getOpenaiAsrKey();
+  if (!key) throw new Error(I18N.t('asrNoConfig'));
+  const base = (cfg.voiceOpenaiBase || 'https://api.openai.com/v1').replace(/\/+$/, '');
+  const wav = encodeWav(pcm16, 16000);
+  const form = new FormData();
+  form.append('model', 'whisper-1');
+  form.append('response_format', 'json');
+  form.append('file', new Blob([wav], { type: 'audio/wav' }), 'test.wav');
+  const res = await fetch(base + '/audio/transcriptions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + key },
+    body: form,
+    signal: AbortSignal.timeout(30000)
+  });
+  if (!res.ok) throw new Error('OpenAI HTTP ' + res.status);
+  const data = await res.json().catch(() => ({}));
+  return (data.text || '').trim();
+}
+
+// 阿里云 DashScope Qwen-ASR 连接测试：chat/completions + base64 WAV，HTTP 200 即成功
+async function testAsrAliyun(pcm16) {
+  const cfg = currentVoiceConfig;
+  if (!cfg.voiceAliyunKey) throw new Error(I18N.t('asrNoConfig'));
+  const wav = encodeWav(pcm16, 16000);
+  let binary = '';
+  const bytes = new Uint8Array(wav.buffer || wav);
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  const dataUrl = 'data:audio/wav;base64,' + btoa(binary);
+  const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + cfg.voiceAliyunKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'qwen3-asr-flash',
+      messages: [{ role: 'user', content: [{ type: 'input_audio', input_audio: dataUrl }] }],
+      stream: false,
+      asr_options: { language: String(document.documentElement.lang).startsWith('zh') ? 'zh' : undefined }
+    }),
+    signal: AbortSignal.timeout(60000)
+  });
+  if (!res.ok) throw new Error('阿里云 HTTP ' + res.status);
+  const data = await res.json().catch(() => ({}));
+  const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  return String(text || '').trim();
+}
+
+// ---- 蓝区「真人语音测试」：录音 → 送当前选中的识别后端真实转写 ----
+let asrTestRecorder = null, asrTestStream = null, asrTestChunks = [], asrTestRecording = false;
+
+function setAsrVoiceTestBtnRecording(on) {
+  const btn = voiceField('asrVoiceTestBtn');
+  if (btn) {
+    btn.textContent = on ? I18N.t('asrVoiceTestStop') : I18N.t('asrVoiceTestBtn');
+    btn.classList.toggle('recording', on);
+  }
+}
+
+async function toggleAsrVoiceTest() {
+  if (asrTestRecording) { stopAsrVoiceTest(); return; }
+  const statusEl = voiceField('asrTestStatus');
+  if (statusEl) statusEl.textContent = '🎙 ' + I18N.t('asrStarting');
+  try {
+    // 与转写面板一致：关闭音频处理，保留原始信号；支持指定麦克风设备
+    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (currentVoiceConfig.asrMicDeviceId) audioConstraints.deviceId = { exact: currentVoiceConfig.asrMicDeviceId };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    asrTestStream = stream;
+    asrTestChunks = [];
+    let mime = '';
+    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
+    else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
+    asrTestRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    asrTestRecorder.ondataavailable = (e) => { if (e.data && e.data.size) asrTestChunks.push(e.data); };
+    asrTestRecorder.onstop = onAsrVoiceTestDone;
+    asrTestRecorder.start();
+    asrTestRecording = true;
+    setAsrVoiceTestBtnRecording(true);
+    if (statusEl) {
+      statusEl.textContent = '🎙 ' + I18N.t('asrPreparing');
+      setTimeout(() => { if (asrTestRecording && statusEl) statusEl.textContent = I18N.t('asrRecording'); }, 600);
+    }
+  } catch (e) {
+    // MV3 侧边栏无法弹授权弹窗：NotAllowedError 时引导去可见授权页授权一次
+    const name = e && (e.name || e.message);
+    if (statusEl) statusEl.textContent = (name && /NotAllowed|PermissionDismissed|SecurityError/.test(name))
+      ? I18N.t('asrMicPermNeeded') : I18N.t('asrMicrophoneDenied');
+  }
+}
+
+function stopAsrVoiceTest() {
+  if (asrTestRecorder && asrTestRecorder.state !== 'inactive') asrTestRecorder.stop();
+}
+
+async function onAsrVoiceTestDone() {
+  const recorder = asrTestRecorder;
+  asrTestRecorder = null;
+  asrTestRecording = false;
+  setAsrVoiceTestBtnRecording(false);
+  if (asrTestStream) { asrTestStream.getTracks().forEach(t => t.stop()); asrTestStream = null; }
+  const type = (recorder && recorder.mimeType) || 'audio/webm';
+  const blob = new Blob(asrTestChunks, { type });
+  asrTestChunks = [];
+  const statusEl = voiceField('asrTestStatus');
+  try {
+    const buf = await blob.arrayBuffer();
+    const pcm16 = await decodeAndResample(buf, 16000);
+    if (pcm16.length < 4800) { if (statusEl) statusEl.textContent = I18N.t('asrAudioTooShort'); return; } // < 0.3s
+    // 自动增益：弱麦克风采集音量偏低时放大到合理范围
+    let peak = 0;
+    for (let i = 0; i < pcm16.length; i++) peak = Math.max(peak, Math.abs(pcm16[i]));
+    if (peak > 0.01 && peak < 0.5) {
+      const gain = 0.8 / peak;
+      for (let i = 0; i < pcm16.length; i++) pcm16[i] = Math.max(-1, Math.min(1, pcm16[i] * gain));
+    }
+    // 静音检测：RMS 过低说明麦克风没真正录到声音
+    let sum = 0;
+    for (let i = 0; i < pcm16.length; i++) sum += pcm16[i] * pcm16[i];
+    const rms = Math.sqrt(sum / pcm16.length);
+    if (rms < 0.01) { if (statusEl) statusEl.textContent = I18N.t('asrSilent', rms.toFixed(4)); return; }
+    if (statusEl) statusEl.textContent = '⏳ ' + I18N.t('asrTesting');
+    const text = await runAsr(pcm16); // 走当前选中的识别后端
+    if (statusEl) {
+      statusEl.textContent = text
+        ? '✅ ' + I18N.t('asrTestOk') + '｜' + text
+        : I18N.t('asrNoAudioError');
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = '❌ ' + ((e && e.message) || I18N.t('asrNoAudioError'));
+  }
+}
+
+// ---- 朗读引擎 UI（系统 / Kokoro / Qwen3 / 云端）----
 // 引擎设置存 storage，朗读面板与蓝区语音服务卡共用，双向同步
 function syncTtsEngineUi() {
   const engine = currentVoiceConfig.ttsEngine;
@@ -2143,19 +2462,54 @@ function syncTtsEngineUi() {
   const selBlue = voiceField('ttsEngineBlue');
   if (selPanel) selPanel.value = engine;
   if (selBlue) selBlue.value = engine;
-  const isLocal = LOCAL_TTS_ENGINES.includes(engine);
+  const isLocal = LOCAL_TTS_ENGINES.includes(engine);   // 本地引擎 → 显示本地音色行
+  const isSys = engine === 'system';                     // 系统 → 显示系统音色行
   const sysRow = document.getElementById('ttsSysVoiceRow');
   const localRow = document.getElementById('ttsLocalVoiceRow');
-  if (sysRow) sysRow.classList.toggle('hidden', isLocal);
+  if (sysRow) sysRow.classList.toggle('hidden', !isSys);
   if (localRow) localRow.classList.toggle('hidden', !isLocal);
+  if (['cloud', 'azure', 'cosyvoice'].includes(engine)) {
+    // 云端引擎（含独立协议）：隐藏系统/本地音色行，云端音色由各渠道自己的配置区设定
+    if (sysRow) sysRow.classList.add('hidden');
+    if (localRow) localRow.classList.add('hidden');
+  }
   populateLocalVoices();
 }
 
 function setTtsEngine(engine) {
-  if (!['system', 'kokoro', 'qwen3'].includes(engine)) return;
+  if (!['system', 'kokoro', 'qwen3', 'cloud', 'azure', 'cosyvoice'].includes(engine)) return;
   currentVoiceConfig.ttsEngine = engine;
   chrome.storage.local.set({ ttsEngine: engine });
   syncTtsEngineUi();
+}
+
+// ---- 云端 TTS 供应商：切换自动填 Base URL + 模型/音色建议 ----
+function populateTtsCloudDatalist(provider) {
+  const meta = TTS_CLOUD_PROVIDERS[provider] || TTS_CLOUD_PROVIDERS.custom;
+  const mdlList = voiceField('cloudTtsModelList');
+  const model = voiceField('cloudTtsModel');
+  if (mdlList) mdlList.innerHTML = (meta.models || []).map((m) => `<option value="${m}"></option>`).join('');
+  if (model && meta.defaultModel) model.placeholder = meta.defaultModel;
+  const vceList = voiceField('cloudTtsVoiceList');
+  const voice = voiceField('cloudTtsVoice');
+  if (vceList) vceList.innerHTML = (meta.voices || []).map((v) => `<option value="${v}"></option>`).join('');
+  if (voice && meta.defaultVoice) voice.placeholder = meta.defaultVoice;
+}
+
+function onTtsProviderChange() {
+  const sel = voiceField('ttsProvider');
+  const provider = (sel && sel.value) || 'openai';
+  const base = voiceField('cloudTtsBase');
+  if (base) {
+    const current = base.value.trim();
+    const isOtherDefault = Object.keys(TTS_CLOUD_PROVIDERS)
+      .filter((k) => k !== provider)
+      .some((k) => TTS_CLOUD_PROVIDERS[k].baseUrl === current);
+    if (!current || isOtherDefault) {
+      base.value = (TTS_CLOUD_PROVIDERS[provider] && TTS_CLOUD_PROVIDERS[provider].baseUrl) || '';
+    }
+  }
+  populateTtsCloudDatalist(provider);
 }
 
 // 填充本地音色下拉（Kokoro 从 /health 拿音色数；Qwen3 用预设 speaker 名）
@@ -2313,6 +2667,8 @@ function setAsrBackend(id) {
 }
 
 function syncAsrBackendUi() {
+  const selBlue = voiceField('asrBackendBlue');
+  if (selBlue) selBlue.value = currentAsrBackend;
   const map = { asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
   document.querySelectorAll('#panel-asr .ai-backend').forEach(btn => {
     btn.classList.toggle('active', map[btn.id] === currentAsrBackend);
@@ -2665,7 +3021,8 @@ async function onVoiceCircleDone() {
     // ③ 朗读（文本输出 → 发起朗读的间隔；首帧延迟见 [tts] 日志）
     if (answer && mode !== 'inject') {
       const tSpk0 = performance.now();
-      doSpeak(answer, document.getElementById('voiceCircleStatus'), null, true); // 工作台自动朗读固定走系统 TTS（即时）
+      // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
+      doSpeak(answer, document.getElementById('voiceCircleStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
       logDebug('voice#' + round, '输出→朗读发起 ' + (performance.now() - tSpk0).toFixed(0) + 'ms');
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
@@ -2876,58 +3233,55 @@ function renderChatResult(recognized, answer) {
   if (speakBtn) speakBtn.disabled = !answer;
 }
 
-// 发送：纯文本 → /chat；有录音 → /voice-chat（识别→LLM→朗读，返回 base64 音频自动播放）
+// 发送：按 AI 渠道问答（api 云端 / local 本地 / inject 站点 / trans）；有录音 → 本地识别 → 问答 → 朗读（跟随引擎）
 async function sendChat() {
   const input = document.getElementById('chatInput');
   const text = (input && input.value || '').trim();
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
   const sendBtn = document.getElementById('chatSend');
   if (!text && !chatHasAudio) { setChatStatus(I18N.t('chatNoText'), true); return; }
-  // 本地服务在线预检
-  try {
-    const h = await fetch(serverUrl + '/health', { signal: AbortSignal.timeout(3000) });
-    if (!h.ok) throw new Error('health');
-  } catch (e) {
-    setChatStatus(I18N.t('chatServerOffline'), true);
-    return;
+  const mode = await getEffectiveAiMode(); // local / inject / api / trans
+  // 本地渠道或录音（识别）需本地服务；api 纯文本不需 asr-server
+  const needLocal = mode === 'local' || chatHasAudio;
+  if (needLocal) {
+    try {
+      const h = await fetch(serverUrl + '/health', { signal: AbortSignal.timeout(3000) });
+      if (!h.ok) throw new Error('health');
+    } catch (e) {
+      setChatStatus(I18N.t('chatServerOffline'), true);
+      return;
+    }
   }
   if (sendBtn) sendBtn.disabled = true;
+  const wasAudio = chatHasAudio;
+  const audioPcm = chatAudioPcm;
+  chatHasAudio = false;
+  chatAudioPcm = null;
   try {
-    if (chatHasAudio) {
-      const wav = encodeWav(float32ToInt16(chatAudioPcm), 16000);
-      const ttsEngine = currentVoiceConfig.ttsEngine === 'qwen3' ? 'qwen3' : 'kokoro';
-      const res = await fetch(serverUrl + '/voice-chat?ttsEngine=' + ttsEngine + '&asrEngine=auto&llmEngine=llama-cpp&fmt=json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'audio/wav' },
-        body: wav,
-        signal: AbortSignal.timeout(120000)
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
-      const data = await res.json();
-      const recognized = data.recognized || text;
-      chatLastAnswer = data.answer || '';
-      renderChatResult(recognized, chatLastAnswer);
+    // ① 录音 → 本地识别（识别文本第一时间显示）
+    let query = text;
+    if (wasAudio) {
+      setChatStatus('⏳ ' + I18N.t('asrTesting'));
+      const recognized = await asrViaLocal(audioPcm);
+      if (!recognized) { setChatStatus(I18N.t('asrNoAudioError'), true); return; }
+      query = recognized;
+      if (input) input.value = recognized;
+      renderChatResult(recognized, null);
+    }
+    // ② LLM 按渠道问答（复用圆球 voiceChatAskText：api→askApiStream，local→/chat，inject→站点）
+    setChatStatus('💭 ' + I18N.t('voiceCircleThinking'));
+    const answer = await voiceChatAskText(query, mode);
+    chatLastAnswer = answer || '';
+    // ③ 输出 / 朗读
+    if (mode === 'inject') {
+      renderChatResult(wasAudio ? query : '', '');
+      setChatStatus('✅ ' + I18N.t('voiceSentToSite'));
+    } else if (answer) {
+      renderChatResult(wasAudio ? query : '', answer);
       setChatStatus('✅ ' + I18N.t('chatAnswer'));
-      if (data.audioBase64) {
-        const bin = atob(data.audioBase64);
-        const arr = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        const pcm = await decodeAndResample(arr.buffer, 24000);
-        await playLocalBuffer(pcm, 1, 1);
-      }
-      chatHasAudio = false;
-      chatAudioPcm = null;
+      if (wasAudio) doSpeak(answer, voiceField('chatStatus'), null, false); // 朗读跟随朗读引擎
     } else {
-      const res = await fetch(serverUrl + '/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [{ role: 'user', content: text }] }),
-        signal: AbortSignal.timeout(120000)
-      });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
-      const data = await res.json();
-      chatLastAnswer = data.text || '';
-      renderChatResult('', chatLastAnswer);
+      renderChatResult(wasAudio ? query : '', '');
       setChatStatus('✅ ' + I18N.t('chatAnswer'));
     }
   } catch (e) {
@@ -2937,11 +3291,12 @@ async function sendChat() {
   }
 }
 
-// 朗读最近一次回答（走本地 /speak；qwen3 不可达时自动回退 kokoro）
+// 朗读最近一次回答（走本地 /speak；qwen3/cloud 不可达时自动回退 kokoro）
 function chatSpeakFetch(serverUrl, engine, text) {
-  const body = engine === 'qwen3'
-    ? { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto' }
-    : { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: 1 };
+  let body;
+  if (engine === 'qwen3') body = { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto' };
+  else if (engine === 'cloud') body = { text, cloud: { baseUrl: currentVoiceConfig.cloudTtsBase, apiKey: currentVoiceConfig.cloudTtsKey, model: currentVoiceConfig.cloudTtsModel, voice: currentVoiceConfig.cloudTtsVoice } };
+  else body = { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: 1 };
   return fetch(serverUrl + '/speak?engine=' + engine, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -2958,11 +3313,12 @@ async function playSpeakResponse(res) {
 async function chatSpeakAnswer() {
   if (!chatLastAnswer) return;
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
-  const ttsEngine = currentVoiceConfig.ttsEngine === 'qwen3' ? 'qwen3' : 'kokoro';
+  let ttsEngine = currentVoiceConfig.ttsEngine;
+  if (!SPEAK_ENGINES.includes(ttsEngine)) ttsEngine = 'kokoro'; // system 等 → 兜底 kokoro（朗读最近回答走 /speak）
   try {
     await playSpeakResponse(await chatSpeakFetch(serverUrl, ttsEngine, chatLastAnswer));
   } catch (e) {
-    if (ttsEngine === 'qwen3') {
+    if (ttsEngine !== 'kokoro') {
       try {
         await playSpeakResponse(await chatSpeakFetch(serverUrl, 'kokoro', chatLastAnswer));
         return;
@@ -3460,21 +3816,27 @@ document.addEventListener('DOMContentLoaded', () => {
   if (ttsEngineSel) ttsEngineSel.addEventListener('change', () => setTtsEngine(ttsEngineSel.value));
   const ttsEngineBlue = document.getElementById('ttsEngineBlue');
   if (ttsEngineBlue) ttsEngineBlue.addEventListener('change', () => setTtsEngine(ttsEngineBlue.value));
+  // 蓝区识别后端（与转写面板共用 asrBackend）
+  const asrBackendBlue = document.getElementById('asrBackendBlue');
+  if (asrBackendBlue) asrBackendBlue.addEventListener('change', () => setAsrBackend(asrBackendBlue.value));
   const ttsLocalVoiceSel = document.getElementById('ttsLocalVoice');
   if (ttsLocalVoiceSel) ttsLocalVoiceSel.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceSel));
   const ttsLocalVoiceBlue = document.getElementById('ttsLocalVoiceBlue');
   if (ttsLocalVoiceBlue) ttsLocalVoiceBlue.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceBlue));
+  // 云端 TTS 供应商切换 → 自动填 Base URL + 模型/音色建议
+  const ttsProviderSel = document.getElementById('ttsProvider');
+  if (ttsProviderSel) ttsProviderSel.addEventListener('change', onTtsProviderChange);
   // 蓝区「测试朗读」：读一句样例，验证本地 TTS
   const ttsLocalTestBtn = document.getElementById('ttsLocalTestBtn');
   if (ttsLocalTestBtn) ttsLocalTestBtn.addEventListener('click', () => {
     const engine = currentVoiceConfig.ttsEngine;
-    if (!LOCAL_TTS_ENGINES.includes(engine)) {
+    if (!SPEAK_ENGINES.includes(engine)) {
       const tip = I18N.t('ttsLocalNeedServer');
       showStatus(tip, 'error');
-      if (voiceField('voiceTestStatus')) voiceField('voiceTestStatus').textContent = tip;
+      if (voiceField('ttsTestStatus')) voiceField('ttsTestStatus').textContent = tip;
       return;
     }
-    speakLocalTts(I18N.t('ttsLocalSample'), voiceField('voiceTestStatus'), ttsLocalTestBtn, engine);
+    speakLocalTts(I18N.t('ttsLocalSample'), voiceField('ttsTestStatus'), ttsLocalTestBtn, engine);
   });
 
   // 本地模型管理（014 §5.2）：刷新按钮 + 首次加载状态
@@ -3716,11 +4078,15 @@ document.addEventListener('DOMContentLoaded', () => {
   if (debugLogClearBtn) debugLogClearBtn.addEventListener('click', debugLogClear);
   logDebug('sys', '日志区就绪');
 
-  // ===== 语音服务（蓝区设置） =====
-  const voiceSaveBtn = document.getElementById('voiceSaveBtn');
-  if (voiceSaveBtn) voiceSaveBtn.addEventListener('click', saveVoiceConfig);
-  const voiceTestBtn = document.getElementById('voiceTestBtn');
-  if (voiceTestBtn) voiceTestBtn.addEventListener('click', testVoiceConfig);
+  // ===== 蓝区：TTS 朗读 / ASR 识别（拆分保存） =====
+  const ttsSaveBtn = document.getElementById('ttsSaveBtn');
+  if (ttsSaveBtn) ttsSaveBtn.addEventListener('click', saveTtsConfig);
+  const asrSaveBtn = document.getElementById('asrSaveBtn');
+  if (asrSaveBtn) asrSaveBtn.addEventListener('click', saveAsrConfig);
+  const asrConnTestBtn = document.getElementById('asrConnTestBtn');
+  if (asrConnTestBtn) asrConnTestBtn.addEventListener('click', testAsrConnection);
+  const asrVoiceTestBtn = document.getElementById('asrVoiceTestBtn');
+  if (asrVoiceTestBtn) asrVoiceTestBtn.addEventListener('click', toggleAsrVoiceTest);
 
   // ===== 转写面板（ASR） =====
   const asrRecordBtn = document.getElementById('asrRecord');

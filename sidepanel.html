@@ -104,6 +104,9 @@
                       <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
                       <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
                       <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
+                      <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
+                      <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
+                      <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
                     </select>
                   </label>
                 </div>
@@ -434,8 +437,13 @@
             <span class="switch" id="injectSwitch" data-i18n-title="injectSwitchTitle" title="点击切换注入输入工具开关"></span>
           </div>
           <div class="card">
-            <div class="card-title" data-i18n="aiSvcLabel">🤖 AI 服务</div>
+            <div class="card-title" data-i18n="aiSvcLabel">💬 LLM 对话</div>
             <div class="ai-config">
+              <div class="ai-svc-sep" data-i18n="llmSourceLocalLabel">💻 本地（asr-server）</div>
+              <div class="hint" data-i18n="llmLocalHint">本地 LLM 走 asr-server /chat，无需额外配置；服务地址在「🎙 ASR 识别」卡。</div>
+              <div class="ai-svc-sep" data-i18n="llmSourceBrowserLabel">🌐 系统级 · 页面注入</div>
+              <div class="hint" data-i18n="llmBrowserHint">未配置云端时，AI 对话默认走页面注入（浏览器内 AI 站点），零配置兜底。</div>
+              <div class="ai-svc-sep" data-i18n="llmSourceCloudLabel">☁️ 云端（OpenAI 兼容 API）</div>
               <label class="cfg-row"><span data-i18n="aiProviderLabel">服务商</span>
                 <select id="aiProvider" class="row-select" style="flex:1;">
                   <option value="openai" data-i18n="aiProviderOpenai">OpenAI</option>
@@ -472,8 +480,108 @@
             </div>
           </div>
           <div class="card">
-            <div class="card-title" data-i18n="voiceSvcLabel">🗣 语音服务</div>
+            <div class="card-title" data-i18n="ttsSvcLabel">🗣 TTS 朗读</div>
             <div class="ai-config">
+              <div class="ai-svc-sep" data-i18n="ttsEngineSepLabel">🔀 朗读引擎（来源）</div>
+              <label class="cfg-row"><span data-i18n="ttsEngineLabel">朗读引擎</span>
+                <select id="ttsEngineBlue">
+                  <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
+                  <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
+                  <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
+                  <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
+                  <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
+                  <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
+                </select>
+              </label>
+              <label class="cfg-row"><span data-i18n="ttsLocalVoiceLabel">音色</span>
+                <select id="ttsLocalVoiceBlue"></select>
+              </label>
+              <div class="hint" data-i18n="ttsEngineHint">系统语音 = chrome.tts 即时；本地 = 走本地服务 /speak；云端 = 走云端语音服务（Base URL / Key / 模型 / 音色见下方）。</div>
+              <div class="ai-svc-sep" data-i18n="ttsSourceSystemLabel">🔊 系统语音</div>
+              <div class="hint" data-i18n="ttsSystemHint">chrome.tts 系统朗读，即时零配置，无需本地服务。</div>
+              <div class="ai-svc-sep" data-i18n="ttsSourceLocalLabel">💻 本地</div>
+              <div class="hint" data-i18n="ttsLocalHint">kokoro / qwen3 本地模型走 asr-server /speak；服务地址在「🎙 ASR 识别」卡，模型在「🧩 本地模型管理」安装。</div>
+              <div class="ai-svc-sep" data-i18n="cloudTtsLabel">☁️ 云端</div>
+              <div class="ai-svc-sep" data-i18n="openaiCompatTtsLabel">🌐 OpenAI 兼容</div>
+              <label class="cfg-row"><span data-i18n="ttsProviderLabel">供应商</span>
+                <select id="ttsProvider" class="row-select" style="flex:1;">
+                  <option value="openai" data-i18n="ttsProviderOpenai">OpenAI</option>
+                  <option value="minimax" data-i18n="ttsProviderMinimax">MiniMax</option>
+                  <option value="siliconflow" data-i18n="ttsProviderSiliconflow">硅基流动</option>
+                  <option value="custom" data-i18n="ttsProviderCustom">自定义</option>
+                </select>
+              </label>
+              <label class="cfg-row"><span data-i18n="cloudTtsBaseLabel">Base URL</span>
+                <input id="cloudTtsBase" type="text" class="row-select" style="flex:1;" placeholder="https://api.openai.com/v1" autocomplete="off" />
+              </label>
+              <label class="cfg-row"><span data-i18n="cloudTtsKeyLabel">API Key</span>
+                <input id="cloudTtsKey" type="password" class="row-select" style="flex:1;" placeholder="sk-…" autocomplete="off" />
+              </label>
+              <label class="cfg-row"><span data-i18n="cloudTtsModelLabel">模型</span>
+                <input id="cloudTtsModel" type="text" class="row-select" style="flex:1;" list="cloudTtsModelList" placeholder="tts-1 / gpt-4o-mini-tts" autocomplete="off" />
+              </label>
+              <datalist id="cloudTtsModelList"></datalist>
+              <label class="cfg-row"><span data-i18n="cloudTtsVoiceLabel">音色</span>
+                <input id="cloudTtsVoice" type="text" class="row-select" style="flex:1;" list="cloudTtsVoiceList" placeholder="alloy / coral / nova" autocomplete="off" />
+              </label>
+              <datalist id="cloudTtsVoiceList"></datalist>
+              <div class="hint" data-i18n="cloudTtsHint">选择供应商自动填入 Base URL 与模型/音色建议，仍可手动修改；Azure / CosyVoice 见下方独立渠道。</div>
+              <div class="ai-svc-sep" data-i18n="azureTtsLabel">🟦 微软 Azure（独立协议）</div>
+              <label class="cfg-row"><span data-i18n="azureTtsKey">Subscription Key</span>
+                <input id="azureTtsKey" type="password" class="row-select" style="flex:1;" placeholder="粘贴 Key…" autocomplete="off" />
+              </label>
+              <label class="cfg-row"><span data-i18n="azureTtsRegion">Region</span>
+                <input id="azureTtsRegion" type="text" class="row-select" style="flex:1;" placeholder="eastasia / chinaeast2" autocomplete="off" />
+              </label>
+              <label class="cfg-row"><span data-i18n="azureTtsVoiceLabel">音色</span>
+                <input id="azureTtsVoice" type="text" class="row-select" style="flex:1;" list="azureTtsVoiceList" placeholder="zh-CN-XiaoxiaoNeural" autocomplete="off" />
+              </label>
+              <datalist id="azureTtsVoiceList"></datalist>
+              <div class="hint" data-i18n="azureTtsHint">独立协议（SSML 合成 REST）：Region 填服务区域，音色为 Azure Neural 语音名（zh-CN-XiaoxiaoNeural 等）。</div>
+              <div class="ai-svc-sep" data-i18n="cosyTtsLabel">🔵 阿里云 CosyVoice（独立协议）</div>
+              <label class="cfg-row"><span data-i18n="cosyTtsKey">API Key</span>
+                <input id="cosyTtsKey" type="password" class="row-select" style="flex:1;" placeholder="sk-…（DashScope）" autocomplete="off" />
+              </label>
+              <label class="cfg-row"><span data-i18n="cosyTtsModelLabel">模型</span>
+                <input id="cosyTtsModel" type="text" class="row-select" style="flex:1;" list="cosyTtsModelList" placeholder="cosyvoice-v1" autocomplete="off" />
+              </label>
+              <datalist id="cosyTtsModelList"></datalist>
+              <label class="cfg-row"><span data-i18n="cosyTtsVoiceLabel">音色</span>
+                <input id="cosyTtsVoice" type="text" class="row-select" style="flex:1;" list="cosyTtsVoiceList" placeholder="longxiaochun" autocomplete="off" />
+              </label>
+              <datalist id="cosyTtsVoiceList"></datalist>
+              <div class="hint" data-i18n="cosyTtsHint">DashScope 原生协议：模型 cosyvoice-v1/v2/v3 系列，音色 longxiaochun 等。</div>
+              <div class="ai-svc-sep" data-i18n="voiceCircleSpeakLabel">工作台朗读</div>
+              <label class="cfg-row">
+                <input type="checkbox" id="voiceCircleForceSystem" style="accent-color:var(--accent);width:auto;">
+                <span data-i18n="voiceCircleForceSystemLabel" style="opacity:.85;font-size:11px;">固定系统 TTS（即时，忽略朗读引擎）</span>
+              </label>
+              <div class="ai-config-actions">
+                <button type="button" class="mini-btn" id="ttsLocalTestBtn" data-i18n="ttsLocalTestBtn">测试朗读</button>
+                <button type="button" class="mini-btn" id="ttsSaveBtn" data-i18n="saveBtn" style="flex:none;">保存</button>
+                <span id="ttsTestStatus" class="ai-test-status"></span>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title" data-i18n="asrSvcLabel">🎙 ASR 识别（STT）</div>
+            <div class="ai-config">
+              <div class="ai-svc-sep" data-i18n="asrBackendSepLabel">🔀 识别后端（来源）</div>
+              <label class="cfg-row"><span data-i18n="asrBackendLabel">识别后端</span>
+                <select id="asrBackendBlue" class="row-select" style="flex:1;">
+                  <option value="azure" data-i18n="asrBackendAzure">🟦 微软 Azure</option>
+                  <option value="openai" data-i18n="asrBackendOpenai">🤖 OpenAI Whisper</option>
+                  <option value="aliyun" data-i18n="asrBackendAliyun">🔵 阿里云</option>
+                  <option value="local" data-i18n="asrBackendLocal">💻 本地服务</option>
+                </select>
+              </label>
+              <div class="hint" data-i18n="asrBackendHint">选择后端后点「测试识别」可分别验证各云端凭据与本地服务；转写面板将使用同一后端。</div>
+              <div class="ai-svc-sep" data-i18n="voiceLocalLabel">💻 本地服务（电脑部署 asr-server）</div>
+              <label class="cfg-row"><span data-i18n="voiceLocalServerLabel">服务地址</span>
+                <input id="voiceLocalServer" type="text" class="row-select" style="flex:1;" data-i18n-placeholder="voiceLocalServerPh" placeholder="http://127.0.0.1:9528" autocomplete="off" />
+              </label>
+              <div class="hint" data-i18n="asrLocalHint">asr-server /transcribe（SenseVoice 中文 / Whisper）；该服务地址同时供本地 TTS（/speak）、本地 LLM（/chat）复用。</div>
+              <div class="ai-svc-sep" data-i18n="asrCloudLabel">☁️ 云端</div>
               <div class="ai-svc-sep" data-i18n="voiceAzureLabel">🟦 微软 Azure（Speech）</div>
               <label class="cfg-row"><span data-i18n="voiceAzureKey">Subscription Key</span>
                 <input id="voiceAzureKey" type="password" class="row-select" style="flex:1;" data-i18n-placeholder="voiceAzureKeyPh" placeholder="粘贴 Key…" autocomplete="off" />
@@ -483,7 +591,7 @@
               </label>
               <div class="ai-svc-sep" data-i18n="voiceOpenaiLabel">🤖 OpenAI Whisper（兼容服务可改 Base）</div>
               <label class="cfg-row"><span data-i18n="voiceOpenaiKey">API Key</span>
-                <input id="voiceOpenaiKey" type="password" class="row-select" style="flex:1;" data-i18n-placeholder="voiceOpenaiKeyPh" placeholder="sk-…（留空复用 AI 服务的 OpenAI Key）" autocomplete="off" />
+                <input id="voiceOpenaiKey" type="password" class="row-select" style="flex:1;" data-i18n-placeholder="voiceOpenaiKeyPh" placeholder="sk-…（留空复用「💬 LLM 对话」卡的 OpenAI Key）" autocomplete="off" />
               </label>
               <label class="cfg-row"><span data-i18n="voiceOpenaiBase">Base URL</span>
                 <input id="voiceOpenaiBase" type="text" class="row-select" style="flex:1;" data-i18n-placeholder="voiceOpenaiBasePh" placeholder="https://api.openai.com/v1" autocomplete="off" />
@@ -492,31 +600,20 @@
               <label class="cfg-row"><span data-i18n="voiceAliyunKey">API Key</span>
                 <input id="voiceAliyunKey" type="password" class="row-select" style="flex:1;" data-i18n-placeholder="voiceAliyunKeyPh" placeholder="sk-…（DashScope API Key）" autocomplete="off" />
               </label>
-              <div class="ai-svc-sep" data-i18n="voiceLocalLabel">💻 本地服务（电脑部署 asr-server）</div>
-              <label class="cfg-row"><span data-i18n="voiceLocalServerLabel">服务地址</span>
-                <input id="voiceLocalServer" type="text" class="row-select" style="flex:1;" data-i18n-placeholder="voiceLocalServerPh" placeholder="http://127.0.0.1:9528" autocomplete="off" />
-              </label>
-              <label class="cfg-row"><span data-i18n="ttsEngineLabel">朗读引擎</span>
-                <select id="ttsEngineBlue">
-                  <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
-                  <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
-                  <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
-                </select>
-              </label>
-              <label class="cfg-row"><span data-i18n="ttsLocalVoiceLabel">音色</span>
-                <select id="ttsLocalVoiceBlue"></select>
-              </label>
               <div class="ai-config-actions">
-                <button type="button" class="mini-btn" id="voiceTestBtn" data-i18n="voiceTestBtn">测试识别</button>
-                <button type="button" class="mini-btn" id="ttsLocalTestBtn" data-i18n="ttsLocalTestBtn">测试朗读</button>
-                <button type="button" class="mini-btn" id="voiceSaveBtn" data-i18n="saveBtn" style="flex:none;">保存</button>
-                <span id="voiceTestStatus" class="ai-test-status"></span>
+                <button type="button" class="mini-btn" id="asrConnTestBtn" data-i18n="asrConnTestBtn">连接测试</button>
+                <button type="button" class="mini-btn" id="asrVoiceTestBtn" data-i18n="asrVoiceTestBtn">真人语音测试</button>
+                <button type="button" class="mini-btn" id="asrSaveBtn" data-i18n="saveBtn" style="flex:none;">保存</button>
+                <span id="asrTestStatus" class="ai-test-status"></span>
               </div>
               <div class="hint" data-i18n="voiceSvcHint">供「转写」面板使用：云端需填凭据；本地需先运行 <code>cd asr-server && npm start</code>（首次自动下载模型）。Key 仅存本机。</div>
-              <div class="ai-svc-sep" data-i18n="voiceModelsLabel">🧩 本地模型管理</div>
-              <div id="modelManager" class="model-manager">
-                <div class="hint" data-i18n="modelManagerHint">模型下载到本机（hf-mirror 镜像），下载后即可选对应引擎使用；qwen3/whisper 首次使用时自动下载。</div>
-              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-title" data-i18n="voiceModelsLabel">🧩 本地模型管理</div>
+            <div class="ai-config">
+              <div class="hint" data-i18n="modelManagerHint">模型下载到本机（hf-mirror 镜像），下载后即可选对应引擎使用；qwen3/whisper 首次使用时自动下载。</div>
+              <div id="modelManager" class="model-manager"></div>
               <div class="ai-config-actions">
                 <button type="button" class="mini-btn" id="modelRefreshBtn" data-i18n="modelRefresh">刷新状态</button>
                 <span id="modelManagerStatus" class="ai-test-status"></span>
