@@ -541,10 +541,6 @@ async function runAction(name, text, options) {
 // ========== 浏览器动作注册表 TAB_ACTIONS ==========
 // 内容能力之外、直接操作标签/窗口的动作。run 为唯一实现（多为后台消息或 sidepanel 内实现）。
 const TAB_ACTIONS = {
-  createSnapshot:         { label: I18N.t('tabCreateSnapshot'),      run: () => sendMessage('createSnapshot') },
-  restoreSnapshot:        { label: I18N.t('tabRestoreSnapshot'),      run: (id) => sendMessage('restoreSnapshot', { snapshotId: id }) },
-  restoreSingleTab:       { label: I18N.t('tabRestoreSingleTab'),  run: (id, url) => sendMessage('restoreSingleTab', { snapshotId: id, tabUrl: url }) },
-  deleteSnapshot:         { label: I18N.t('tabDeleteSnapshot'),      run: (id) => sendMessage('deleteSnapshot', { snapshotId: id }) },
   deduplicateTabs:        { label: I18N.t('tabDeduplicateTabs'),  run: () => deduplicateTabs() },
   pasteAndGo:             { label: I18N.t('tabPasteAndGo'), run: () => pasteAndGo() },
   createIncognitoWindow:  { label: I18N.t('tabIncognito'),      run: () => createIncognitoWindow() },
@@ -554,9 +550,6 @@ const TAB_ACTIONS = {
 
 // ========== 数据动作注册表 DATA_ACTIONS ==========
 const DATA_ACTIONS = {
-  clearAllSnapshots:        { label: I18N.t('dataClearSnapshots'), run: () => sendMessage('clearAllSnapshots') },
-  clearAllBookmarkVersions: { label: I18N.t('dataClearBmVersions'), run: () => sendMessage('clearAllBookmarkVersions') },
-  clearAllHistoryVersions:  { label: I18N.t('dataClearHistVersions'), run: () => sendMessage('clearAllHistoryVersions') },
   exportData:               { label: I18N.t('dataExport'),         run: () => sendMessage('exportData') },
   importData:               { label: I18N.t('dataImport'),         run: (json) => sendMessage('importData', { jsonData: json }) },
   mailExport:               { label: I18N.t('dataMail'),         run: () => mailExport() }

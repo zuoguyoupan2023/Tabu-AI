@@ -6,8 +6,6 @@
   "description": "智能标签页管家 | 一键快照 · 版本回溯 · 全局搜索",
   "permissions": [
     "tabs",
-    "bookmarks",
-    "history",
     "storage",
     "downloads",
     "sidePanel",
