@@ -524,34 +524,37 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem) {
   }
   // 本地朗读引擎分流：Kokoro / Qwen3 走本地服务 /speak（fetch + AudioContext 播放），否则系统 chrome.tts
   // forceSystem=true（如语音工作台自动朗读）→ 固定用系统 TTS，即时出声，不受本地引擎慢首帧影响
-  const engine = forceSystem ? 'system' : ((currentVoiceConfig && currentVoiceConfig.ttsEngine) || 'system');
-  if (engine !== 'system') {
-    speakLocalTts(text, statusEl, triggerBtn, engine);
-    return;
-  }
-  const voice = document.getElementById('ttsVoice')?.value || '';
-  const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
-  const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
-  const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-  // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
-  runAction('tts', text, {
-    voice, rate, pitch, volume,
-    onEvent: (event) => {
-      // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
-      if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
-      else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
-      if (statusEl) {
-        if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
-        else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
-        else if (event.type === 'error') {
-          statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
-          showStatus(I18N.t('readErrorStatus'), 'error');
+  // 统一来源「自动」时按可达性解析；否则沿用显式引擎
+  resolveEffectiveTtsEngine().then(engine => {
+    if (forceSystem) engine = 'system'; // 语音工作台等固定用系统 TTS，即时出声
+    if (engine !== 'system') {
+      speakLocalTts(text, statusEl, triggerBtn, engine);
+      return;
+    }
+    const voice = document.getElementById('ttsVoice')?.value || '';
+    const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
+    const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
+    const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
+    // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
+    runAction('tts', text, {
+      voice, rate, pitch, volume,
+      onEvent: (event) => {
+        // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
+        if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
+        else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
+        if (statusEl) {
+          if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
+          else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
+          else if (event.type === 'error') {
+            statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
+            showStatus(I18N.t('readErrorStatus'), 'error');
+          }
         }
       }
-    }
+    });
+    showStatus(I18N.t('startSpeaking'), 'success');
+    if (statusEl) statusEl.textContent = I18N.t('speakStarting');
   });
-  showStatus(I18N.t('startSpeaking'), 'success');
-  if (statusEl) statusEl.textContent = I18N.t('speakStarting');
 }
 
 // ========== 本地 TTS 朗读（Kokoro / Qwen3，走本地服务 /speak） ==========
@@ -3240,7 +3243,7 @@ async function sendChat() {
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
   const sendBtn = document.getElementById('chatSend');
   if (!text && !chatHasAudio) { setChatStatus(I18N.t('chatNoText'), true); return; }
-  const mode = await getEffectiveAiMode(); // local / inject / api / trans
+  const mode = await resolveEffectiveAiModeForChat(); // local / inject / api / trans（统一来源自动回退）
   // 本地渠道或录音（识别）需本地服务；api 纯文本不需 asr-server
   const needLocal = mode === 'local' || chatHasAudio;
   if (needLocal) {
@@ -3349,10 +3352,12 @@ function chatClear() {
 }
 
 async function runAsr(pcm16) {
-  if (currentAsrBackend === 'azure') return await asrViaAzure(pcm16);
-  if (currentAsrBackend === 'openai') return await asrViaOpenai(pcm16);
-  if (currentAsrBackend === 'aliyun') return await asrViaAliyun(pcm16);
-  if (currentAsrBackend === 'local') return await asrViaLocal(pcm16);
+  // 统一来源「自动」时按可达性解析后端；否则沿用当前显式后端
+  const backend = await resolveEffectiveAsrBackend();
+  if (backend === 'azure') return await asrViaAzure(pcm16);
+  if (backend === 'openai') return await asrViaOpenai(pcm16);
+  if (backend === 'aliyun') return await asrViaAliyun(pcm16);
+  if (backend === 'local') return await asrViaLocal(pcm16);
   throw new Error(I18N.t('asrNoAudioError'));
 }
 
@@ -3703,6 +3708,51 @@ async function probeReachability() {
     + '   ' + I18N.t('capReachSystem') + ' ' + (sysVoices > 0 ? '●' : '○') + '(' + sysVoices + ')'
     + '   ' + I18N.t('capReachCloud') + ' ' + (cloudTtsConfigured || cloudLlmConfigured ? '●' : '○');
   if (statusEl) statusEl.textContent = txt;
+}
+
+// ========== 统一来源 · 运行时解析（TTS / ASR / LLM 自动回退） ==========
+// 仅在「来源=auto 且 开启自动回退」时按可达性自动选；否则完全沿用当前显式设置。
+let _localReachCache = null; // { ok, at } 短暂缓存本地可达性，避免高频 /health
+async function localReachable(ttlMs = 5000) {
+  const now = Date.now();
+  if (_localReachCache && now - _localReachCache.at < ttlMs) return _localReachCache.ok;
+  const serverUrl = (currentVoiceConfig && currentVoiceConfig.voiceLocalServer) || 'http://127.0.0.1:9528';
+  let ok = false;
+  try { ok = (await fetch(serverUrl.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(2500) })).ok; } catch (e) {}
+  _localReachCache = { ok, at: now };
+  return ok;
+}
+
+async function resolveEffectiveTtsEngine() {
+  const r = await chrome.storage.local.get(['capSourceTts', 'capAutoFallback']);
+  const src = r.capSourceTts || 'auto';
+  const fallback = !!r.capAutoFallback;
+  if (src === 'auto' && fallback) {
+    const reach = await localReachable();
+    return reach ? 'kokoro' : 'system'; // 本地在线→本地 kokoro；否则系统兜底
+  }
+  return (currentVoiceConfig && currentVoiceConfig.ttsEngine) || 'system';
+}
+
+async function resolveEffectiveAsrBackend() {
+  const r = await chrome.storage.local.get(['capSourceAsr', 'capAutoFallback']);
+  const src = r.capSourceAsr || 'auto';
+  if (src === 'auto' && !!r.capAutoFallback) {
+    const reach = await localReachable();
+    if (reach) return 'local';
+  }
+  return currentAsrBackend;
+}
+
+async function resolveEffectiveAiModeForChat() {
+  const r = await chrome.storage.local.get(['capSourceLlm', 'capAutoFallback']);
+  const src = r.capSourceLlm || 'auto';
+  if (src === 'auto' && !!r.capAutoFallback) {
+    const reach = await localReachable();
+    if (reach) return 'local';
+    return (currentAiConfig && currentAiConfig.aiBaseUrl) ? 'api' : 'inject';
+  }
+  return getEffectiveAiMode();
 }
 
 async function loadVersionSettings() {
