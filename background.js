@@ -1147,13 +1147,18 @@ function askInSite(question, adapter) {
     let stableSince = 0;
     const check = () => {
       const list = msgs();
-      const last = list[list.length - 1];
-      if (!last) return;
-      const text = (last.innerText || '').trim();
+      // 拼接发送后新增的所有 assistant 元素（而非只取最后一个）
+      const newElements = list.slice(before.length);
+      if (newElements.length === 0) return;
+      const text = newElements
+        .map(el => (el.innerText || '').trim())
+        .filter(Boolean)
+        .join('\n');
+      if (!text) return;
       const isNew = list.length > before.length || (text && text !== baselineLast);
       if (!isNew) return;
-      if (text && text !== lastText) { lastText = text; stableSince = Date.now(); }
-      else if (text && Date.now() - stableSince > 1500) finish({ answer: text });
+      if (text !== lastText) { lastText = text; stableSince = Date.now(); }
+      else if (Date.now() - stableSince > 1500) finish({ answer: text });
     };
     observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
