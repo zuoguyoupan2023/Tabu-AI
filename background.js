@@ -1143,28 +1143,39 @@ function askInSite(question, adapter) {
     setTimeout(trySendLoop, 500);
 
     // 4) 等待新回复稳定（流式结束判定）
+    // 兼容两种 DOM 行为：a) 复用同一元素更新 innerText；b) 新增多个元素
+    // 结束判定：文本稳定 ≥1.5s 且「停止生成」按钮已消失（思考链与正式回答之间的停顿不会误判）
     let lastText = '';
     let stableSince = 0;
+    const stopSelectors = [
+      'button[data-testid="stop-button"]', 'button[aria-label*="停止"]',
+      'button[aria-label*="Stop"]', 'button.stop-button'
+    ];
+    const generating = () => stopSelectors.some(sel => document.querySelector(sel));
     const check = () => {
       const list = msgs();
-      // 拼接发送后新增的所有 assistant 元素（而非只取最后一个）
       const newElements = list.slice(before.length);
-      if (newElements.length === 0) return;
-      const text = newElements
-        .map(el => (el.innerText || '').trim())
-        .filter(Boolean)
-        .join('\n');
+      let text = '';
+      if (newElements.length > 0) {
+        // 情况 b：有新增元素，拼接所有新增元素的文本
+        text = newElements.map(el => (el.innerText || '').trim()).filter(Boolean).join('\n');
+      } else if (list.length > 0) {
+        // 情况 a：元素被复用，读最后一个元素的 innerText
+        text = (list[list.length - 1].innerText || '').trim();
+      }
       if (!text) return;
       const isNew = list.length > before.length || (text && text !== baselineLast);
       if (!isNew) return;
-      if (text !== lastText) { lastText = text; stableSince = Date.now(); }
-      else if (Date.now() - stableSince > 1500) finish({ answer: text });
+      if (text !== lastText) { lastText = text; stableSince = Date.now(); return; }
+      if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text });
     };
     observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    // 轮询兜底：停止按钮消失、思考链长停顿等场景下 MutationObserver 可能不再触发
+    const pollTimer = setInterval(check, 600);
 
     setTimeout(() => {
-      check();
+      clearInterval(pollTimer);
       if (lastText) finish({ answer: lastText });
       else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') });
     }, RESOLVE_TIMEOUT);
