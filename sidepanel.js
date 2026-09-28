@@ -2035,8 +2035,9 @@ function toggleAiAllowAny() {
 
 // ========== 语音服务（ASR 转写） ==========
 // 蓝区「语音服务」设置 + 红区「转写」面板。
-// ASR 后端：微软 Azure（REST）/ OpenAI Whisper（兼容服务）/ 阿里云（DashScope）/ 本地服务（本地部署 HTTP）。
-const ASR_BACKEND_IDS = ['azure', 'openai', 'aliyun', 'local'];
+// ASR 后端：浏览器内置（Web Speech API）/ 微软 Azure（REST）/ OpenAI Whisper（兼容服务）/ 阿里云（DashScope）/ 本地服务（本地部署 HTTP）。
+// browser 后端：Chrome 走 Google 云（中国大陆网络不可达，见 browserAsrHint），Edge 走微软 Azure（国内外可用）。
+const ASR_BACKEND_IDS = ['browser', 'azure', 'openai', 'aliyun', 'local'];
 const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice', 'cloudTtsBase', 'cloudTtsKey', 'cloudTtsModel', 'cloudTtsVoice', 'ttsProvider', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'cosyTtsKey', 'cosyTtsModel', 'cosyTtsVoice', 'voiceCircleForceSystem'];
 
 // 本地 TTS 引擎（本地模型，朗读面板显示「音色」行）
@@ -2085,7 +2086,7 @@ let currentVoiceConfig = {
   voiceOpenaiBase: '',
   voiceAliyunKey: '',
   voiceLocalServer: 'http://127.0.0.1:9528',
-  asrBackend: 'azure',
+  asrBackend: 'browser',
   asrMicDeviceId: '',
   ttsEngine: 'system',   // system | kokoro | qwen3 | cloud（朗读引擎）
   ttsLocalSid: 18,       // Kokoro 音色号
@@ -2103,7 +2104,7 @@ let currentVoiceConfig = {
   cosyTtsVoice: 'longxiaochun',
   voiceCircleForceSystem: false  // 工作台朗读：true=固定系统 TTS（即时），false=跟随朗读引擎
 };
-let currentAsrBackend = 'azure';
+let currentAsrBackend = 'browser';
 
 function voiceField(id) { return document.getElementById(id); }
 
@@ -2152,7 +2153,7 @@ async function loadVoiceConfig() {
   const csm = voiceField('cosyTtsModel'); if (csm) csm.value = currentVoiceConfig.cosyTtsModel;
   const csv = voiceField('cosyTtsVoice'); if (csv) csv.value = currentVoiceConfig.cosyTtsVoice;
   const cfs = voiceField('voiceCircleForceSystem'); if (cfs) cfs.checked = currentVoiceConfig.voiceCircleForceSystem;
-  currentAsrBackend = ASR_BACKEND_IDS.includes(r.asrBackend) ? r.asrBackend : 'azure';
+  currentAsrBackend = ASR_BACKEND_IDS.includes(r.asrBackend) ? r.asrBackend : 'browser';
   syncAsrBackendUi();
   syncTtsEngineUi();
 }
@@ -2242,11 +2243,31 @@ async function testAsrConnection() {
   currentVoiceConfig = collectVoiceConfig();
   try {
     if (currentAsrBackend === 'local') await testLocalAsr(statusEl);
+    else if (currentAsrBackend === 'browser') await testBrowserAsr(statusEl);
     else await testCloudAsr(currentAsrBackend, statusEl);
   } catch (e) {
     if (statusEl) statusEl.textContent = '❌ ' + ((e && e.message) || String(e));
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+// browser 后端测试：能力检测 + Google/Azure 语音服务可达性探测（不消耗录音）
+async function testBrowserAsr(statusEl) {
+  if (!browserAsrSupported()) {
+    if (statusEl) statusEl.textContent = '❌ ' + I18N.t('asrBrowserUnsupported');
+    return;
+  }
+  const reachable = await probeBrowserAsrNetwork();
+  if (reachable) {
+    if (statusEl) statusEl.textContent = '✅ ' + I18N.t('asrBrowserTestOk');
+  } else if (isEdgeBrowser()) {
+    if (statusEl) statusEl.textContent = '✅ ' + I18N.t('asrBrowserTestOkEdge');
+  } else {
+    if (statusEl) {
+      statusEl.textContent = '⚠️ ' + I18N.t('asrBrowserChinaWarn');
+      statusEl.classList.add('error');
+    }
   }
 }
 
@@ -2672,10 +2693,19 @@ function setAsrBackend(id) {
 function syncAsrBackendUi() {
   const selBlue = voiceField('asrBackendBlue');
   if (selBlue) selBlue.value = currentAsrBackend;
-  const map = { asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
+  const map = { asrBackendBrowser: 'browser', asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
   document.querySelectorAll('#panel-asr .ai-backend').forEach(btn => {
     btn.classList.toggle('active', map[btn.id] === currentAsrBackend);
   });
+  // browser 后端提示行：显示可达性/Edge 建议；其它后端隐藏
+  if (currentAsrBackend === 'browser') {
+    syncBrowserAsrHint().catch(() => {});
+  } else {
+    ['asrBrowserHint', 'asrBrowserHintBlue'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+  }
   if (!asrRecording) {
     const cfg = currentVoiceConfig;
     const missing = (currentAsrBackend === 'azure' && (!cfg.voiceAzureKey || !cfg.voiceAzureRegion)) ||
@@ -2690,6 +2720,132 @@ function setAsrStatus(msg, isError) {
   if (!el) return;
   el.textContent = msg;
   el.classList.toggle('error', !!isError);
+}
+
+// ---- 后端：浏览器内置识别（Web Speech API） ----
+// Chrome 实现把音频送 Google 云（中国大陆网络不可达 → network 错误）；
+// Edge 实现走微软 Azure（国内外可用）。同一套 API，按浏览器区分提示。
+function browserAsrSupported() {
+  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+}
+function isEdgeBrowser() {
+  return /Edg\//.test(navigator.userAgent || '');
+}
+
+// Google 语音服务可达性探测（gstatic 204 轻量探测，no-cors 足以判断网络层可达）。
+// 结果缓存 10 分钟，避免每次切后端/开录音都探测。
+let _browserAsrProbe = { t: 0, ok: false };
+async function probeBrowserAsrNetwork(timeoutMs = 3000) {
+  const CACHE_MS = 10 * 60 * 1000;
+  if (Date.now() - _browserAsrProbe.t < CACHE_MS) return _browserAsrProbe.ok;
+  let ok = false;
+  try {
+    await fetch('https://www.gstatic.com/generate_204', {
+      mode: 'no-cors',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    ok = true;
+  } catch (e) { ok = false; }
+  _browserAsrProbe = { t: Date.now(), ok };
+  return ok;
+}
+
+// browser 后端可用性评估：{ level: 'ok'|'warn'|'unsupported', msg }
+async function browserAsrHint() {
+  if (!browserAsrSupported()) {
+    return { level: 'unsupported', msg: I18N.t('asrBrowserUnsupported') };
+  }
+  const reachable = await probeBrowserAsrNetwork();
+  if (!reachable && !isEdgeBrowser()) {
+    // Google 不可达 + 非 Edge：Chrome 的内置识别必然 network 失败 → 指路 Edge
+    return { level: 'warn', msg: I18N.t('asrBrowserChinaWarn') };
+  }
+  // Edge（走 Azure）或 Google 可达 → 可用
+  return { level: 'ok', msg: isEdgeBrowser() ? I18N.t('asrBrowserHintEdge') : I18N.t('asrBrowserHintOk') };
+}
+
+// 刷新设置页/转写面板里的 browser 提示行（异步，不阻塞 UI）
+async function syncBrowserAsrHint() {
+  if (currentAsrBackend !== 'browser') return;
+  const hint = await browserAsrHint();
+  for (const id of ['asrBrowserHint', 'asrBrowserHintBlue']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.textContent = hint.msg;
+    el.classList.remove('hidden');
+    el.classList.toggle('error', hint.level === 'warn' || hint.level === 'unsupported');
+  }
+}
+
+// 启动一次 browser 识别会话（自有麦克风会话，与 MediaRecorder 路径互斥）。
+// opts: { onInterim(text), onStatus(msg) }；resolve({ text }) 或 reject(Error)。
+// 兜底：Edge 已知会偶发丢 onend 事件 → 最长 60s 强制结束；onresult 最终结果与 onend 谁先到都收敛。
+function startBrowserAsr(opts = {}) {
+  return new Promise((resolve, reject) => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return reject(new Error(I18N.t('asrBrowserUnsupported')));
+    const rec = new SR();
+    const lang = String(document.documentElement.lang).startsWith('zh') ? 'zh-CN' : 'en-US';
+    rec.lang = lang;
+    rec.continuous = false;      // 说完停顿自动出最终结果（适合语音输入）
+    rec.interimResults = true;   // 边说边出字
+    rec.maxAlternatives = 1;
+
+    let finalText = '';
+    let interimText = '';
+    let settled = false;
+    const finish = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(maxTimer);
+      browserAsrStopFn = null;
+      try { rec.onresult = rec.onerror = rec.onend = rec.onstart = null; } catch (e) {}
+      try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {}
+      fn(val);
+    };
+    const maxTimer = setTimeout(() => finish(resolve, { text: (finalText || interimText).trim() }), 60000);
+
+    rec.onstart = () => { if (opts.onStatus) opts.onStatus(I18N.t('asrBrowserListening')); };
+    rec.onresult = (ev) => {
+      interimText = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const r = ev.results[i];
+        if (r.isFinal) finalText += r[0].transcript;
+        else interimText += r[0].transcript;
+      }
+      if (opts.onInterim) opts.onInterim((finalText + interimText).trim());
+      if (finalText.trim()) finish(resolve, { text: finalText.trim() });
+    };
+    rec.onerror = (ev) => {
+      const code = ev && ev.error;
+      if (code === 'aborted' && (finalText || interimText)) return finish(resolve, { text: (finalText || interimText).trim() });
+      const map = {
+        'not-allowed': I18N.t('asrMicPermNeeded'),
+        'service-not-allowed': I18N.t('asrMicPermNeeded'),
+        'network': isEdgeBrowser() ? I18N.t('asrBrowserNetErr') : I18N.t('asrBrowserNetErrChrome'),
+        'no-speech': I18N.t('asrNoAudioError'),
+        'audio-capture': I18N.t('asrMicrophoneDenied'),
+        'language-not-supported': I18N.t('asrBrowserUnsupported')
+      };
+      finish(reject, new Error(map[code] || (I18N.t('asrError', code || 'unknown'))));
+    };
+    // 正常结束（无最终结果也收敛，避免 Edge 丢 onend 时挂死——有 maxTimer 兜底）
+    rec.onend = () => {
+      if (finalText.trim() || interimText.trim()) finish(resolve, { text: (finalText || interimText).trim() });
+      else finish(reject, new Error(I18N.t('asrNoAudioError')));
+    };
+    try {
+      rec.start();
+      browserAsrStopFn = () => { try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {} };
+    } catch (e) { finish(reject, e); }
+  });
+}
+
+// 停止进行中的 browser 识别（两个面板共用一个会话槽：同屏只会有一路）
+let browserAsrStopFn = null;
+function stopBrowserAsr() {
+  if (browserAsrStopFn) { const fn = browserAsrStopFn; browserAsrStopFn = null; fn(); }
 }
 
 // ---- 录音（四后端共用）：getUserMedia → MediaRecorder → decode → 16kHz 单声道 Float32 ----
@@ -2709,6 +2865,7 @@ let chatLastAnswer = '';    // 最近一次 LLM 回答（朗读/复制用）
 
 async function toggleAsrRecord() {
   if (asrRecording) { stopAsrRecording(); return; }
+  if (currentAsrBackend === 'browser') { await toggleBrowserAsrRecord(); return; }
   setAsrStatus('🎙 ' + I18N.t('asrStarting'));
   try {
     // ⚠️ 关闭音频处理（echoCancellation/noiseSuppression/autoGainControl）：
@@ -2740,6 +2897,33 @@ async function toggleAsrRecord() {
     } else {
       setAsrStatus(I18N.t('asrMicrophoneDenied'), true);
     }
+  }
+}
+
+// 转写面板 browser 后端：Web Speech API 自管麦克风，边说边出字，说完自动出最终结果
+async function toggleBrowserAsrRecord() {
+  // 单一音频通道：若圆球/对话面板正在 MediaRecorder 录音，先停掉
+  if (vbRecording) stopVoiceCircleRecording();
+  if (chatRecording) stopChatRecording();
+  const hint = await browserAsrHint();
+  if (hint.level === 'unsupported') { setAsrStatus(hint.msg, true); return; }
+  if (hint.level === 'warn') setAsrStatus('⚠️ ' + hint.msg, true); // 仍允许尝试（用户可能配了代理）
+  asrRecording = true;
+  updateAsrRecordUi();
+  if (hint.level !== 'warn') setAsrStatus('🎙 ' + I18N.t('asrBrowserStarting'));
+  try {
+    const out = await startBrowserAsr({
+      onInterim: (t) => setAsrStatus('🎙 ' + (t || I18N.t('asrBrowserListening'))),
+      onStatus: (m) => setAsrStatus('🎙 ' + m)
+    });
+    const outEl = document.getElementById('asrResult');
+    if (outEl) outEl.value = out.text || '';
+    setAsrStatus(out.text ? '✅ ' + I18N.t('asrTestOk') : I18N.t('asrNoAudioError'), !out.text);
+  } catch (e) {
+    setAsrStatus(I18N.t('asrError', (e && e.message) || I18N.t('asrNoAudioError')), true);
+  } finally {
+    asrRecording = false;
+    updateAsrRecordUi();
   }
 }
 
@@ -2776,6 +2960,7 @@ async function loadAsrDevices() {
 }
 
 function stopAsrRecording() {
+  if (currentAsrBackend === 'browser') { stopBrowserAsr(); return; }
   if (asrRecorder && asrRecorder.state !== 'inactive') asrRecorder.stop();
 }
 
@@ -2928,12 +3113,14 @@ function stopVad() {
 // 结束录音（手动点击停止 或 VAD 自动触发）
 function stopVoiceCircleRecording() {
   stopVad();
+  if (currentAsrBackend === 'browser') { stopBrowserAsr(); return; }
   if (vbRecorder && vbRecorder.state !== 'inactive') vbRecorder.stop();
 }
 
 // 点击圆形：开始/结束录音；停止后自动「识别 → 渠道LLM → 输出栏 + 朗读」
 async function toggleVoiceCircle() {
   if (vbRecording) { stopVoiceCircleRecording(); return; }
+  if (currentAsrBackend === 'browser') { await toggleVoiceCircleBrowser(); return; }
   // 单一音频通道：若对话面板正在录音，先停旧再起新的
   if (chatRecording) stopChatRecording();
   warmAudioContext();
@@ -2999,19 +3186,23 @@ async function onVoiceCircleDone() {
     const rms = Math.sqrt(sum / pcm16.length);
     if (rms < 0.01) { setVoiceCircleStatus(I18N.t('asrSilent', rms.toFixed(4)), true); return; }
 
-    const round = ++_voiceRoundSeq;
-    const tRound = performance.now();
-    logDebug('voice#' + round, '新一轮语音对话开始');
-
-    // ① 识别（转写内容第一时间显示）
     setVoiceCircleStatus('⏳ ' + I18N.t('voiceCircleRecognizing'));
-    const tAsr0 = performance.now();
-    const text = await asrViaLocal(pcm16);
-    const tAsr = performance.now() - tAsr0;
+    const text = await runAsr(pcm16); // 跟随当前识别后端（browser 后端不经过本路径）
     if (!text) { setVoiceCircleStatus(I18N.t('asrNoAudioError'), true); return; }
     renderVoiceOutput(text, null);
-    logDebug('voice#' + round, '识别 ' + tAsr.toFixed(0) + 'ms → ' + text);
+    await runVoiceCirclePipeline(text);
+  } catch (e) {
+    logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
+    setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+  }
+}
 
+// 识别文本 → 公共管线：渠道 LLM 问答 → 输出并朗读（与识别后端无关；browser 后端也走这里）
+async function runVoiceCirclePipeline(text) {
+  const round = ++_voiceRoundSeq;
+  const tRound = performance.now();
+  logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(text).slice(0, 40));
+  try {
     // ② LLM 按渠道问答（本地 /chat · api 流式 · 浏览器注入）
     setVoiceCircleStatus('💭 ' + I18N.t('voiceCircleThinking'));
     const mode = await getEffectiveAiMode();
@@ -3035,6 +3226,35 @@ async function onVoiceCircleDone() {
   } catch (e) {
     logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
     setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+  }
+}
+
+// 圆球 browser 后端：Web Speech API 直出文本 → 公共管线。
+// 与 MediaRecorder 路径的差异：识别自管麦克风、说完自动断句出结果，VAD 不适用（60s 强制兜底）。
+async function toggleVoiceCircleBrowser() {
+  const hint = await browserAsrHint();
+  if (hint.level === 'unsupported') { setVoiceCircleStatus(hint.msg, true); return; }
+  if (chatRecording) stopChatRecording();
+  vbRecording = true;
+  const btn = document.getElementById('voiceCircleBtn');
+  if (btn) btn.classList.add('recording');
+  if (hint.level === 'warn') setVoiceCircleStatus('⚠️ ' + hint.msg, true); // 仍允许尝试
+  else setVoiceCircleStatus('🎙 ' + I18N.t('asrBrowserStarting'));
+  try {
+    const out = await startBrowserAsr({
+      onInterim: (t) => setVoiceCircleStatus('🎙 ' + (t || I18N.t('asrBrowserListening'))),
+      onStatus: (m) => setVoiceCircleStatus('🎙 ' + m)
+    });
+    if (vbSuppress) { vbSuppress = false; return; } // 被对话录音接管，丢弃本段
+    if (!out.text) { setVoiceCircleStatus(I18N.t('asrNoAudioError'), true); return; }
+    renderVoiceOutput(out.text, null);
+    await runVoiceCirclePipeline(out.text);
+  } catch (e) {
+    logDebug('voice', 'browser 识别失败: ' + ((e && e.message) || ''), true);
+    setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+  } finally {
+    vbRecording = false;
+    if (btn) btn.classList.remove('recording');
   }
 }
 
@@ -3152,7 +3372,7 @@ async function toggleChatRecord() {
   // 单一音频通道：若顶部圆形工作台正在录音，先停旧再起新的
   if (vbRecording) {
     vbSuppress = true;
-    if (vbRecorder && vbRecorder.state !== 'inactive') vbRecorder.stop();
+    stopVoiceCircleRecording(); // 兼容 MediaRecorder 与 browser 两种圆球会话
   }
   warmAudioContext();
   setChatStatus('🎙 ' + I18N.t('asrStarting'));
@@ -4252,7 +4472,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatCopyBtn = document.getElementById('chatCopyAnswer');
   if (chatCopyBtn) chatCopyBtn.addEventListener('click', chatCopyAnswer);
   // 后端切换
-  const asrBackendMap = { asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
+  const asrBackendMap = { asrBackendBrowser: 'browser', asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
   Object.entries(asrBackendMap).forEach(([id, backend]) => {
     const btn = document.getElementById(id);
     if (btn) btn.addEventListener('click', () => setAsrBackend(backend));

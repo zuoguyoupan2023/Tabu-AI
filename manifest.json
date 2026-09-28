@@ -62,7 +62,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* https://api.mymemory.translated.net https://translate.googleapis.com https://fontsapi.zeoseven.com https://fontsapi-storage.zeoseven.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://api.moonshot.cn https://api.moonshot.ai https://open.bigmodel.cn https://api.z.ai https://dashscope.aliyuncs.com https://dashscope-intl.aliyuncs.com https://api.siliconflow.cn https://opensound.world http://world.opensound.local https://world.opensound.local"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* https://api.mymemory.translated.net https://translate.googleapis.com https://fontsapi.zeoseven.com https://fontsapi-storage.zeoseven.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://api.moonshot.cn https://api.moonshot.ai https://open.bigmodel.cn https://api.z.ai https://dashscope.aliyuncs.com https://dashscope-intl.aliyuncs.com https://api.siliconflow.cn https://opensound.world http://world.opensound.local https://world.opensound.local https://www.gstatic.com"
   },
   "options_page": "options.html",
   "web_accessible_resources": [
