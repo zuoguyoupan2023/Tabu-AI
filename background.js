@@ -641,6 +641,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 设置
         case 'getSetting': result = await getSetting(request.key, request.defaultValue); break;
         case 'setSetting': result = await setSetting(request.key, request.value); break;
+        // 用户请求停止当前注入（注入面板「⏹ 停止」/ 圆球问答进行中再点一次）
+        case 'cancelInject': injectCancelFlag = true; result = { ok: true }; break;
         case 'rescheduleAutoSnapshot': result = await setupAutoSnapshotAlarm(); break;
         // 统计
         case 'getStats': result = await getStats(); break;
@@ -975,6 +977,10 @@ async function askViaApi(prompt, config, history) {
 async function newConversation(siteKey) {
   const site = AI_SITES[siteKey];
   if (!site) return { success: false, message: '未知站点' };
+  // 先探测可达性：不可达时不动现有标签（避免关掉能用的旧页、开一个加载不出来的新页）
+  if (!(await probeSiteReachable(site.newChatUrl))) {
+    return { success: false, message: '无法访问 ' + site.label + '，请检查网络或代理后再新建对话。' };
+  }
   try {
     const tabs = await chrome.tabs.query({ url: site.urlPatterns });
     const ids = tabs.filter(t => t.id != null).map(t => t.id);
@@ -1005,9 +1011,17 @@ async function newConversation(siteKey) {
 // 注入并保存历史（带并发锁：同一时间只允许一个注入任务，避免两个请求在同一 AI 页面打架）
 // API 模式分流：已配置 aiBaseUrl → 走 askViaApi（忽略 site）；否则页面注入。
 let injectLock = false;
+let injectLockSince = 0;   // 锁获取时间：超 3 分钟视为异常残留，强制释放
+let injectCancelFlag = false; // 用户请求停止当前注入（injectStop / 圆球再点一次）
 async function injectAskWithSave(site, prompt) {
-  if (injectLock) return { error: '上一条注入还在处理中，请稍候（或等它完成）' };
+  if (injectLock && Date.now() - injectLockSince > 180000) {
+    console.warn('[Tab AI] 注入锁超过 3 分钟未释放（异常残留），强制解锁');
+    injectLock = false;
+  }
+  if (injectLock) return { error: '上一条注入还在处理中，请稍候，或点「⏹ 停止」取消它' };
   injectLock = true;
+  injectLockSince = Date.now();
+  injectCancelFlag = false; // 新任务清除上一次的取消标记
   try {
     const cfg = await getAiConfig();
     if (cfg.aiBaseUrl) {
@@ -1039,19 +1053,29 @@ async function injectAsk(siteKey, prompt, opts = {}) {
     let justCreated = false;
     if (!tab) {
       if (opts.allowCreate === false) return { error: '未找到打开的 ' + site.label + ' 页面，请先打开并登录' };
+      if (injectCancelFlag) return { error: '已停止注入' };
+      // 新开标签前先探测站点可达性：不可达（如国内直连 ChatGPT）直接失败，
+      // 不留下一个永远加载不完的标签页把注入锁卡死
+      if (!(await probeSiteReachable(site.newChatUrl))) {
+        return { error: '无法访问 ' + site.label + '（' + safeOrigin(site.newChatUrl) + '）。请检查网络或代理后重试，也可在侧边栏「🌐 浏览器版」里切换其它 AI 站点。' };
+      }
       tab = await chrome.tabs.create({ url: site.newChatUrl, active: true });
       justCreated = true;
       await new Promise(r => setTimeout(r, 4000)); // 等新标签加载
     }
     const maxAttempts = justCreated ? 8 : 2; // 只有新开的标签才多次重试等待加载
+    const deadline = Date.now() + 120000;    // 整体超时：所有重试累计不超过 2 分钟（锁不会无限被占）
     let lastError = '';
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      if (injectCancelFlag) return { error: '已停止注入' };
+      if (Date.now() > deadline) return { error: '注入总超时：' + site.label + ' 页面长时间未就绪，请确认该站点可正常访问。' };
       try {
-        const results = await chrome.scripting.executeScript({
+        // executeScript 兜底限时：页面彻底挂死时不能无限等待（askInSite 内部最长 90s，放宽到 110s）
+        const results = await withTimeout(chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: askInSite,
           args: [prompt, site, opts.requestId || '']
-        });
+        }), 110000, '注入执行超时（页面未就绪）');
         const out = results && results[0] ? results[0].result : null;
         if (out && out.answer) return { answer: out.answer };
         if (out && out.error) lastError = out.error;
@@ -1065,6 +1089,29 @@ async function injectAsk(siteKey, prompt, opts = {}) {
   } catch (e) {
     return { error: '扩展侧执行失败: ' + e.message };
   }
+}
+
+// Promise 限时包装：超时抛错（原 Promise 继续在后台跑，结果被忽略）
+function withTimeout(promise, ms, tag) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(tag || 'timeout')), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// 站点可达性探测：no-cors 请求 favicon，网络层任何 HTTP 响应（含 403/404）都算可达；
+// 超时/断网（GFW 丢包等）→ false。用于新开 AI 标签前快速失败。
+async function probeSiteReachable(url, timeoutMs = 6000) {
+  try {
+    const origin = new URL(url).origin;
+    await fetch(origin + '/favicon.ico', { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    return true;
+  } catch (e) { return false; }
+}
+
+function safeOrigin(url) {
+  try { return new URL(url).origin; } catch (e) { return url; }
 }
 
 // 桥接专用：ChatGPT 提问。带 requestId 时页面内会在流式回复过程中上报增量（真流式给终端/应用）

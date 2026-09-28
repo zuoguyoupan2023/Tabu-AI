@@ -1785,8 +1785,9 @@ function injectSendTemplate(type) {
 }
 
 function injectStop() {
-  // API 模式：真正中断流式请求；页面注入模式：无法中断生成，仅释放 UI 锁
+  // API 模式：真正中断流式请求；页面注入模式：通知后台在下个检查点退出并释放注入锁
   if (aiAbortController) aiAbortController.abort();
+  sendMessage('cancelInject').catch(() => {});
   injectBusy = false;
   const sendBtn = document.getElementById('injectSend');
   const stopBtn = document.getElementById('injectStop');
@@ -3028,6 +3029,7 @@ async function onAsrRecordingDone() {
 // ========== 顶部圆形语音工作台：一键「识别 → LLM → 输出并朗读」 ==========
 let vbRecorder = null, vbChunks = [], vbStream = null, vbRecording = false;
 let vbSuppress = false; // 被对话录音接管时抑制本段处理
+let vcPipelineRunning = false; // 问答管线进行中（LLM/站点注入等待）→ 再次点击圆球 = 请求停止
 let voiceCircleMode = 'manual'; // manual（点击停止）/ vad（说话自动停）
 let vadTimer = null, vadSource = null, vadAnalyser = null, vadHadSpeech = false;
 let _voiceRoundSeq = 0; // 每轮语音对话序号（调试日志）
@@ -3134,6 +3136,12 @@ function stopVoiceCircleRecording() {
 
 // 点击圆形：开始/结束录音；停止后自动「识别 → 渠道LLM → 输出栏 + 朗读」
 async function toggleVoiceCircle() {
+  if (vcPipelineRunning) {
+    // 问答管线进行中（等待 LLM/站点注入）：再次点击 = 请求停止，后台会在下个检查点退出并释放注入锁
+    sendMessage('cancelInject').catch(() => {});
+    setVoiceCircleStatus(I18N.t('vcStopRequested'));
+    return;
+  }
   if (vbRecording) { stopVoiceCircleRecording(); return; }
   if (currentAsrBackend === 'browser') { await toggleVoiceCircleBrowser(); return; }
   // 单一音频通道：若对话面板正在录音，先停旧再起新的
@@ -3214,7 +3222,9 @@ async function onVoiceCircleDone() {
 
 // 识别文本 → 公共管线：渠道 LLM 问答 → 输出并朗读（与识别后端无关；browser 后端也走这里）
 async function runVoiceCirclePipeline(text) {
-  const round = ++_voiceRoundSeq;
+  vcPipelineRunning = true;
+  try {
+    const round = ++_voiceRoundSeq;
   const tRound = performance.now();
   logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(text).slice(0, 40));
   try {
@@ -3239,9 +3249,12 @@ async function runVoiceCirclePipeline(text) {
       setVoiceCircleStatus('✅ ' + (mode === 'inject' ? I18N.t('voiceSentToSite') : I18N.t('voiceCircleDone')));
       logDebug('voice#' + round, '结束（' + (mode === 'inject' ? '已发送到站点，站点未返回文本' : '无回答') + '）· 总 ' + (performance.now() - tRound).toFixed(0) + 'ms');
     }
-  } catch (e) {
-    logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
-    setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+    } catch (e) {
+      logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
+      setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
+    }
+  } finally {
+    vcPipelineRunning = false; // 管线退出（含被取消）后恢复圆球可点击
   }
 }
 
@@ -4497,6 +4510,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById(id);
     if (btn) btn.addEventListener('click', () => setAsrBackend(backend));
   });
+  // 注入站点选择持久化：重开侧边栏/重载扩展后恢复用户上次的选择（否则会重置回 ChatGPT）
+  //（injectSiteSel 已在上方声明并绑定 syncAiBackendUi）
+  if (injectSiteSel) {
+    const INJECT_SITES = ['chatgpt', 'claude', 'kimi', 'deepseek'];
+    chrome.storage.local.get('injectSite').then((r) => {
+      if (r.injectSite && INJECT_SITES.includes(r.injectSite)) injectSiteSel.value = r.injectSite;
+    }).catch(() => {});
+    injectSiteSel.addEventListener('change', () => {
+      chrome.storage.local.set({ injectSite: injectSiteSel.value }).catch(() => {});
+    });
+  }
   const bmMaxVersionsSave = document.getElementById('bmMaxVersionsSave');
   if (bmMaxVersionsSave) bmMaxVersionsSave.addEventListener('click', saveBmMaxVersions);
   const histMaxVersionsSave = document.getElementById('histMaxVersionsSave');

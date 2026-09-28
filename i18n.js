@@ -103,6 +103,7 @@ const I18N = (() => {
       asrBrowserTestOk: '内置识别可用（网络可达）',
       asrBrowserTestOkEdge: 'Edge 内置识别可用（微软语音服务）',
       asrBrowserStuck: '⏳ 15 秒未收到识别结果：请对着麦克风说话；若多次尝试仍无响应，多为当前网络无法访问语音服务（Chrome 走 Google 云）。建议改用 Edge 浏览器打开本插件',
+      vcStopRequested: '⏹ 已请求停止，等待当前任务退出（站点注入最长约 2 分钟内解除）…',
 
       // 对话（Chat）
       chatHint: '💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端',
@@ -867,6 +868,7 @@ const I18N = (() => {
       asrBrowserTestOk: 'Built-in recognition available (network reachable)',
       asrBrowserTestOkEdge: 'Edge built-in recognition available (Microsoft speech service)',
       asrBrowserStuck: '⏳ No recognition result after 15s: please speak into the mic; if this keeps happening, the speech service is likely unreachable on this network (Chrome uses Google cloud). Tip: open this extension in Microsoft Edge',
+      vcStopRequested: '⏹ Stop requested — waiting for the current task to exit (site injection releases within ~2 min)…',
 
       // Chat
       chatHint: '💬 Local LLM chat · type a question or record voice; runs through the local asr-server (STT → LLM → TTS), fully local',
