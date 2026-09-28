@@ -70,18 +70,46 @@ document.getElementById('btnSaveHistorySetting').addEventListener('click', async
 async function loadBridgeSettings() {
   const token = await sendMessage('getSetting', { key: 'bridgeToken', defaultValue: '' });
   const inject = await sendMessage('getSetting', { key: 'inputInjectEnabled', defaultValue: false });
+  const origins = await sendMessage('getSetting', { key: 'bridgeExtraOrigins', defaultValue: '' });
   const tokenEl = document.getElementById('bridgeToken');
   const injectEl = document.getElementById('inputInjectEnabled');
+  const originsEl = document.getElementById('bridgeOrigins');
   if (tokenEl) tokenEl.value = token || '';
   if (injectEl) injectEl.checked = !!inject;
+  if (originsEl) originsEl.value = origins || '';
+  updateBridgeEndpoint();
 }
 loadBridgeSettings();
+
+// 显示桥接服务实际地址（默认 11434 被占用时服务端会自动顺延，并经 bridge_info 同步到此处）
+function updateBridgeEndpoint() {
+  const el = document.getElementById('bridgeEndpoint');
+  if (!el) return;
+  chrome.storage.local.get('bridgeHttpPort').then((r) => {
+    const p = (r && r.bridgeHttpPort) || 11434;
+    el.innerHTML = '🌐 当前桥接地址：<code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">http://127.0.0.1:' + p + '/v1</code>' +
+      '（启动 bridge/server.js 后自动更新）';
+  }).catch(() => {});
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.bridgeHttpPort) updateBridgeEndpoint();
+});
 
 document.getElementById('btnSaveBridgeToken').addEventListener('click', async () => {
   const el = document.getElementById('bridgeToken');
   await sendMessage('setSetting', { key: 'bridgeToken', value: (el.value || '').trim() });
   const s = document.getElementById('bridgeTokenStatus');
   s.textContent = '✅ 已保存，扩展将自动连接桥接服务';
+  setTimeout(() => s.textContent = '', 4000);
+});
+document.getElementById('btnSaveBridgeOrigins').addEventListener('click', async () => {
+  const el = document.getElementById('bridgeOrigins');
+  // 每行/逗号分隔一个来源，去空去重后按行存储；background 会在 WS 连接后同步给桥接服务
+  const origins = [...new Set(String(el.value || '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean))].join('\n');
+  el.value = origins;
+  await sendMessage('setSetting', { key: 'bridgeExtraOrigins', value: origins });
+  const s = document.getElementById('bridgeOriginsStatus');
+  s.textContent = origins ? '✅ 已保存并同步给桥接服务' : '✅ 已清空（恢复默认白名单）';
   setTimeout(() => s.textContent = '', 4000);
 });
 document.getElementById('btnSaveInputInject').addEventListener('click', async () => {

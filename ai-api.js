@@ -79,6 +79,41 @@ function isAllowedAiHost(baseUrl) {
   }
 }
 
+// 与 manifest.json 的 extension_pages CSP connect-src 保持一致的域清单。
+// sidepanel 页面只能直连这些域；用户自定义的其它域（aiBaseUrl + aiAllowAnyHost）
+// 由 capabilities.askApiStream 自动改走后台 SW 代理（background 'tabuApiProxy' 端口）。
+// ＊修改 manifest CSP 时必须同步本清单，反之亦然。
+const AI_PAGE_CSP_HOSTS = [
+  'api.mymemory.translated.net',
+  'translate.googleapis.com',
+  'fontsapi.zeoseven.com',
+  'fontsapi-storage.zeoseven.com',
+  'api.openai.com',
+  'api.anthropic.com',
+  'api.deepseek.com',
+  'api.moonshot.cn',
+  'api.moonshot.ai',
+  'open.bigmodel.cn',
+  'api.z.ai',
+  'dashscope.aliyuncs.com',
+  'dashscope-intl.aliyuncs.com',
+  'api.siliconflow.cn',
+  'opensound.world',
+  'world.opensound.local'
+];
+
+// baseUrl 的 host 是否在页面 CSP 白名单内（本机任意 host 均放行）
+function isHostInPageCsp(baseUrl) {
+  try {
+    const u = new URL(baseUrl);
+    const host = u.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true;
+    return AI_PAGE_CSP_HOSTS.some((h) => host === h || host.endsWith('.' + h));
+  } catch (e) {
+    return false;
+  }
+}
+
 // 拼接 API 路径：去尾斜杠；pathname 仅 "/"（裸 host）时先补 /v1 再拼 path。
 // 例：https://api.openai.com        + /chat/completions → https://api.openai.com/v1/chat/completions
 //     https://api.openai.com/v1     + /chat/completions → https://api.openai.com/v1/chat/completions

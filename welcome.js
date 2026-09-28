@@ -1,4 +1,4 @@
-// ========== TabU 安装欢迎引导页（welcome.js） ==========
+// ========== Tab AI 安装欢迎引导页（welcome.js） ==========
 // 与侧边栏共享 i18n.js：语言跟随 uiLang 偏好（未设置跟随系统），右上角按钮可切换。
 // 注意：MV3 扩展页 CSP（script-src 'self'）禁止内联 <script>，本页全部逻辑都在此外部文件中。
 (function () {
@@ -70,7 +70,7 @@
   });
   const feedbackBtn = document.getElementById('btnFeedback');
   if (feedbackBtn) feedbackBtn.addEventListener('click', () => {
-    window.open('mailto:your-email@example.com?subject=TabU反馈', '_blank');
+    window.open('mailto:your-email@example.com?subject=Tab AI反馈', '_blank');
   });
 
   // 完成引导后记录已见标记（供 background 判断，避免重复打开）；非扩展页环境静默跳过

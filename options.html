@@ -63,12 +63,12 @@
   </div>
 
   <div class="card">
-    <h3>🔌 终端桥接（TabU Bridge）</h3>
+    <h3>🔌 终端桥接（Tab AI Bridge）</h3>
     <p class="sub" style="font-size:13px;color:#6b7a8e;">
       先运行 <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">node bridge/server.js</code>，
-      它会打印一个 Token。把 Token 填到下面并保存，之后在终端里设置
-      <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">ANTHROPIC_BASE_URL=http://127.0.0.1:11434</code>，
-      即可让 Claude Code 等工具通过浏览器里的 ChatGPT 页面回答。
+      它会打印一个 Token。把 Token 填到下面并保存。桥接地址以服务启动时打印的为准（11434 被占用会自动顺延）：
+      <br>· 终端（Claude Code / Cursor，Anthropic 协议）：<code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">ANTHROPIC_BASE_URL=http://127.0.0.1:11434</code>
+      <br>· 应用（Chatbox / CherryStudio / OpenSound…，OpenAI 协议）：<code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">API Host=http://127.0.0.1:11434/v1</code>，API Key 填 Token，模型名随意
     </p>
     <div class="setting-row">
       <label>桥接 Token：</label>
@@ -76,6 +76,17 @@
       <button id="btnSaveBridgeToken" class="btn btn-secondary small">保存</button>
       <span id="bridgeTokenStatus" class="status-msg"></span>
     </div>
+    <div class="setting-row" style="margin-top:12px;">
+      <label style="vertical-align:top;">网页来源白名单<br><span style="font-size:11px;color:#8a97a8;">允许这些网页调用桥接<br>（每行一个，如 https://myapp.example）</span></label>
+      <textarea id="bridgeOrigins" rows="3" style="width:280px;vertical-align:top;" placeholder="https://myapp.example&#10;http://localhost:3000"></textarea>
+      <button id="btnSaveBridgeOrigins" class="btn btn-secondary small">保存</button>
+      <span id="bridgeOriginsStatus" class="status-msg"></span>
+    </div>
+    <p style="color:#6b7a8e;font-size:12px;margin-top:8px;">
+      💡 默认已放行 <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">opensound.world</code> 与
+      <code style="background:#f1f4f9;padding:2px 6px;border-radius:4px;">world.opensound.local</code> 及本机 localhost 任意端口；终端和桌面应用不受白名单限制。
+    </p>
+    <p id="bridgeEndpoint" style="color:#4a5568;font-size:12px;margin-top:4px;"></p>
     <div class="setting-row" style="margin-top:12px;">
       <label style="min-width:auto;"><input type="checkbox" id="inputInjectEnabled"> 启用注入输入工具</label>
       <button id="btnSaveInputInject" class="btn btn-secondary small">保存</button>

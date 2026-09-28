@@ -1,4 +1,4 @@
-// ========== TabU 底层共享能力层（capabilities） ==========
+// ========== Tab AI 底层共享能力层（capabilities） ==========
 // 内容能力管线：文本来源（Sources）→ 文本处理（Processors）→ 输出动作（Actions）。
 // 浏览器动作（TAB_ACTIONS）与数据动作（DATA_ACTIONS）走平行的注册表，调用方式一致。
 // 红蓝两层 + 当前侧边栏统一通过 execute() / runAction() 调用；能力只在此实现一次。
@@ -378,6 +378,8 @@ async function sendToAI(site, prompt) {
 // 自定义 API 流式调用（sidepanel 上下文执行）。
 // 放这里而非后台：MV3 service worker 可能在长请求中途被挂起，流会中断；sidepanel 是持久页面。
 // 复用 ai-api.js（AI_ALLOWED_HOSTS / isAllowedAiHost / joinApiUrl / normalizeAiConfig / parseSseBlock / readApiErrorText）。
+// 双路径：域名在页面 CSP 白名单内（默认服务商 / 本机 / opensound）→ sidepanel 直连 fetch；
+//         其它用户自定义域名 → 经 background 'tabuApiProxy' 端口由 SW 代理（页面 CSP 管不到 SW fetch）。
 // opts: { signal, onDelta(text), onReasoning(text) }；返回 { answer } 或 { aborted: true }；出错 throw Error。
 async function askApiStream(prompt, config, history, opts = {}) {
   const cfg = normalizeAiConfig(config);
@@ -436,29 +438,63 @@ async function askApiStream(prompt, config, history, opts = {}) {
     return { answer };
   };
 
+  const url = cfg.provider === 'anthropic'
+    ? joinApiUrl(cfg.baseUrl, '/messages')
+    : joinApiUrl(cfg.baseUrl, '/chat/completions');
+
+  let headers, body;
   if (cfg.provider === 'anthropic') {
-    const res = await fetch(joinApiUrl(cfg.baseUrl, '/messages'), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: cfg.model, max_tokens: MAX_TOKENS, messages, stream: true }),
-      signal
-    });
+    headers = { 'content-type': 'application/json', 'x-api-key': cfg.apiKey, 'anthropic-version': '2023-06-01' };
+    body = { model: cfg.model, max_tokens: MAX_TOKENS, messages, stream: true };
+  } else {
+    headers = { 'content-type': 'application/json' };
+    if (cfg.apiKey) headers['authorization'] = 'Bearer ' + cfg.apiKey;
+    body = { model: cfg.model, messages, stream: true };
+    if (needsMaxTokens) body.max_tokens = MAX_TOKENS;
+  }
+
+  // 页面 CSP 白名单内 → 直连（保持原性能与中止行为）；其它域名 → 后台 SW 代理
+  if (isHostInPageCsp(cfg.baseUrl)) {
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body), signal });
     if (!res.ok) throw new Error(await readApiErrorText(res));
     return readerLoop(res);
   }
+  return askApiViaBg(url, headers, body, opts);
+}
 
-  const headers = { 'content-type': 'application/json' };
-  if (cfg.apiKey) headers['authorization'] = 'Bearer ' + cfg.apiKey;
-  const body = { model: cfg.model, messages, stream: true };
-  if (needsMaxTokens) body.max_tokens = MAX_TOKENS;
-  const res = await fetch(joinApiUrl(cfg.baseUrl, '/chat/completions'), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal
+// 后台代理流式调用（页面 CSP 未放行的自定义域名）：Port 连 background 'tabuApiProxy'，
+// SW 发起请求（受 host_permissions 管辖）并实时回传 SSE 增量。
+// opts: { signal, onDelta(text), onReasoning(text) }；返回 { answer } 或 { aborted: true }；出错 throw Error。
+function askApiViaBg(url, headers, body, opts = {}) {
+  return new Promise((resolve, reject) => {
+    let port;
+    try { port = chrome.runtime.connect({ name: 'tabuApiProxy' }); } catch (e) {
+      return reject(new Error('无法连接后台代理: ' + e.message));
+    }
+    let answer = '';
+    let settled = false;
+    const settle = (fn, val) => {
+      if (settled) return;
+      settled = true;
+      try { port.disconnect(); } catch (e) {}
+      fn(val);
+    };
+    port.onMessage.addListener((msg) => {
+      if (msg.delta) { answer += msg.delta; (opts.onDelta || (() => {}))(msg.delta); }
+      else if (msg.reasoning) { (opts.onReasoning || (() => {}))(msg.reasoning); }
+      else if (msg.error) settle(reject, new Error(msg.error));
+      else if (msg.done) settle(resolve, { answer });
+    });
+    port.onDisconnect.addListener(() => {
+      if (settled) return;
+      if (opts.signal && opts.signal.aborted) return settle(resolve, { aborted: true });
+      settle(reject, new Error('后台代理连接中断'));
+    });
+    if (opts.signal) {
+      opts.signal.addEventListener('abort', () => { try { port.disconnect(); } catch (e) {} }, { once: true });
+    }
+    port.postMessage({ url, headers, body });
   });
-  if (!res.ok) throw new Error(await readApiErrorText(res));
-  return readerLoop(res);
 }
 
 // 复制文本：返回 { ok, text, error }

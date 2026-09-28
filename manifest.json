@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "TabU Browser Manager",
-  "short_name": "TabU",
+  "name": "Tab AI Browser Manager",
+  "short_name": "Tab AI",
   "version": "0.5.0",
   "description": "智能标签页管家 | 一键快照 · 版本回溯 · 全局搜索",
   "permissions": [
@@ -22,7 +22,7 @@
     "https://api.mymemory.translated.net/*"
   ],
   "action": {
-    "default_title": "TabU"
+    "default_title": "Tab AI"
   },
   "commands": {
     "_execute_action": {
@@ -30,7 +30,7 @@
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "打开/关闭 TabU 侧边栏"
+      "description": "打开/关闭 Tab AI 侧边栏"
     }
   },
   "side_panel": {
@@ -62,7 +62,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* https://api.mymemory.translated.net https://translate.googleapis.com https://fontsapi.zeoseven.com https://fontsapi-storage.zeoseven.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://api.moonshot.cn https://api.siliconflow.cn https://dashscope.aliyuncs.com https://* http://*"
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* https://api.mymemory.translated.net https://translate.googleapis.com https://fontsapi.zeoseven.com https://fontsapi-storage.zeoseven.com https://api.openai.com https://api.anthropic.com https://api.deepseek.com https://api.moonshot.cn https://api.moonshot.ai https://open.bigmodel.cn https://api.z.ai https://dashscope.aliyuncs.com https://dashscope-intl.aliyuncs.com https://api.siliconflow.cn https://opensound.world http://world.opensound.local https://world.opensound.local"
   },
   "options_page": "options.html",
   "web_accessible_resources": [

@@ -188,10 +188,10 @@ async function autoCreateSnapshot() {
     const snapshot = await captureSnapshotData();
     if (snapshot) {
       await setSetting('lastAutoSnapshotAt', now); // 记录自动保存时间，供补存判断 / 蓝区展示
-      console.log(`[TabU] 自动存档完成: ${snapshot.totalTabs} 个标签页`);
+      console.log(`[Tab AI] 自动存档完成: ${snapshot.totalTabs} 个标签页`);
     }
   } catch (e) {
-    console.warn('[TabU] 自动存档失败:', e);
+    console.warn('[Tab AI] 自动存档失败:', e);
   }
 }
 
@@ -498,7 +498,7 @@ async function setupAutoSnapshotAlarm() {
     const periodMin = sched.hours * 60;
     chrome.alarms.create(AUTO_SNAPSHOT_ALARM, { periodInMinutes: periodMin, delayInMinutes: periodMin });
   }
-  console.log(`[TabU] 自动存档已设置：${sched.mode === 'daily' ? '每天 ' + sched.at : sched.mode === 'interval' ? '每 ' + sched.hours + ' 小时' : '关闭'}`);
+  console.log(`[Tab AI] 自动存档已设置：${sched.mode === 'daily' ? '每天 ' + sched.at : sched.mode === 'interval' ? '每 ' + sched.hours + ' 小时' : '关闭'}`);
   return { success: true, ...sched };
 }
 
@@ -524,10 +524,10 @@ async function catchUpAutoSnapshot() {
     }
     if (need) {
       await autoCreateSnapshot();
-      console.log('[TabU] 打开浏览器时检测到错过自动保存，已补存');
+      console.log('[Tab AI] 打开浏览器时检测到错过自动保存，已补存');
     }
   } catch (e) {
-    console.warn('[TabU] 补存检查失败:', e);
+    console.warn('[Tab AI] 补存检查失败:', e);
   }
 }
 
@@ -548,7 +548,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       `?extension_name=tabu&extension_id=${chrome.runtime.id}&device_id=${deviceId}`
     );
   } catch (e) {
-    console.warn('[TabU] 卸载页 URL 尚未配置，跳过 setUninstallURL:', e.message);
+    console.warn('[Tab AI] 卸载页 URL 尚未配置，跳过 setUninstallURL:', e.message);
   }
   // ③ 首次安装时打开欢迎页（带归因 + 版本参数）
   if (details.reason === 'install') {
@@ -600,6 +600,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request && request.type === 'selectionState') {
     relaySelectionState(request.hasSelection, sender);
     sendResponse({ ok: true });
+    return;
+  }
+  // 桥接流式增量（来自 askInSite 注入脚本）：转发给桥接服务，无响应
+  if (request && request.type === 'bridge_delta' && request.requestId) {
+    relayBridgeDelta(request);
     return;
   }
   (async () => {
@@ -682,9 +687,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-console.log('🧩 TabU Browser Manager v' + chrome.runtime.getManifest().version + ' 已启动');
+console.log('🧩 Tab AI Browser Manager v' + chrome.runtime.getManifest().version + ' 已启动');
 
-// ========== 终端桥接客户端（TabU Bridge） ==========
+// ========== 终端桥接客户端（Tab AI Bridge） ==========
 // 连接本地 bridge/server.js（ws://127.0.0.1:9527）。
 // 桥接服务未启动或未配置 Token 时静默重连，不影响其他功能。
 const TABU_BRIDGE_WS_URL = 'ws://127.0.0.1:9527';
@@ -709,14 +714,18 @@ function connectBridge() {
       let msg;
       try { msg = JSON.parse(String(ev.data)); } catch (e) { return; }
       if (msg.type === 'auth_ok') {
-        console.log('[TabU Bridge] 已连接本地桥接服务');
+        console.log('[Tab AI Bridge] 已连接本地桥接服务');
+        sendBridgeOrigins(); // 同步设置页里用户添加的网页来源白名单
+      } else if (msg.type === 'bridge_info') {
+        // 服务端告知实际 HTTP 端口（默认 11434 被占用时会自动顺延），供设置页显示正确地址
+        if (msg.httpPort) chrome.storage.local.set({ bridgeHttpPort: msg.httpPort });
       } else if (msg.type === 'auth_error') {
-        console.warn('[TabU Bridge] Token 认证失败，请检查选项页中的桥接 Token');
+        console.warn('[Tab AI Bridge] Token 认证失败，请检查选项页中的桥接 Token');
         try { bridgeSocket.close(); } catch (e) {}
       } else if (msg.type === 'ask') {
-        console.log('[TabU Bridge] 收到 ask，问题:', msg.question);
-        const result = await handleBridgeAsk(msg.question);
-        console.log('[TabU Bridge] ask 结果:', JSON.stringify(result).slice(0, 200));
+        console.log('[Tab AI Bridge] 收到 ask，问题:', msg.question);
+        const result = await handleBridgeAsk(msg.question, { requestId: msg.requestId, stream: !!msg.stream });
+        console.log('[Tab AI Bridge] ask 结果:', JSON.stringify(result).slice(0, 200));
         if (bridgeSocket && bridgeSocket.readyState === 1) {
           try { bridgeSocket.send(JSON.stringify({ type: 'ask_result', requestId: msg.requestId, result })); } catch (e) {}
         }
@@ -735,6 +744,24 @@ function scheduleBridgeConnect(delay) {
     bridgeReconnectTimer = null;
     connectBridge();
   }, delay);
+}
+
+// 把设置页里用户添加的"网页来源白名单"同步给桥接服务（服务端会持久化到 ~/.tabu-bridge/config.json）
+async function sendBridgeOrigins() {
+  try {
+    const r = await chrome.storage.local.get('bridgeExtraOrigins');
+    const origins = String(r.bridgeExtraOrigins || '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+    if (origins.length && bridgeSocket && bridgeSocket.readyState === 1) {
+      bridgeSocket.send(JSON.stringify({ type: 'set_origins', origins }));
+    }
+  } catch (e) {}
+}
+
+// 页面内 askInSite 在流式回复过程中上报的文本快照 → 转发给桥接服务（由服务端换算增量推 SSE）
+function relayBridgeDelta(msg) {
+  if (bridgeSocket && bridgeSocket.readyState === 1) {
+    try { bridgeSocket.send(JSON.stringify({ type: 'ask_delta', requestId: msg.requestId, text: String(msg.text || '') })); } catch (e) {}
+  }
 }
 
 // ========== 注入功能：站点适配器 ==========
@@ -1023,7 +1050,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {
         const results = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: askInSite,
-          args: [prompt, site]
+          args: [prompt, site, opts.requestId || '']
         });
         const out = results && results[0] ? results[0].result : null;
         if (out && out.answer) return { answer: out.answer };
@@ -1040,19 +1067,35 @@ async function injectAsk(siteKey, prompt, opts = {}) {
   }
 }
 
-// 桥接专用：ChatGPT 提问
-async function handleBridgeAsk(question) {
-  return injectAsk('chatgpt', question, { allowCreate: true });
+// 桥接专用：ChatGPT 提问。带 requestId 时页面内会在流式回复过程中上报增量（真流式给终端/应用）
+async function handleBridgeAsk(question, opts = {}) {
+  return injectAsk('chatgpt', question, { allowCreate: true, requestId: opts.requestId || '' });
 }
 
 // 在页面上下文执行：输入问题 → 发送 → 等待流式回复稳定 → 返回完整回答
 // adapter 为站点适配器（见 AI_SITES），提供 inputs / sends / replies 选择器
-function askInSite(question, adapter) {
+// requestId 非空时（桥接流式请求）：回复增长过程中节流上报文本快照，由后台转发给桥接服务
+function askInSite(question, adapter, requestId) {
   return new Promise((resolve) => {
     const RESOLVE_TIMEOUT = 90000;
     let finished = false;
     let observer = null;
     const finish = (result) => { if (finished) return; finished = true; if (observer) observer.disconnect(); resolve(result); };
+
+    // 桥接真流式：把"当前已生成的完整文本"节流上报（服务端换算增量）；final answer 走 ask_result 兜底
+    let lastSent = '';
+    let lastSentAt = 0;
+    const reportDelta = (text) => {
+      if (!requestId || !text || text === lastSent) return;
+      const now = Date.now();
+      if (text.length < lastSent.length) return; // 文本回缩异常，不上报
+      if (now - lastSentAt < 300) return;        // 节流 300ms，避免消息风暴
+      lastSent = text;
+      lastSentAt = now;
+      try {
+        chrome.runtime.sendMessage({ type: 'bridge_delta', requestId, text }, () => void chrome.runtime.lastError);
+      } catch (e) {}
+    };
 
     const diag = { inputFound: null, sendFound: null };
     const cfg = adapter || {};
@@ -1166,7 +1209,7 @@ function askInSite(question, adapter) {
       if (!text) return;
       const isNew = list.length > before.length || (text && text !== baselineLast);
       if (!isNew) return;
-      if (text !== lastText) { lastText = text; stableSince = Date.now(); return; }
+      if (text !== lastText) { lastText = text; stableSince = Date.now(); reportDelta(text); return; }
       if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text });
     };
     observer = new MutationObserver(check);
@@ -1203,11 +1246,71 @@ async function bridgeStartup() {
 }
 bridgeStartup();
 
-// 用户保存/清除 Token 时触发连接或停止保活
+// 用户保存/清除 Token 时触发连接或停止保活；来源白名单变更时即时同步给桥接服务
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.bridgeToken) {
     bridgeToken = (changes.bridgeToken.newValue || '').trim();
     ensureBridgeKeepAlive();
     if (bridgeToken) connectBridge();
   }
+  if (area === 'local' && changes.bridgeExtraOrigins) sendBridgeOrigins();
+});
+
+// ========== 自定义 AI API 后台代理 ==========
+// sidepanel 页面受 manifest CSP connect-src 管辖，只能直连白名单域名；
+// 用户自定义为其它域名（aiAllowAnyHost）时由 capabilities.askApiStream 改走此端口，
+// 在后台 SW 发起请求（受 host_permissions 管辖），SSE 增量经 Port 实时回传。
+// 协议：port.postMessage({url, headers, body}) → {delta|reasoning|done|error}；sidepanel 断开 = 中止。
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'tabuApiProxy') return;
+  const controller = new AbortController();
+  let settled = false;
+  const finish = (payload) => {
+    if (settled) return;
+    settled = true;
+    try { port.postMessage(payload); } catch (e) {}
+    try { port.disconnect(); } catch (e) {}
+  };
+  port.onDisconnect.addListener(() => controller.abort());
+  port.onMessage.addListener(async (msg) => {
+    try {
+      const res = await fetch(msg.url, {
+        method: 'POST',
+        headers: msg.headers || { 'content-type': 'application/json' },
+        body: JSON.stringify(msg.body || {}),
+        signal: controller.signal
+      });
+      if (!res.ok) return finish({ error: await readApiErrorText(res) });
+      if (!res.body) return finish({ error: '浏览器不支持流式读取' });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop();
+        for (const ev of events) {
+          const p = parseSseBlock(ev);
+          if (!p) continue;
+          if (p.error) return finish({ error: p.error });
+          if (p.done) return finish({ done: true });
+          if (p.text) { try { port.postMessage({ delta: p.text }); } catch (e) { return; } }
+          else if (p.reasoning) { try { port.postMessage({ reasoning: p.reasoning }); } catch (e) { return; } }
+        }
+      }
+      // 冲刷尾部事件与解码器残留
+      if (buffer.trim()) {
+        const p = parseSseBlock(buffer);
+        if (p && p.error) return finish({ error: p.error });
+        if (p && p.text) { try { port.postMessage({ delta: p.text }); } catch (e) { return; } }
+      }
+      const tail = decoder.decode();
+      if (tail) { try { port.postMessage({ delta: tail }); } catch (e) { return; } }
+      finish({ done: true });
+    } catch (e) {
+      finish({ error: 'API 请求失败: ' + e.message });
+    }
+  });
 });

@@ -1,4 +1,4 @@
-// ========== TabU 卡片渲染服务（CardRenderer） ==========
+// ========== Tab AI 卡片渲染服务（CardRenderer） ==========
 // 把文本渲染成一张"优雅卡片"（圆角 / 标题 / 排版），导出 PNG dataURL。
 // 这是底层共享服务：阶段二会被收进 capabilities 注册表，阶段三红层卡片面板直接复用。
 // 渲染模型与 sidepanel.html 的 .elegant-card 预览保持一致（所见即所得）：

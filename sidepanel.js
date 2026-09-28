@@ -135,7 +135,7 @@ async function mailExport() {
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `TabU备份_${dateStr}.json`;
+    const fileName = `Tab AI备份_${dateStr}.json`;
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName;
@@ -1106,7 +1106,7 @@ function updateCardPreview() {
   if (fitEl) {
     fitEl.style.transform = 'translate(' + posX + 'px,' + posY + 'px)';
   }
-  // 标题「TabU 摘录卡片」字号随卡片宽度联动（与 card.js titleSize 同公式，clamp 9~20）
+  // 标题「Tab AI 摘录卡片」字号随卡片宽度联动（与 card.js titleSize 同公式，clamp 9~20）
   const titleEl = cardEl.querySelector('.ec-title');
   if (titleEl) {
     titleEl.style.fontSize = Math.max(9, Math.min(20, Math.round(W / 62))) + 'px';
@@ -3890,7 +3890,7 @@ async function importDataFromFile(file) {
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('TabU sidepanel loaded');
+  console.log('Tab AI sidepanel loaded');
   const yearEl = document.getElementById('year');
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 

@@ -1,8 +1,8 @@
 {
-  "name": "tabu-browser-manager",
+  "name": "tab-ai-browser-manager",
   "version": "0.2.0",
   "private": true,
-  "description": "TabU Browser Manager — Chrome 扩展（MV3）+ 终端桥接服务",
+  "description": "Tab AI Browser Manager — Chrome 扩展（MV3）+ 终端桥接服务",
   "scripts": {
     "bridge": "node bridge/server.js"
   },

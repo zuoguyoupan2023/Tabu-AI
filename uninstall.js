@@ -1,4 +1,4 @@
-// ========== TabU 卸载调查页（uninstall.js） ==========
+// ========== Tab AI 卸载调查页（uninstall.js） ==========
 // 与欢迎页共享 i18n.js：语言跟随 uiLang 偏好（未设置跟随系统），右上角按钮可切换。
 // 本页同时是「扩展页」与「独立托管页」两种场景：
 //   · 扩展页  → 有 chrome.*，可读 uiLang 偏好；
@@ -15,7 +15,7 @@
   // ===== 商店地址（发布后替换为真实 URL；按浏览器判断） =====
   function getStoreUrl() {
     const isEdge = /Edg\//.test(navigator.userAgent);
-    // TODO: 发布后替换为 TabU 的真实商店地址
+    // TODO: 发布后替换为 Tab AI 的真实商店地址
     const EDGE_URL = 'https://microsoftedge.microsoft.com/addons/detail/<你的-Edge-商店-ID>';
     const CHROME_URL = 'https://chromewebstore.google.com/detail/<你的-Chrome-商店-ID>';
     return isEdge ? EDGE_URL : CHROME_URL;
