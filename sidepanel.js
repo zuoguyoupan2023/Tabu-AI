@@ -2732,37 +2732,41 @@ function isEdgeBrowser() {
   return /Edg\//.test(navigator.userAgent || '');
 }
 
-// Google 语音服务可达性探测（gstatic 204 轻量探测，no-cors 足以判断网络层可达）。
-// 结果缓存 10 分钟，避免每次切后端/开录音都探测。
+// Google 语音服务可达性探测（Chrome 的识别服务走 Google 基础设施；Edge 走微软云，无需探测）。
+// 必须探 www.google.com：gstatic 在国内部分可达会误报"可达"，而识别服务实际不可达。
+// 结果分级缓存：可达 10 分钟；不可达只缓存 1 分钟（用户挂上代理后能尽快恢复）。
 let _browserAsrProbe = { t: 0, ok: false };
 async function probeBrowserAsrNetwork(timeoutMs = 3000) {
   const CACHE_MS = 10 * 60 * 1000;
   if (Date.now() - _browserAsrProbe.t < CACHE_MS) return _browserAsrProbe.ok;
   let ok = false;
   try {
-    await fetch('https://www.gstatic.com/generate_204', {
+    await fetch('https://www.google.com/generate_204', {
       mode: 'no-cors',
       cache: 'no-store',
       signal: AbortSignal.timeout(timeoutMs)
     });
     ok = true;
   } catch (e) { ok = false; }
-  _browserAsrProbe = { t: Date.now(), ok };
+  _browserAsrProbe = { t: ok ? Date.now() : Date.now() - 9 * 60 * 1000, ok };
   return ok;
 }
 
-// browser 后端可用性评估：{ level: 'ok'|'warn'|'unsupported', msg }
+// browser 后端可用性评估：{ level: 'ok'|'block'|'unsupported', msg }
+// block = 检测到必然失败（非 Edge + Google 不可达）→ 直接拦下，不让用户白试受挫
 async function browserAsrHint() {
   if (!browserAsrSupported()) {
     return { level: 'unsupported', msg: I18N.t('asrBrowserUnsupported') };
   }
-  const reachable = await probeBrowserAsrNetwork();
-  if (!reachable && !isEdgeBrowser()) {
-    // Google 不可达 + 非 Edge：Chrome 的内置识别必然 network 失败 → 指路 Edge
-    return { level: 'warn', msg: I18N.t('asrBrowserChinaWarn') };
+  if (isEdgeBrowser()) {
+    // Edge 走微软语音服务，国内外均可用，不做 Google 探测
+    return { level: 'ok', msg: I18N.t('asrBrowserHintEdge') };
   }
-  // Edge（走 Azure）或 Google 可达 → 可用
-  return { level: 'ok', msg: isEdgeBrowser() ? I18N.t('asrBrowserHintEdge') : I18N.t('asrBrowserHintOk') };
+  const reachable = await probeBrowserAsrNetwork();
+  if (!reachable) {
+    return { level: 'block', msg: I18N.t('asrBrowserChinaWarn') };
+  }
+  return { level: 'ok', msg: I18N.t('asrBrowserHintOk') };
 }
 
 // 刷新设置页/转写面板里的 browser 提示行（异步，不阻塞 UI）
@@ -2774,7 +2778,7 @@ async function syncBrowserAsrHint() {
     if (!el) continue;
     el.textContent = hint.msg;
     el.classList.remove('hidden');
-    el.classList.toggle('error', hint.level === 'warn' || hint.level === 'unsupported');
+    el.classList.toggle('error', hint.level !== 'ok');
   }
 }
 
@@ -2794,20 +2798,28 @@ function startBrowserAsr(opts = {}) {
 
     let finalText = '';
     let interimText = '';
+    let gotResult = false;
     let settled = false;
     const finish = (fn, val) => {
       if (settled) return;
       settled = true;
       clearTimeout(maxTimer);
+      clearTimeout(watchdog);
       browserAsrStopFn = null;
       try { rec.onresult = rec.onerror = rec.onend = rec.onstart = null; } catch (e) {}
       try { if (rec.state !== 'inactive') rec.stop(); } catch (e) {}
       fn(val);
     };
     const maxTimer = setTimeout(() => finish(resolve, { text: (finalText || interimText).trim() }), 60000);
+    // 看门狗：15s 内没有任何识别结果（含中间结果）→ 多半是语音服务连接被静默挂起
+    //（GFW 丢包时 Chrome 不触发 network 错误而是无限等待）→ 主动终止并给出可行动的提示
+    const watchdog = setTimeout(() => {
+      if (!gotResult) finish(reject, new Error(I18N.t('asrBrowserStuck')));
+    }, 15000);
 
     rec.onstart = () => { if (opts.onStatus) opts.onStatus(I18N.t('asrBrowserListening')); };
     rec.onresult = (ev) => {
+      gotResult = true;
       interimText = '';
       for (let i = ev.resultIndex; i < ev.results.length; i++) {
         const r = ev.results[i];
@@ -2906,11 +2918,14 @@ async function toggleBrowserAsrRecord() {
   if (vbRecording) stopVoiceCircleRecording();
   if (chatRecording) stopChatRecording();
   const hint = await browserAsrHint();
-  if (hint.level === 'unsupported') { setAsrStatus(hint.msg, true); return; }
-  if (hint.level === 'warn') setAsrStatus('⚠️ ' + hint.msg, true); // 仍允许尝试（用户可能配了代理）
+  if (hint.level === 'unsupported' || hint.level === 'block') {
+    // 直接拦下：检测到必然失败（Chrome + Google 不可达），不让用户白试受挫
+    setAsrStatus(hint.msg, true);
+    return;
+  }
   asrRecording = true;
   updateAsrRecordUi();
-  if (hint.level !== 'warn') setAsrStatus('🎙 ' + I18N.t('asrBrowserStarting'));
+  setAsrStatus('🎙 ' + I18N.t('asrBrowserStarting'));
   try {
     const out = await startBrowserAsr({
       onInterim: (t) => setAsrStatus('🎙 ' + (t || I18N.t('asrBrowserListening'))),
@@ -3213,7 +3228,8 @@ async function runVoiceCirclePipeline(text) {
     logDebug('voice#' + round, 'LLM ' + tLlm.toFixed(0) + 'ms（渠道 ' + mode + '）→ ' + (answer ? String(answer).slice(0, 80) : '(无/在站点)'));
 
     // ③ 朗读（文本输出 → 发起朗读的间隔；首帧延迟见 [tts] 日志）
-    if (answer && mode !== 'inject') {
+    // inject 渠道的回答现在也会回传 → 有答案就朗读；无答案（真注入失败/站点无文本）才落到底部提示
+    if (answer) {
       const tSpk0 = performance.now();
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
       doSpeak(answer, document.getElementById('voiceCircleStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
@@ -3221,7 +3237,7 @@ async function runVoiceCirclePipeline(text) {
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
       setVoiceCircleStatus('✅ ' + (mode === 'inject' ? I18N.t('voiceSentToSite') : I18N.t('voiceCircleDone')));
-      logDebug('voice#' + round, '结束（' + (mode === 'inject' ? '已发送到站点' : '无回答') + '）· 总 ' + (performance.now() - tRound).toFixed(0) + 'ms');
+      logDebug('voice#' + round, '结束（' + (mode === 'inject' ? '已发送到站点，站点未返回文本' : '无回答') + '）· 总 ' + (performance.now() - tRound).toFixed(0) + 'ms');
     }
   } catch (e) {
     logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
@@ -3233,13 +3249,16 @@ async function runVoiceCirclePipeline(text) {
 // 与 MediaRecorder 路径的差异：识别自管麦克风、说完自动断句出结果，VAD 不适用（60s 强制兜底）。
 async function toggleVoiceCircleBrowser() {
   const hint = await browserAsrHint();
-  if (hint.level === 'unsupported') { setVoiceCircleStatus(hint.msg, true); return; }
+  if (hint.level === 'unsupported' || hint.level === 'block') {
+    // 直接拦下：检测到必然失败，不让用户白试受挫
+    setVoiceCircleStatus(hint.msg, true);
+    return;
+  }
   if (chatRecording) stopChatRecording();
   vbRecording = true;
   const btn = document.getElementById('voiceCircleBtn');
   if (btn) btn.classList.add('recording');
-  if (hint.level === 'warn') setVoiceCircleStatus('⚠️ ' + hint.msg, true); // 仍允许尝试
-  else setVoiceCircleStatus('🎙 ' + I18N.t('asrBrowserStarting'));
+  setVoiceCircleStatus('🎙 ' + I18N.t('asrBrowserStarting'));
   try {
     const out = await startBrowserAsr({
       onInterim: (t) => setVoiceCircleStatus('🎙 ' + (t || I18N.t('asrBrowserListening'))),
@@ -3271,7 +3290,8 @@ async function voiceChatAskText(text, mode) {
   if (mode === 'inject') {
     const out = await execute({ action: 'inject', text, options: { site: injectSite() } });
     if (!out.ok) throw new Error(out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError')));
-    return null; // 回答在站点对话界面
+    // 站点回复的答案带回语音管线显示/朗读（旧版丢弃只提示"已发送"，用户在插件里看不到内容）
+    return (out.result && out.result.text) || null;
   }
   // local
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');

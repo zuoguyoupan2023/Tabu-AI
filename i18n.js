@@ -102,6 +102,7 @@ const I18N = (() => {
       asrBrowserNetErrChrome: '❌ Google 语音服务不可达（中国大陆网络下 Chrome 无法使用内置识别）。建议改用 Edge 浏览器打开本插件',
       asrBrowserTestOk: '内置识别可用（网络可达）',
       asrBrowserTestOkEdge: 'Edge 内置识别可用（微软语音服务）',
+      asrBrowserStuck: '⏳ 15 秒未收到识别结果：请对着麦克风说话；若多次尝试仍无响应，多为当前网络无法访问语音服务（Chrome 走 Google 云）。建议改用 Edge 浏览器打开本插件',
 
       // 对话（Chat）
       chatHint: '💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端',
@@ -865,6 +866,7 @@ const I18N = (() => {
       asrBrowserNetErrChrome: '❌ Google speech service unreachable (Chrome built-in recognition does not work in mainland China). Tip: open this extension in Microsoft Edge',
       asrBrowserTestOk: 'Built-in recognition available (network reachable)',
       asrBrowserTestOkEdge: 'Edge built-in recognition available (Microsoft speech service)',
+      asrBrowserStuck: '⏳ No recognition result after 15s: please speak into the mic; if this keeps happening, the speech service is likely unreachable on this network (Chrome uses Google cloud). Tip: open this extension in Microsoft Edge',
 
       // Chat
       chatHint: '💬 Local LLM chat · type a question or record voice; runs through the local asr-server (STT → LLM → TTS), fully local',

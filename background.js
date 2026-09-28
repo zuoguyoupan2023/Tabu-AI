@@ -1122,9 +1122,23 @@ function askInSite(question, adapter, requestId) {
 
     // 记录发送前的基线，避免把旧回复误判成新回复
     const replySelector = (cfg.replies && cfg.replies.assistant) || (typeof cfg.replies === 'string' ? cfg.replies : '[data-message-author-role="assistant"]');
-    const msgs = () => Array.from(document.querySelectorAll(replySelector));
-    const before = msgs();
-    const baselineLast = before.length ? (before[before.length - 1].innerText || '').trim() : '';
+    // 选择器池：适配器选择器优先；若发送后 8s 仍一个元素都匹配不到（站点改版），并入通用候选
+    const GENERIC_REPLY_SELECTORS = [
+      '[data-message-author-role="assistant"]', '[data-message-role="assistant"]',
+      '[class*="ds-markdown"]', '[class*="markdown"]', '[class*="assistant"]', '[class*="message-content"]'
+    ];
+    let selectorPool = [replySelector];
+    const msgs = () => {
+      for (const sel of selectorPool) {
+        const els = Array.from(document.querySelectorAll(sel));
+        if (els.length) return els;
+      }
+      return [];
+    };
+    let before = msgs();
+    let baselineLast = before.length ? (before[before.length - 1].innerText || '').trim() : '';
+    let sentAt = 0;
+    let genericFallbackOn = false;
 
     // 2) 填入问题（React 受控输入需用原生 value setter / 输入事件）
     const insertText = () => {
@@ -1166,14 +1180,27 @@ function askInSite(question, adapter, requestId) {
       'form button[type="submit"]', 'button[type="submit"]'
     ];
     const doSend = () => {
+      let sent = false;
       for (const sel of sendSelectors) {
         const el = document.querySelector(sel);
-        if (el && !el.disabled) { diag.sendFound = sel; el.click(); return; }
+        if (el && !el.disabled) { diag.sendFound = sel; el.click(); sent = true; break; }
         if (el) diag.sendFound = sel + '(禁用)';
       }
-      // 回退：Enter
-      diag.sendFound = diag.sendFound || '未找到(已用Enter)';
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+      if (!sent) {
+        // 回退：Enter
+        diag.sendFound = diag.sendFound || '未找到(已用Enter)';
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+      }
+      sentAt = Date.now();
+      // 已有会话但适配器选择器全空（站点改版）时：发送瞬间重取基线（旧消息已在、新回复未出），
+      // 否则通用兜底选择器匹配到的整个历史都会被当成"新回复"
+      if (!before.length) {
+        const nowMsgs = msgs();
+        if (nowMsgs.length) {
+          before = nowMsgs;
+          baselineLast = (before[before.length - 1].innerText || '').trim();
+        }
+      }
     };
     let sendAttempts = 0;
     const trySendLoop = () => {
@@ -1197,11 +1224,18 @@ function askInSite(question, adapter, requestId) {
     const generating = () => stopSelectors.some(sel => document.querySelector(sel));
     const check = () => {
       const list = msgs();
+      diag.replyCount = list.length;
+      // 兜底：发送 8s 后适配器选择器一个元素都没匹配到（站点改版）→ 并入通用候选选择器
+      if (!genericFallbackOn && sentAt && Date.now() - sentAt > 8000 && list.length === 0) {
+        genericFallbackOn = true;
+        selectorPool = selectorPool.concat(GENERIC_REPLY_SELECTORS.filter(s => !selectorPool.includes(s)));
+      }
       const newElements = list.slice(before.length);
       let text = '';
       if (newElements.length > 0) {
-        // 情况 b：有新增元素，拼接所有新增元素的文本
-        text = newElements.map(el => (el.innerText || '').trim()).filter(Boolean).join('\n');
+        // 情况 b：有新增元素，拼接所有新增元素的文本；过滤与问题原文相同的元素
+        //（通用兜底选择器可能连用户气泡一起匹配到）
+        text = newElements.map(el => (el.innerText || '').trim()).filter(t => t && t !== question).join('\n');
       } else if (list.length > 0) {
         // 情况 a：元素被复用，读最后一个元素的 innerText
         text = (list[list.length - 1].innerText || '').trim();
@@ -1220,7 +1254,7 @@ function askInSite(question, adapter, requestId) {
     setTimeout(() => {
       clearInterval(pollTimer);
       if (lastText) finish({ answer: lastText });
-      else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') });
+      else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
     }, RESOLVE_TIMEOUT);
   });
 }
