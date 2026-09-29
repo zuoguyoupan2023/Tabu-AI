@@ -1834,28 +1834,23 @@ async function injectRun(prompt, images = []) {
     images = [];
   }
   if (mode === 'local') {
-    // 本地渠道：本地 LLM /chat 问答，结果同样渲染进工作台结果区
+    // 本地渠道：本地 LLM /chat 问答，问答同样进统一对话流
     injectClearMaterials();
     injectBusy = true;
     const sendBtn = document.getElementById('injectSend');
     const stopBtn = document.getElementById('injectStop');
     const statusEl = document.getElementById('injectStatus');
-    const resultEl = document.getElementById('injectResult');
-    const copyBtn = document.getElementById('injectCopyResult');
     if (sendBtn) sendBtn.disabled = true;
     if (stopBtn) stopBtn.style.display = 'inline-block';
     if (statusEl) statusEl.textContent = I18N.t('sending');
-    if (resultEl) resultEl.textContent = '';
-    if (copyBtn) copyBtn.style.display = 'none';
+    renderVoiceOutput(prompt, null, null, I18N.t('chatYou'));
     try {
       const answer = await voiceChatAskText(prompt, 'local');
-      if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
-      if (copyBtn) copyBtn.style.display = 'inline-block';
+      renderVoiceOutput(null, answer);
       if (statusEl) statusEl.textContent = I18N.t('injectDone');
       maybeSpeakAnswer(answer);
     } catch (e) {
-      if (resultEl) resultEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
-      if (statusEl) statusEl.textContent = I18N.t('injectFailed');
+      if (statusEl) statusEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
     } finally {
       injectBusy = false;
       if (sendBtn) sendBtn.disabled = false;
@@ -1876,27 +1871,22 @@ async function injectRun(prompt, images = []) {
   const sendBtn = document.getElementById('injectSend');
   const stopBtn = document.getElementById('injectStop');
   const statusEl = document.getElementById('injectStatus');
-  const resultEl = document.getElementById('injectResult');
-  const copyBtn = document.getElementById('injectCopyResult');
   if (sendBtn) sendBtn.disabled = true;
   if (stopBtn) stopBtn.style.display = 'inline-block';
   if (statusEl) statusEl.textContent = I18N.t('sending');
-  if (resultEl) resultEl.textContent = '';
-  if (copyBtn) copyBtn.style.display = 'none';
+  renderVoiceOutput(prompt, null, null, I18N.t('chatYou'));
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
   execute({ action: 'inject', text: prompt, options: { site: injectSite(), images } })
     .then((out) => {
       if (out.ok) {
-        if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(out.result.text) + '</div>';
-        if (copyBtn) copyBtn.style.display = 'inline-block';
+        renderVoiceOutput(null, out.result.text);
         if (statusEl) statusEl.textContent = I18N.t('injectDone');
         showStatus(I18N.t('injectSuccess'), 'success');
         maybeSpeakAnswer(out.result.text);
       } else {
         const msg = out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError'));
-        if (resultEl) resultEl.textContent = '❌ ' + msg;
-        if (statusEl) statusEl.textContent = I18N.t('injectFailed');
+        if (statusEl) statusEl.textContent = I18N.t('injectFailed') + '：' + msg;
       }
       renderInjectHistory();
     })
@@ -1916,15 +1906,16 @@ async function injectRunApi(prompt) {
   const sendBtn = document.getElementById('injectSend');
   const stopBtn = document.getElementById('injectStop');
   const statusEl = document.getElementById('injectStatus');
-  const resultEl = document.getElementById('injectResult');
-  const copyBtn = document.getElementById('injectCopyResult');
-  const reasoningEl = document.getElementById('injectReasoning');
   if (sendBtn) sendBtn.disabled = true;
   if (stopBtn) stopBtn.style.display = 'inline-block';
   if (statusEl) statusEl.textContent = I18N.t('sending');
-  if (resultEl) resultEl.textContent = '';
-  if (copyBtn) copyBtn.style.display = 'none';
-  if (reasoningEl) { reasoningEl.textContent = ''; reasoningEl.classList.add('hidden'); }
+  renderVoiceOutput(prompt, null, null, I18N.t('chatYou'));
+  // 流式气泡：思考（灰）+ 回答（逐字），完成后正文 Markdown 化
+  const thinkEl = appendStreamBubble('voice-think');
+  const ansEl = appendStreamBubble('voice-bot');
+  const setThink = (t) => { const s = thinkEl && thinkEl.querySelector('.stream-text'); if (s) s.textContent = t.slice(-600); };
+  const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
+  let reasoningAcc = '';
 
   const controller = new AbortController();
   aiAbortController = controller;
@@ -1940,31 +1931,25 @@ async function injectRunApi(prompt) {
     const r = await TABU_CAPS.askApiStream(prompt, currentAiConfig, history, {
       signal: controller.signal,
       onDelta: (t) => {
-        // 正文开始 → 收起思考预览，正文即时渲染
         contentStarted = true;
-        if (reasoningEl) reasoningEl.classList.add('hidden');
         acc += t;
-        if (resultEl) resultEl.textContent = acc;
+        setAns(acc);
       },
-      // 推理/思考增量：思考型模型（DeepSeek V4 思考 / Kimi k3 / Qwen thinking / Claude extended thinking）先吐思考再吐正文，
-      // 展示"思考中…"进度避免长时间空白；只显示末尾一段，避免撑高面板
+      // 思考增量：思考型模型先吐思考再吐正文；灰色气泡实时显示末尾一段
       onReasoning: (t) => {
-        if (contentStarted || !reasoningEl) return;
-        reasoningEl.textContent = (reasoningEl.textContent + t).slice(-600);
-        reasoningEl.classList.remove('hidden');
+        if (contentStarted) return;
+        reasoningAcc += t;
+        setThink(reasoningAcc);
       }
     });
 
     if (r && r.aborted) {
-      if (reasoningEl) reasoningEl.classList.add('hidden');
       if (statusEl) statusEl.textContent = I18N.t('injectStopped');
       return;
     }
     const answer = (r && r.answer) || acc;
-    if (reasoningEl) reasoningEl.classList.add('hidden');
-    if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
+    if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div>';
     maybeSpeakAnswer(answer);
-    if (copyBtn) copyBtn.style.display = 'inline-block';
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
     // 会话历史写库（site:'api' + session，供多轮跟随）
@@ -1973,11 +1958,10 @@ async function injectRunApi(prompt) {
     }
   } catch (e) {
     const aborted = controller.signal.aborted;
-    if (reasoningEl) reasoningEl.classList.add('hidden');
     if (aborted) {
       if (statusEl) statusEl.textContent = I18N.t('injectStopped');
     } else {
-      if (resultEl) resultEl.textContent = '❌ ' + (e.message || I18N.t('unknownError'));
+      if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">❌ ' + escapeHtml((e && e.message) || I18N.t('unknownError')) + '</div>';
       if (statusEl) statusEl.textContent = I18N.t('injectFailed');
     }
   } finally {
@@ -2049,10 +2033,6 @@ async function injectNewChat() {
   // API 模式：重置会话（新 session 清空多轮上下文），无需操作真实 AI 页面
   if (await getEffectiveAiMode() === 'api') {
     const r = await sendMessage('resetAiSession');
-    const resultEl = document.getElementById('injectResult');
-    const copyBtn = document.getElementById('injectCopyResult');
-    if (resultEl) resultEl.textContent = '';
-    if (copyBtn) copyBtn.style.display = 'none';
     if (r && r.error) { showStatus(r.error, 'error'); return; }
     showStatus(I18N.t('aiSessionReset'), 'success');
     return;
@@ -2120,24 +2100,12 @@ async function clearInjectHistory() {
   showStatus(I18N.t('cleared'), 'success');
 }
 
-function injectCopyResult() {
-  const el = document.getElementById('injectResult');
-  if (!el || !el.textContent.trim()) return;
-  copyTextWithFallback(el.textContent.trim()).then((ok) => showToast(ok ? I18N.t('copySuccess') : I18N.t('copyFail')));
-}
-
-// 清空 AI 输入与结果（免费浏览器版 / 自填 API 版共用）
+// 清空 AI 输入与素材（结果在统一对话流里，由流头部的「清空」负责）
 function injectClear() {
   const input = document.getElementById('injectInput');
-  const result = document.getElementById('injectResult');
-  const reasoning = document.getElementById('injectReasoning');
-  const copyBtn = document.getElementById('injectCopyResult');
   const statusEl = document.getElementById('injectStatus');
   injectClearMaterials();
   if (input) input.value = '';
-  if (result) result.textContent = '';
-  if (reasoning) { reasoning.textContent = ''; reasoning.classList.add('hidden'); }
-  if (copyBtn) copyBtn.style.display = 'none';
   if (statusEl) statusEl.textContent = '';
 }
 
@@ -3605,17 +3573,39 @@ async function voiceChatAskText(text, mode, opts = {}) {
   return data.text || '';
 }
 
-// 渲染到输出栏（追加 识别 + 思考(灰) + 回答，回答走 Markdown 渲染）
-function renderVoiceOutput(recognized, answer, reasoning) {
+// 统一对话流渲染（006 方案二）：语音/文本/本地/API 的问答都追加到同一容器。
+// recognized = 用户消息；answer = AI 回答（Markdown）；reasoning = 思考（灰）；userLabel = 用户消息标签（默认"识别"）
+// 追加式渲染（insertAdjacentHTML，避免 innerHTML += 重复解析导致的内容丢失）+ 自动滚到底部。
+let lastAnswerText = '';
+function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
   const empty = document.getElementById('voiceOutputEmpty');
   if (empty) empty.remove();
   let html = '';
+  const uLabel = userLabel || I18N.t('chatRecognized');
   if (reasoning) html += '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(reasoning) + '</div>';
-  if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(I18N.t('chatRecognized')) + '</b> ' + escapeHtml(recognized) + '</div>';
-  if (answer) html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
-  if (html) body.innerHTML += html;
+  if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '</div>';
+  if (answer) {
+    lastAnswerText = String(answer);
+    html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
+  }
+  if (html) body.insertAdjacentHTML('beforeend', html);
+  body.scrollTop = body.scrollHeight;
+}
+
+// 流式气泡（API 渠道逐字渲染用）：返回 { set(text), finish(markdown) }
+function appendStreamBubble(kind) {
+  const body = document.getElementById('voiceOutputContent');
+  if (!body) return null;
+  const empty = document.getElementById('voiceOutputEmpty');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = 'voice-msg ' + kind;
+  el.innerHTML = '<b>' + escapeHtml(kind === 'voice-think' ? I18N.t('chatThinking') : I18N.t('chatAnswer')) + '</b><span class="stream-text"></span>';
+  body.appendChild(el);
+  body.scrollTop = body.scrollHeight;
+  return el;
 }
 
 function voiceOutputClear() {
@@ -4697,8 +4687,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('#panel-ai [data-tpl]').forEach(btn => {
     btn.addEventListener('click', () => injectSendTemplate(btn.dataset.tpl));
   });
-  const copyResultEl = document.getElementById('injectCopyResult');
-  if (copyResultEl) copyResultEl.addEventListener('click', injectCopyResult);
   const injectClearEl = document.getElementById('injectClear');
   if (injectClearEl) injectClearEl.addEventListener('click', injectClear);
   // 免费浏览器版说明跟随「发送到」站点变化
@@ -4767,6 +4755,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const voiceOutputShow = document.getElementById('voiceOutputShow');
   if (voiceOutputShow) voiceOutputShow.addEventListener('change', toggleVoiceOutput);
   const voiceOutputClearBtn = document.getElementById('voiceOutputClear');
+  // 复制最近一条 AI 回答（统一对话流）
+  const copyLastBtn = document.getElementById('voiceCopyLast');
+  if (copyLastBtn) copyLastBtn.addEventListener('click', async () => {
+    if (!lastAnswerText) { showStatus(I18N.t('noTextToSpeak'), 'info'); return; }
+    try {
+      await navigator.clipboard.writeText(lastAnswerText);
+      showStatus(I18N.t('chatCopied'), 'success');
+    } catch (e) {
+      showStatus(I18N.t('unknownError'), true);
+    }
+  });
   if (voiceOutputClearBtn) voiceOutputClearBtn.addEventListener('click', voiceOutputClear);
   loadVoiceOutputSetting();
 

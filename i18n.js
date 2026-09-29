@@ -109,6 +109,11 @@ const I18N = (() => {
       aiSpeakOn: '🔊 朗读回答',
       aiSpeakOff: '🔇 朗读已关',
       aiSpeakTitle: 'AI 回答后自动朗读（与语音工作台同一朗读引擎，默认开）',
+      chatStreamTitle: '💬 对话记录',
+      voiceCopyLast: '复制回答',
+      voiceCopyLastTitle: '复制最近一条 AI 回答',
+      chatCopied: '✅ 回答已复制',
+      chatYou: '🙋 提问',
 
       // 对话（Chat）
       chatHint: '💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端',
@@ -899,6 +904,11 @@ const I18N = (() => {
       aiSpeakOn: '🔊 Speak answers',
       aiSpeakOff: '🔇 Speaking off',
       aiSpeakTitle: 'Auto-speak AI answers (same TTS engine as the voice workbench, on by default)',
+      chatStreamTitle: '💬 Conversation',
+      voiceCopyLast: 'Copy answer',
+      voiceCopyLastTitle: 'Copy the latest AI answer',
+      chatCopied: '✅ Answer copied',
+      chatYou: '🙋 Q',
 
       // Chat
       chatHint: '💬 Local LLM chat · type a question or record voice; runs through the local asr-server (STT → LLM → TTS), fully local',

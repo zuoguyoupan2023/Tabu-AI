@@ -709,3 +709,6 @@ footer a { color: #fff; text-decoration: none; }
 
 /* 工作台 🔊 朗读回答开关 */
 #aiSpeakToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
+
+/* 统一对话流：API 流式气泡实时文本 */
+.stream-text { white-space: pre-wrap; word-break: break-word; }
