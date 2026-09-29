@@ -1056,10 +1056,12 @@ async function injectAsk(siteKey, prompt, opts = {}) {
     if (!tab) {
       if (opts.allowCreate === false) return { error: '未找到打开的 ' + site.label + ' 页面，请先打开并登录' };
       if (injectCancelFlag) return { error: '已停止注入' };
-      // 新开标签前先探测站点可达性：不可达（如国内直连 ChatGPT）直接失败，
-      // 不留下一个永远加载不完的标签页把注入锁卡死
+      // 可达性探测仅作参考（favicon/网络策略差异会误报，DeepSeek 实测踩过）：
+      // 探测失败只提示不拦截；真不可达时由限时注入链路（110s/次、总 120s）给出明确失败。
       if (!(await probeSiteReachable(site.newChatUrl))) {
-        return { error: '无法访问 ' + site.label + '（' + safeOrigin(site.newChatUrl) + '）。请检查网络或代理后重试，也可在侧边栏「🌐 浏览器版」里切换其它 AI 站点。' };
+        try {
+          chrome.runtime.sendMessage({ type: 'injectNote', text: '⚠️ 探测显示 ' + site.label + ' 可能不可达（存在误报），仍将尝试打开执行…' });
+        } catch (e) {}
       }
       // 智能策略：无现成 AI 标签 → 自动开独立小窗（可见操作，不占当前页面）；小窗失败退回后台标签
       let usedAiWindow = false;
@@ -1079,7 +1081,14 @@ async function injectAsk(siteKey, prompt, opts = {}) {
           ? '已打开 ' + site.label + ' 独立小窗执行（不占当前页面），回答将显示在侧边栏'
           : '已在后台打开 ' + site.label + ' 页面执行，回答将显示在侧边栏' });
       } catch (e) {}
-      await new Promise(r => setTimeout(r, 4000)); // 等新标签加载
+      // 等页面加载完成（上限 15s）：load 事件被墙内资源卡住时不死等，由 injectImmediately + 重试兜底
+      for (let i = 0; i < 15; i++) {
+        try {
+          const t = await chrome.tabs.get(tab.id);
+          if (t.status === 'complete') break;
+        } catch (e) { break; }
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
     const maxAttempts = justCreated ? 8 : 2; // 只有新开的标签才多次重试等待加载
     const deadline = Date.now() + 120000;    // 整体超时：所有重试累计不超过 2 分钟（锁不会无限被占）
@@ -1089,20 +1098,25 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       if (injectCancelFlag) return { error: '已停止注入' };
       if (Date.now() > deadline) return { error: '注入总超时：' + site.label + ' 页面长时间未就绪，请确认该站点可正常访问。' };
       try {
-        // executeScript 兜底限时：页面彻底挂死时不能无限等待（askInSite 内部最长 90s，放宽到 110s）
+        // injectImmediately：默认注入会等 document_idle——页面有被墙子资源时 load 永不触发 → 无限等待
+        //（实测 ChatGPT "注入执行超时（页面未就绪）"即此因）。改为文档一存在就注入，
+        // 输入框未就绪由 askInSite 快速报错 + 外层重试兜底。
         const results = await withTimeout(chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: askInSite,
-          args: [prompt, site, opts.requestId || '', opts.images || []]
-        }), 110000, '注入执行超时（页面未就绪）');
+          args: [prompt, site, opts.requestId || '', opts.images || []],
+          injectImmediately: true
+        }), 110000, '注入执行超时（页面加载异常）');
         const out = results && results[0] ? results[0].result : null;
         if (out && out.answer) return { answer: out.answer };
         if (out && out.error) lastError = out.error;
       } catch (e) {
         lastError = '注入失败: ' + e.message;
       }
-      // 兜底：后台新建的标签首次尝试失败 → 切到前台重试一次（可见执行，同时排除后台节流因素）
-      if (justCreated && !promoted && lastError && tab && tab.id != null) {
+      // 兜底：后台新建的标签连续失败（≥2 次）或执行超时 → 切到前台重试一次
+      //（injectImmediately 后页面水合期会有快速失败，首次失败就切前台会不必要地抢焦点）
+      if (justCreated && !promoted && lastError && tab && tab.id != null &&
+          (attempt >= 2 || lastError.includes('注入执行超时'))) {
         promoted = true;
         try {
           await chrome.tabs.update(tab.id, { active: true });
@@ -1113,8 +1127,8 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       await new Promise(r => setTimeout(r, 2500));
     }
     const tail = (justCreated && lastError) ? (promoted
-      ? '（已自动切换到 ' + site.label + ' 前台标签页，请确认站点状态后重试）'
-      : '（已在后台打开 ' + site.label + ' 标签页，可手动切换过去确认站点状态后重试）') : '';
+      ? '（已自动切换到 ' + site.label + ' 前台标签页，请确认站点状态后重试；若站点可手动打开但仍失败，多为页面加载被网络阻断）'
+      : '（已在后台打开 ' + site.label + ' 标签页，可手动切换过去确认站点状态后重试；若站点可手动打开但仍失败，多为页面加载被网络阻断）') : '';
     return { error: (lastError || '无法在 ' + site.label + ' 页面执行') + tail };
   } catch (e) {
     return { error: '扩展侧执行失败: ' + e.message };
@@ -1130,12 +1144,12 @@ function withTimeout(promise, ms, tag) {
   ]).finally(() => clearTimeout(timer));
 }
 
-// 站点可达性探测：no-cors 请求 favicon，网络层任何 HTTP 响应（含 403/404）都算可达；
-// 超时/断网（GFW 丢包等）→ false。用于新开 AI 标签前快速失败。
-async function probeSiteReachable(url, timeoutMs = 6000) {
+// 站点可达性探测（参考性）：HEAD 页面 URL 本身。
+// ＊不用 /favicon.ico——favicon 常被 CDN 拦截/挂起，实测会误报"站点不可达"（DeepSeek 踩过）。
+// ＊探测失败不作为硬拦截：实测存在"探测失败但站点可正常打开"的情况，真不可达由限时注入链路给出明确失败。
+async function probeSiteReachable(url, timeoutMs = 8000) {
   try {
-    const origin = new URL(url).origin;
-    await fetch(origin + '/favicon.ico', { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    await fetch(url, { method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
     return true;
   } catch (e) { return false; }
 }
