@@ -1672,15 +1672,21 @@ function injectSite() {
   return document.getElementById('injectSite')?.value || 'chatgpt';
 }
 
-// ===== AI 工作台：素材胶囊（005 P0）=====
-// 选中文本/全文不再覆盖输入框，而是添加为可删除的素材胶囊；发送时与输入框文本合成一条 prompt
-let injectMaterials = []; // { id, type: 'selection'|'fulltext', text }
-function injectAddMaterial(type, text) {
-  const t = String(text || '').trim();
-  if (!t) return false;
-  injectMaterials.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), type, text: t });
+// ===== AI 工作台：素材胶囊（005 P0/P1）=====
+// 类型：selection（选中内容）/ fulltext（网页全文）/ file（文本附件，已读为文本）/ image（图片，dataUrl 随发送注入粘贴）
+// 选中文本/全文/文本文件 → 引用块并入 prompt；图片 → 随发送在 AI 站点页面内模拟"粘贴"上传（仅浏览器版渠道）
+let injectMaterials = [];
+let _matSeq = 0;
+function injectAddMaterial(m) {
+  injectMaterials.push(Object.assign({ id: 'm' + Date.now() + '_' + (++_matSeq) }, m));
   renderInjectMaterials();
   return true;
+}
+function materialLabel(type) {
+  return type === 'selection' ? I18N.t('aiMaterialSel')
+    : type === 'fulltext' ? I18N.t('aiMaterialFull')
+    : type === 'file' ? I18N.t('aiMaterialFile')
+    : I18N.t('aiMaterialImage');
 }
 function renderInjectMaterials() {
   const box = document.getElementById('injectMaterials');
@@ -1690,10 +1696,10 @@ function renderInjectMaterials() {
   injectMaterials.forEach((m) => {
     const chip = document.createElement('span');
     chip.className = 'material-chip';
-    const label = m.type === 'selection' ? I18N.t('aiMaterialSel') : I18N.t('aiMaterialFull');
-    const preview = m.text.length > 24 ? m.text.slice(0, 24) + '…' : m.text;
-    chip.innerHTML = '<span class="mtag">' + escapeHtml(label) + '</span>' +
-      '<span class="mprev" title="' + escapeHtml(m.text.slice(0, 200)) + '">' + escapeHtml(preview) + '</span>' +
+    const preview = m.type === 'image' ? (m.name || 'image')
+      : (m.type === 'file' ? (m.name || '') : (m.text.length > 24 ? m.text.slice(0, 24) + '…' : m.text));
+    chip.innerHTML = '<span class="mtag">' + escapeHtml(materialLabel(m.type)) + '</span>' +
+      '<span class="mprev" title="' + escapeHtml(m.type === 'image' ? (m.name || '') : String(m.text || '').slice(0, 200)) + '">' + escapeHtml(preview) + '</span>' +
       '<button class="mremove" data-mid="' + m.id + '">✕</button>';
     chip.querySelector('.mremove').addEventListener('click', () => {
       injectMaterials = injectMaterials.filter((x) => x.id !== m.id);
@@ -1702,14 +1708,47 @@ function renderInjectMaterials() {
     box.appendChild(chip);
   });
 }
-// 输入框文本 + 素材胶囊 → 最终发送文本（素材以 Markdown 引用块附加在正文后）
+// 素材 → { text, images }：文本类并入引用块；图片单独携带（浏览器版渠道在站点页面内粘贴上传）
 function composeWithMaterials(base) {
-  const mats = injectMaterials.map((m) => '> ' + m.text.replace(/\n/g, '\n> ')).join('\n>\n');
-  if (!mats) return base;
-  return (base ? base + '\n\n' : '') + mats;
+  const images = injectMaterials.filter((m) => m.type === 'image').map((m) => ({ name: m.name || 'image', dataUrl: m.dataUrl }));
+  const textMats = injectMaterials.filter((m) => m.type !== 'image');
+  const mats = textMats.map((m) => {
+    const head = (m.type === 'file' && m.name) ? '[附件 ' + m.name + ']\n' : '';
+    return head + '> ' + m.text.replace(/\n/g, '\n> ');
+  }).join('\n>\n');
+  const text = mats ? (base ? base + '\n\n' : '') + mats : base;
+  return { text, images };
 }
-function injectComposeText() { return composeWithMaterials(injectGetInput()); }
+function injectComposeParts() { return composeWithMaterials(injectGetInput()); }
+function injectComposeText() { return injectComposeParts().text; }
 function injectClearMaterials() { injectMaterials = []; renderInjectMaterials(); }
+
+// 📎 附件选择：图片（≤5MB，随发送粘贴上传）+ 文本类（≤512KB，读为文本素材）；其余格式提示 P2/手动上传
+async function injectAttachPick(fileList) {
+  for (const f of Array.from(fileList || [])) {
+    try {
+      if (/^image\//.test(f.type)) {
+        if (f.size > 5 * 1024 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
+        const dataUrl = await new Promise((res, rej) => {
+          const r = new FileReader();
+          r.onload = () => res(r.result); r.onerror = () => rej(r.error);
+          r.readAsDataURL(f);
+        });
+        injectAddMaterial({ type: 'image', name: f.name, dataUrl });
+        showStatus(I18N.t('aiAttachAdded', f.name), 'success');
+      } else if (/^(text\/|application\/json)/.test(f.type) || /\.(txt|md|csv|json|log)$/i.test(f.name)) {
+        if (f.size > 512 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
+        const text = await f.text();
+        injectAddMaterial({ type: 'file', name: f.name, text });
+        showStatus(I18N.t('aiAttachAdded', f.name), 'success');
+      } else {
+        showStatus(I18N.t('aiAttachUnsupported', f.name), true);
+      }
+    } catch (e) {
+      showStatus(I18N.t('aiAttachReadFail', (e && e.message) || ''), true);
+    }
+  }
+}
 
 // ===== AI 工作台：站点能力徽章（005 P0：静态声明，P2 换运行时探测） =====
 const AI_SITE_CAPABILITIES = {
@@ -1768,18 +1807,18 @@ function updateInjectVoiceUi(on) {
 async function injectCaptureSelected() {
   const text = await getSelectedText();
   if (!text.trim()) { showStatus(I18N.t('noSelectionAny'), 'info'); return; }
-  if (injectAddMaterial('selection', text)) showStatus(I18N.t('captureSelDone'), 'success');
+  if (injectAddMaterial({ type: 'selection', text })) showStatus(I18N.t('captureSelDone'), 'success');
 }
 
 async function injectCaptureFull() {
   const text = await getFullPageText();
   if (!text.trim()) { showStatus(I18N.t('pageNoText'), 'info'); return; }
-  if (injectAddMaterial('fulltext', text)) showStatus(I18N.t('captureFullDone'), 'success');
+  if (injectAddMaterial({ type: 'fulltext', text })) showStatus(I18N.t('captureFullDone'), 'success');
 }
 
-async function injectRun(prompt) {
+async function injectRun(prompt, images = []) {
   if (injectBusy) { showStatus(I18N.t('injectBusy'), 'info'); return; }
-  if (!prompt || !prompt.trim()) { showStatus(I18N.t('enterTextToSend'), 'info'); return; }
+  if ((!prompt || !prompt.trim()) && !images.length) { showStatus(I18N.t('enterTextToSend'), 'info'); return; }
   // 首开面板时 loadAiConfig 可能未完成，config 为空则先向 storage 确认一次
   if (!currentAiConfig.aiBaseUrl) {
     try {
@@ -1789,6 +1828,11 @@ async function injectRun(prompt) {
   }
   // 后端模式：'local' → 本地 /chat；'api' → 流式（需已配置）；'inject' → 页面注入
   const mode = await getEffectiveAiMode();
+  // 图片附件仅浏览器版渠道支持（站点页面内粘贴上传）；其它渠道降级为纯文本并提示
+  if (images.length && mode !== 'inject') {
+    showStatus(I18N.t('aiAttachDropNonInject'), true);
+    images = [];
+  }
   if (mode === 'local') {
     // 本地渠道：本地 LLM /chat 问答，结果同样渲染进工作台结果区
     injectClearMaterials();
@@ -1840,7 +1884,7 @@ async function injectRun(prompt) {
   if (copyBtn) copyBtn.style.display = 'none';
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
-  execute({ action: 'inject', text: prompt, options: { site: injectSite() } })
+  execute({ action: 'inject', text: prompt, options: { site: injectSite(), images } })
     .then((out) => {
       if (out.ok) {
         if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(out.result.text) + '</div>';
@@ -1946,22 +1990,22 @@ async function injectRunApi(prompt) {
 function injectSend() {
   const tplInput = document.getElementById('injectCustomTpl');
   const tpl = (tplInput && tplInput.value || '').trim();
-  const text = injectComposeText();
+  const parts = injectComposeParts();
   if (tpl) {
-    if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
-    injectRun(TABU_CAPS.PROCESSORS.custom.apply(text, tpl));
+    if (!parts.text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
+    injectRun(TABU_CAPS.PROCESSORS.custom.apply(parts.text, tpl), parts.images);
   } else {
-    injectRun(text);
+    injectRun(parts.text, parts.images);
   }
 }
 
 function injectSendTemplate(type) {
-  const text = injectComposeText(); // 输入框 + 素材一起作为 {text}（如：选中文本胶囊 → 点「翻译」）
-  if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
+  const parts = injectComposeParts(); // 输入框 + 素材一起作为 {text}（如：选中文本胶囊 → 点「翻译」）
+  if (!parts.text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
   // 模板统一来自 capabilities.js 的 PROCESSORS
   const proc = TABU_CAPS.PROCESSORS[type];
   if (!proc) return;
-  injectRun(proc.apply(text));
+  injectRun(proc.apply(parts.text), parts.images);
 }
 
 function injectStop() {
@@ -3429,8 +3473,9 @@ async function onVoiceCircleDone() {
 async function runVoiceCirclePipeline(text) {
   vcPipelineRunning = true;
   try {
-    const question = composeWithMaterials(text);
-    if (question !== text) injectClearMaterials(); // 素材已并入本轮问题
+    const parts = composeWithMaterials(text); // 素材胶囊并入问题（图片仅浏览器版渠道支持）
+    const question = parts.text;
+    if (question !== text || parts.images.length) injectClearMaterials();
     const round = ++_voiceRoundSeq;
     const tRound = performance.now();
     logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(question).slice(0, 40));
@@ -3441,6 +3486,7 @@ async function runVoiceCirclePipeline(text) {
       const tLlm0 = performance.now();
       let reasoningAcc = '';
       const answer = await voiceChatAskText(question, mode, {
+        images: parts.images,
       onReasoning: (t) => {
         reasoningAcc += t;
         setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
@@ -3519,7 +3565,7 @@ async function voiceChatAskText(text, mode, opts = {}) {
     return acc;
   }
   if (mode === 'inject') {
-    const out = await execute({ action: 'inject', text, options: { site: injectSite() } });
+    const out = await execute({ action: 'inject', text, options: { site: injectSite(), images: opts.images || [] } });
     if (!out.ok) throw new Error(out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError')));
     // 站点回复的答案带回语音管线显示/朗读（旧版丢弃只提示"已发送"，用户在插件里看不到内容）
     return (out.result && out.result.text) || null;
@@ -4587,6 +4633,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (captureFullEl) captureFullEl.addEventListener('click', injectCaptureFull);
   const injectVoiceEl = document.getElementById('injectVoice');
   if (injectVoiceEl) injectVoiceEl.addEventListener('click', toggleInjectVoice);
+  // 📎 附件：图片（随发送粘贴上传）+ 文本类（读为文本素材）
+  const injectAttachBtn = document.getElementById('injectAttach');
+  const injectAttachFile = document.getElementById('injectAttachFile');
+  if (injectAttachBtn && injectAttachFile) {
+    injectAttachBtn.addEventListener('click', () => injectAttachFile.click());
+    injectAttachFile.addEventListener('change', () => {
+      injectAttachPick(injectAttachFile.files);
+      injectAttachFile.value = ''; // 允许重复选择同一文件
+    });
+  }
   const newChatEl = document.getElementById('injectNewChat');
   if (newChatEl) newChatEl.addEventListener('click', injectNewChat);
   const sendEl = document.getElementById('injectSend');

@@ -73,7 +73,8 @@
           <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="把当前网页选中文本添加为素材">📋 选中文本</button>
           <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="把当前网页正文添加为素材">📄 全文</button>
           <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
-          <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachSoonTitle" title="图片/文件上传将在下一阶段支持（005 P1）" disabled>📎 附件</button>
+          <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文本文件（并入素材）">📎 附件</button>
+          <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log" hidden />
         </div>
 
         <div id="chatWorkbench">

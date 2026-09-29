@@ -659,7 +659,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
           break;
         // 注入功能（AI 页面问答）
-        case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt); break;
+        case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt, { images: request.images || [] }); break;
         // 自定义 API：测试连接 / 单次调用（openai 兼容或 anthropic 原生）
         case 'askViaApi': result = await askViaApi(request.prompt, request.config, request.history); break;
         // 自定义 API：多轮会话上下文（session + 历史消息）
@@ -1013,9 +1013,9 @@ async function newConversation(siteKey) {
 let injectLock = false;
 let injectLockSince = 0;   // 锁获取时间：超 3 分钟视为异常残留，强制释放
 let injectCancelFlag = false; // 用户请求停止当前注入（injectStop / 圆球再点一次）
-async function injectAskWithSave(site, prompt) {
+async function injectAskWithSave(site, prompt, opts = {}) {
   if (injectLock && Date.now() - injectLockSince > 180000) {
-    console.warn('[TabU AI] 注入锁超过 3 分钟未释放（异常残留），强制解锁');
+    console.warn('[Tab AI] 注入锁超过 3 分钟未释放（异常残留），强制解锁');
     injectLock = false;
   }
   if (injectLock) return { error: '上一条注入还在处理中，请稍候，或点「⏹ 停止」取消它' };
@@ -1031,7 +1031,7 @@ async function injectAskWithSave(site, prompt) {
       if (r.answer) await saveConversation({ site: 'api', session, prompt, answer: r.answer });
       return r;
     }
-    const r = await injectAsk(site, prompt, { allowCreate: true });
+    const r = await injectAsk(site, prompt, { allowCreate: true, images: opts.images || [] });
     if (r.answer) {
       await saveConversation({ site, prompt, answer: r.answer });
     }
@@ -1074,7 +1074,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {
         const results = await withTimeout(chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: askInSite,
-          args: [prompt, site, opts.requestId || '']
+          args: [prompt, site, opts.requestId || '', opts.images || []]
         }), 110000, '注入执行超时（页面未就绪）');
         const out = results && results[0] ? results[0].result : null;
         if (out && out.answer) return { answer: out.answer };
@@ -1122,7 +1122,7 @@ async function handleBridgeAsk(question, opts = {}) {
 // 在页面上下文执行：输入问题 → 发送 → 等待流式回复稳定 → 返回完整回答
 // adapter 为站点适配器（见 AI_SITES），提供 inputs / sends / replies 选择器
 // requestId 非空时（桥接流式请求）：回复增长过程中节流上报文本快照，由后台转发给桥接服务
-function askInSite(question, adapter, requestId) {
+function askInSite(question, adapter, requestId, images) {
   return new Promise((resolve) => {
     const RESOLVE_TIMEOUT = 90000;
     let finished = false;
@@ -1195,7 +1195,7 @@ function askInSite(question, adapter, requestId) {
         setter.call(input, question);
         input.dispatchEvent(new Event('input', { bubbles: true }));
         // 部分版本对 value 不敏感，补一个 InputEvent
-        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: question }));
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: question, isComposing: false }));
       } else {
         // contenteditable（ProseMirror 等）：需要聚焦后 insertText 触发 beforeinput/input
         input.focus();
@@ -1214,14 +1214,55 @@ function askInSite(question, adapter, requestId) {
           } catch (e) {}
           if (!ok || !has()) {
             input.textContent = question;
-            input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: question }));
+            input.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: question, isComposing: false }));
           }
         }
       }
     };
     insertText();
 
-    // 3) 发送：等发送按钮可用后再点（轮询，最多 ~4s）
+    // 2.5) 附件图片（005 P1）：以"粘贴"方式注入（ChatGPT/Claude/Kimi 均支持粘贴图片），
+    //      失败则回退站点自带的 input[type=file]；每张等待 1.5s 出上传缩略图
+    diag.images = 0;
+    const dataUrlToFile = (du) => {
+      try {
+        const m = /^data:([^;]+);base64,(.*)$/.exec(du);
+        if (!m) return null;
+        const bin = atob(m[2]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        return new File([arr], 'image', { type: m[1] });
+      } catch (e) { return null; }
+    };
+    const injectImages = async () => {
+      for (const img of (images || []).slice(0, 4)) {
+        const f = dataUrlToFile(img.dataUrl);
+        if (!f) continue;
+        let delivered = false;
+        try {
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+          delivered = true;
+        } catch (e) {}
+        if (!delivered) {
+          try {
+            const fi = document.querySelector('input[type=file]');
+            if (fi) {
+              const dt2 = new DataTransfer();
+              dt2.items.add(f);
+              fi.files = dt2.files;
+              fi.dispatchEvent(new Event('change', { bubbles: true }));
+              delivered = true;
+            }
+          } catch (e) {}
+        }
+        if (delivered) diag.images++;
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    };
+
+    // 3) 发送：等发送按钮可用后再点（轮询；随机化间隔防机械特征 —— 002 方案 D）
     const sendSelectors = (cfg.sends && cfg.sends.length) ? cfg.sends : [
       'button[data-testid="send-button"]', 'button[aria-label*="发送"]', 'button[aria-label*="Send"]',
       'form button[type="submit"]', 'button[type="submit"]'
@@ -1254,12 +1295,12 @@ function askInSite(question, adapter, requestId) {
       sendAttempts++;
       const btn = document.querySelector(sendSelectors.join(','));
       if (btn && !btn.disabled) { doSend(); return; }
-      if (sendAttempts <= 8) setTimeout(trySendLoop, 500); // 最多等 4s
+      if (sendAttempts <= 8) setTimeout(trySendLoop, 400 + Math.random() * 600); // 随机重试间隔（002 方案 D）
       else doSend(); // 按钮一直不可用就直接回车兜底
     };
-    setTimeout(trySendLoop, 500);
 
-    // 4) 等待新回复稳定（流式结束判定）
+    // 4) 等待新回复稳定（流式结束判定）——观察者与超时在附件图片注入完成后才启动，
+    //    避免上传耗时挤占 90s 等待窗口
     // 兼容两种 DOM 行为：a) 复用同一元素更新 innerText；b) 新增多个元素
     // 结束判定：文本稳定 ≥1.5s 且「停止生成」按钮已消失（思考链与正式回答之间的停顿不会误判）
     let lastText = '';
@@ -1307,16 +1348,21 @@ function askInSite(question, adapter, requestId) {
       if (text !== lastText) { lastText = text; stableSince = Date.now(); reportDelta(text); return; }
       if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text });
     };
-    observer = new MutationObserver(check);
-    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    // 轮询兜底：停止按钮消失、思考链长停顿等场景下 MutationObserver 可能不再触发
-    const pollTimer = setInterval(check, 600);
-
-    setTimeout(() => {
-      clearInterval(pollTimer);
-      if (lastText) finish({ answer: lastText });
-      else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
-    }, RESOLVE_TIMEOUT);
+    const beginWait = () => {
+      observer = new MutationObserver(check);
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      // 轮询兜底：停止按钮消失、思考链长停顿等场景下 MutationObserver 可能不再触发
+      const pollTimer = setInterval(check, 600);
+      // 随机初始延迟后再开始发送轮询（002 方案 D：消除固定节奏特征）
+      setTimeout(trySendLoop, 600 + Math.random() * 800);
+      setTimeout(() => {
+        clearInterval(pollTimer);
+        if (lastText) finish({ answer: lastText });
+        else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；图片: ' + (diag.images || 0) + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
+      }, RESOLVE_TIMEOUT);
+    };
+    // 有附件图片：先粘贴上传完成，再进入发送/等待流程
+    Promise.resolve((images && images.length) ? injectImages() : null).then(beginWait, beginWait);
   });
 }
 

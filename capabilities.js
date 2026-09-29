@@ -369,8 +369,8 @@ async function translateText(text, opts = {}) {
 }
 
 // 发送到 AI：注入 askInSite（后台）并返回 { ok, text, error }
-async function sendToAI(site, prompt) {
-  const r = await sendMessage('injectAsk', { site: site || 'chatgpt', prompt });
+async function sendToAI(site, prompt, images) {
+  const r = await sendMessage('injectAsk', { site: site || 'chatgpt', prompt, images: images || [] });
   if (r && r.answer) return { ok: true, text: r.answer };
   return { ok: false, text: '', error: (r && r.error) || I18N.t('unknownError') };
 }
@@ -527,7 +527,7 @@ const ACTIONS = {
     const translated = await translateText(t, o || {});
     return { ok: true, text: translated };
   } },
-  inject:    { label: I18N.t('actInject'), run: (t, o) => sendToAI((o && o.site) || 'chatgpt', t) },
+  inject:    { label: I18N.t('actInject'), run: (t, o) => sendToAI((o && o.site) || 'chatgpt', t, (o && o.images) || []) },
   copy:      { label: I18N.t('actCopy'),      run: (t) => copyText(t) },
   card:      { label: I18N.t('actCard'),      run: (t, o) => downloadCardImage(t, o) }
 };
