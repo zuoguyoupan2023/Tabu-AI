@@ -1703,12 +1703,12 @@ function renderInjectMaterials() {
   });
 }
 // 输入框文本 + 素材胶囊 → 最终发送文本（素材以 Markdown 引用块附加在正文后）
-function injectComposeText() {
-  const base = injectGetInput();
+function composeWithMaterials(base) {
   const mats = injectMaterials.map((m) => '> ' + m.text.replace(/\n/g, '\n> ')).join('\n>\n');
   if (!mats) return base;
   return (base ? base + '\n\n' : '') + mats;
 }
+function injectComposeText() { return composeWithMaterials(injectGetInput()); }
 function injectClearMaterials() { injectMaterials = []; renderInjectMaterials(); }
 
 // ===== AI 工作台：站点能力徽章（005 P0：静态声明，P2 换运行时探测） =====
@@ -1787,8 +1787,37 @@ async function injectRun(prompt) {
       if (r.aiBaseUrl) currentAiConfig.aiBaseUrl = String(r.aiBaseUrl || '').trim();
     } catch (e) {}
   }
-  // 后端模式：'api' → 流式（需已配置）；'inject' → 页面注入
+  // 后端模式：'local' → 本地 /chat；'api' → 流式（需已配置）；'inject' → 页面注入
   const mode = await getEffectiveAiMode();
+  if (mode === 'local') {
+    // 本地渠道：本地 LLM /chat 问答，结果同样渲染进工作台结果区
+    injectClearMaterials();
+    injectBusy = true;
+    const sendBtn = document.getElementById('injectSend');
+    const stopBtn = document.getElementById('injectStop');
+    const statusEl = document.getElementById('injectStatus');
+    const resultEl = document.getElementById('injectResult');
+    const copyBtn = document.getElementById('injectCopyResult');
+    if (sendBtn) sendBtn.disabled = true;
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    if (statusEl) statusEl.textContent = I18N.t('sending');
+    if (resultEl) resultEl.textContent = '';
+    if (copyBtn) copyBtn.style.display = 'none';
+    try {
+      const answer = await voiceChatAskText(prompt, 'local');
+      if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
+      if (copyBtn) copyBtn.style.display = 'inline-block';
+      if (statusEl) statusEl.textContent = I18N.t('injectDone');
+    } catch (e) {
+      if (resultEl) resultEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
+      if (statusEl) statusEl.textContent = I18N.t('injectFailed');
+    } finally {
+      injectBusy = false;
+      if (sendBtn) sendBtn.disabled = false;
+      if (stopBtn) stopBtn.style.display = 'none';
+    }
+    return;
+  }
   if (mode === 'api') {
     if (!currentAiConfig.aiBaseUrl) {
       showStatus(I18N.t('aiBackendApiNoConfig'), 'info');
@@ -3246,6 +3275,24 @@ async function loadVoiceCircleMode() {
   } catch (e) {}
 }
 
+// 对话输入模式切换（005 P0.5）：voice = 纯圆球语音交互；text = 显示主界面输入工作台
+let vcUIMode = 'text';
+function setVcUiMode(mode) {
+  vcUIMode = (mode === 'voice') ? 'voice' : 'text';
+  chrome.storage.local.set({ vcUIMode }).catch(() => {});
+  document.querySelectorAll('#vcUIMode .vc-mode').forEach(b => {
+    b.classList.toggle('active', b.dataset.uimode === vcUIMode);
+  });
+  const wb = document.getElementById('chatWorkbench');
+  if (wb) wb.classList.toggle('hidden', vcUIMode !== 'text');
+}
+async function loadVcUiMode() {
+  try {
+    const r = await chrome.storage.local.get('vcUIMode');
+    setVcUiMode(r.vcUIMode === 'voice' ? 'voice' : 'text');
+  } catch (e) { setVcUiMode('text'); }
+}
+
 // VAD 监控：检测到有说话后，静音持续超过阈值 → 自动结束录音；超长 30s 强制结束兜底
 function startVad(stream) {
   try {
@@ -3378,19 +3425,22 @@ async function onVoiceCircleDone() {
 }
 
 // 识别文本 → 公共管线：渠道 LLM 问答 → 输出并朗读（与识别后端无关；browser 后端也走这里）
+// 素材胶囊（选中文本/全文）会并入本轮问题 —— 语音 + 素材组合发送（005 P0.5）
 async function runVoiceCirclePipeline(text) {
   vcPipelineRunning = true;
   try {
+    const question = composeWithMaterials(text);
+    if (question !== text) injectClearMaterials(); // 素材已并入本轮问题
     const round = ++_voiceRoundSeq;
-  const tRound = performance.now();
-  logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(text).slice(0, 40));
-  try {
-    // ② LLM 按渠道问答（本地 /chat · api 流式 · 浏览器注入）
-    setVoiceCircleStatus('💭 ' + I18N.t('voiceCircleThinking'));
-    const mode = await getEffectiveAiMode();
-    const tLlm0 = performance.now();
-    let reasoningAcc = '';
-    const answer = await voiceChatAskText(text, mode, {
+    const tRound = performance.now();
+    logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(question).slice(0, 40));
+    try {
+      // ② LLM 按渠道问答（本地 /chat · api 流式 · 浏览器注入）
+      setVoiceCircleStatus('💭 ' + I18N.t('voiceCircleThinking'));
+      const mode = await getEffectiveAiMode();
+      const tLlm0 = performance.now();
+      let reasoningAcc = '';
+      const answer = await voiceChatAskText(question, mode, {
       onReasoning: (t) => {
         reasoningAcc += t;
         setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
@@ -3981,10 +4031,7 @@ async function asrSendToTrans() {
 async function asrSendToAi() {
   const out = document.getElementById('asrResult');
   if (!out || !out.value.trim()) return;
-  switchTool('ai', true);
-  // 仅处于「免费翻译 / 本地版」模式时 AI 主体隐藏，先切到「浏览器版」注入模式再发送
-  const mode = await getEffectiveAiMode();
-  if (mode === 'trans' || mode === 'local') await setAiMode('inject');
+  // 工作台已上移主界面：直接填入输入框并发送，按当前渠道路由（local/api/inject），无需跳转 AI 标签页
   injectSetInput(out.value);
   injectSend();
 }
@@ -4614,6 +4661,11 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => setVoiceCircleMode(b.dataset.vcmode));
   });
   loadVoiceCircleMode();
+  // 主界面对话输入模式（语音 / 文本）切换
+  document.querySelectorAll('#vcUIMode .vc-mode').forEach(b => {
+    b.addEventListener('click', () => setVcUiMode(b.dataset.uimode));
+  });
+  loadVcUiMode();
   const voiceOutputShow = document.getElementById('voiceOutputShow');
   if (voiceOutputShow) voiceOutputShow.addEventListener('change', toggleVoiceOutput);
   const voiceOutputClearBtn = document.getElementById('voiceOutputClear');

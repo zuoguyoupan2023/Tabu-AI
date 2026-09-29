@@ -186,7 +186,7 @@ const I18N = (() => {
 
       // AI 注入
       aiPlaceholder: '输入内容，或用上方按钮添加选中/全文/语音素材…',
-      aiVoiceStart: '🎤 语音',
+      aiVoiceStart: '🎤 语音填入',
       aiVoiceStartTitle: '语音输入（识别结果填入输入框，可编辑后再发送）',
       aiVoiceStop: '⏹ 停止语音',
       aiAttach: '📎 附件',
@@ -195,6 +195,9 @@ const I18N = (() => {
       aiMaterialFull: '网页全文',
       aiCapOkTitle: '该站点支持，可直接使用',
       aiCapExpTitle: '实验性支持，以站点实际为准',
+      vcUiModeVoice: '🎤 语音',
+      vcUiModeText: '⌨️ 文本',
+      aiWorkbenchHint: '💡 对话输入已上移至主界面工作台（支持 语音/文本/素材/一键动作）。此处保留会话历史。',
       aiCaptureSel: '📋 选中文本',
       aiCaptureSelTitle: '抓取当前网页选中文本',
       aiCaptureFull: '📄 选中全文',
@@ -962,7 +965,7 @@ const I18N = (() => {
 
       // AI inject
       aiPlaceholder: 'Type here, or add selection / page text / voice as material with the buttons above…',
-      aiVoiceStart: '🎤 Voice',
+      aiVoiceStart: '🎤 Voice in',
       aiVoiceStartTitle: 'Voice input (fills the input box, edit before sending)',
       aiVoiceStop: '⏹ Stop voice',
       aiAttach: '📎 Attach',
@@ -971,6 +974,9 @@ const I18N = (() => {
       aiMaterialFull: 'Page text',
       aiCapOkTitle: 'Supported by this site',
       aiCapExpTitle: 'Experimental support — subject to the site',
+      vcUiModeVoice: '🎤 Voice',
+      vcUiModeText: '⌨️ Text',
+      aiWorkbenchHint: '💡 Chat input moved to the main workbench (voice / text / materials / quick actions). History stays here.',
       aiCaptureSel: '📋 Selection',
       aiCaptureSelTitle: 'Capture selected text on the page',
       aiCaptureFull: '📄 Full page',

@@ -59,8 +59,60 @@
             <button class="vc-mode active" data-vcmode="manual" data-i18n="voiceModeManual">点击停止</button>
             <button class="vc-mode" data-vcmode="vad" data-i18n="voiceModeVad">说话自动停</button>
           </div>
+          <!-- 对话输入模式切换（005 P0.5）：语音 = 纯圆球交互；文本 = 显示下方输入工作台 -->
+          <div class="voice-circle-mode" id="vcUIMode">
+            <button class="vc-mode active" data-uimode="voice" data-i18n="vcUiModeVoice">🎤 语音</button>
+            <button class="vc-mode" data-uimode="text" data-i18n="vcUiModeText">⌨️ 文本</button>
+          </div>
           <label class="voice-output-toggle"><input type="checkbox" id="voiceOutputShow" checked /> <span data-i18n="voiceOutputShow">显示输出</span></label>
         </div>
+
+        <!-- ①.5 对话工作台（005 P0.5 上移主界面）：素材行常显；输入区文本模式显示 -->
+        <div id="materialBar" class="ops">
+          <div id="injectMaterials" class="material-capsules hidden" style="flex-basis:100%;"></div>
+          <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="把当前网页选中文本添加为素材">📋 选中文本</button>
+          <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="把当前网页正文添加为素材">📄 全文</button>
+          <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
+          <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachSoonTitle" title="图片/文件上传将在下一阶段支持（005 P1）" disabled>📎 附件</button>
+        </div>
+
+        <div id="chatWorkbench">
+          <div class="ops ai-site-row">
+            <label class="site-label"><span data-i18n="aiSiteLabel">发送到</span>
+              <select id="injectSite">
+                <option value="chatgpt" data-i18n="aiSiteChatgpt">ChatGPT</option>
+                <option value="claude" data-i18n="aiSiteClaude">Claude</option>
+                <option value="kimi" data-i18n="aiSiteKimi">Kimi</option>
+                <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
+              </select>
+            </label>
+            <span id="injectCapBadges" class="cap-badges"></span>
+            <button class="chip" id="injectNewChat" data-i18n="aiNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕ 新对话</button>
+          </div>
+          <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
+          <div class="ops">
+            <button class="chip" data-tpl="translate" data-i18n="aiTplTranslate">翻译</button>
+            <button class="chip" data-tpl="summarize" data-i18n="aiTplSummarize">总结</button>
+            <button class="chip" data-tpl="explain" data-i18n="aiTplExplain">解释</button>
+            <button class="chip" data-tpl="polish" data-i18n="aiTplPolish">润色</button>
+          </div>
+          <div class="ops ai-site-row">
+            <input type="text" id="injectCustomTpl" class="custom-tpl" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
+          </div>
+          <div class="ops">
+            <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
+            <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
+            <span id="injectStatus" class="tool-status inline"></span>
+          </div>
+          <div class="result-wrap">
+            <div class="result-tools">
+              <button id="injectCopyResult" class="copy-btn" data-i18n="transCopy" style="display:none;">复制</button>
+              <button id="injectClear" class="copy-btn" data-i18n="transClear">清空</button>
+            </div>
+            <div id="injectReasoning" class="tool-reasoning hidden"></div>
+            <div id="injectResult" class="tool-result"></div>
+          </div>
+        </div><!-- /chatWorkbench -->
 
         <!-- ② 输出栏（可显示/隐藏） -->
         <div class="voice-output" id="voiceOutput">
@@ -222,31 +274,10 @@
             <div id="translateStatus" class="tool-status"></div>
           </div>
 
-          <!-- AI 工作台（005 P0：composer 布局）—— 免费浏览器版（页面注入）；API 版共用发送/结果区 -->
+          <!-- AI 工作台输入已上移主界面（005 P0.5）；此处保留会话历史等管理功能 -->
           <div id="aiMain" class="hidden">
             <div id="aiModeHint" class="ai-mode-hint hidden"></div>
-            <!-- 顶部：站点选择 + 能力徽章 + 新对话 -->
-            <div class="ops ai-site-row">
-              <label class="site-label"><span data-i18n="aiSiteLabel">发送到</span>
-                <select id="injectSite">
-                  <option value="chatgpt" data-i18n="aiSiteChatgpt">ChatGPT</option>
-                  <option value="claude" data-i18n="aiSiteClaude">Claude</option>
-                  <option value="kimi" data-i18n="aiSiteKimi">Kimi</option>
-                  <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
-                </select>
-              </label>
-              <span id="injectCapBadges" class="cap-badges"></span>
-              <button class="chip" id="injectNewChat" data-i18n="aiNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕ 新对话</button>
-            </div>
-            <!-- 对话/结果区（上屏） -->
-            <div class="result-wrap">
-              <div class="result-tools">
-                <button id="injectCopyResult" class="copy-btn" data-i18n="transCopy" style="display:none;">复制</button>
-                <button id="injectClear" class="copy-btn" data-i18n="transClear">清空</button>
-              </div>
-              <div id="injectReasoning" class="tool-reasoning hidden"></div>
-              <div id="injectResult" class="tool-result"></div>
-            </div>
+            <p class="hint" data-i18n="aiWorkbenchHint">💡 对话输入已上移至主界面工作台（支持 语音/文本/素材/一键动作）。此处保留会话历史。</p>
             <details class="fold">
               <summary data-i18n="aiHistorySummary">📜 会话历史</summary>
               <div class="fold-body">
@@ -254,29 +285,6 @@
                 <div id="injectHistory"></div>
               </div>
             </details>
-            <!-- Composer：素材胶囊 → 素材按钮 → 输入框 → 模板 → 发送 -->
-            <div id="injectMaterials" class="material-capsules hidden"></div>
-            <div class="ops">
-              <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="把当前网页选中文本添加为素材">📋 选中文本</button>
-              <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="把当前网页正文添加为素材">📄 全文</button>
-              <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音</button>
-              <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachSoonTitle" title="图片/文件上传将在下一阶段支持（005 P1）" disabled>📎 附件</button>
-            </div>
-            <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
-            <div class="ops">
-              <button class="chip" data-tpl="translate" data-i18n="aiTplTranslate">翻译</button>
-              <button class="chip" data-tpl="summarize" data-i18n="aiTplSummarize">总结</button>
-              <button class="chip" data-tpl="explain" data-i18n="aiTplExplain">解释</button>
-              <button class="chip" data-tpl="polish" data-i18n="aiTplPolish">润色</button>
-            </div>
-            <div class="ops ai-site-row">
-              <input type="text" id="injectCustomTpl" class="custom-tpl" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
-            </div>
-            <div class="ops">
-              <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
-              <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
-              <span id="injectStatus" class="tool-status inline"></span>
-            </div>
           </div><!-- /aiMain -->
         </div>
 
