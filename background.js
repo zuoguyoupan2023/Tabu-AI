@@ -1267,11 +1267,62 @@ function askInSite(question, adapter, requestId, images) {
       'button[data-testid="send-button"]', 'button[aria-label*="发送"]', 'button[aria-label*="Send"]',
       'form button[type="submit"]', 'button[type="submit"]'
     ];
-    const doSend = () => {
+    // 鼠标轨迹模拟（002 方案 B / P3）：输入框 → 发送按钮，贝塞尔曲线移动 + 完整鼠标事件序列。
+    // isTrusted 无法伪造，但事件序列更接近真人操作；任何异常都回退普通 click，不影响功能。
+    const simulateMouseMoveAndClick = async (fromEl, toEl) => {
+      const to = toEl.getBoundingClientRect();
+      // 按钮不可见/在视口外：轨迹无意义，直接点
+      if (!to || to.width <= 0 || to.height <= 0 || to.bottom < 0 || to.top > window.innerHeight) {
+        toEl.click();
+        return;
+      }
+      const targetX = to.left + to.width * (0.3 + Math.random() * 0.4);
+      const targetY = to.top + to.height * (0.3 + Math.random() * 0.4);
+      const from = fromEl ? fromEl.getBoundingClientRect() : null;
+      // 起点：输入框内随机位置；输入框不可见时从按钮附近开始
+      let x, y;
+      if (from && from.width > 0 && from.height > 0) {
+        x = from.left + from.width * (0.3 + Math.random() * 0.4);
+        y = from.top + from.height * (0.3 + Math.random() * 0.4);
+      } else {
+        x = targetX - 80 + Math.random() * 40;
+        y = targetY + 20 + Math.random() * 30;
+      }
+      // 二阶贝塞尔控制点：随机偏移，模拟人类非直线移动
+      const ctrlX = (x + targetX) / 2 + (Math.random() - 0.5) * 60;
+      const ctrlY = (y + targetY) / 2 + (Math.random() - 0.5) * 40;
+      const steps = 12 + Math.floor(Math.random() * 8);
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx = (1 - t) * (1 - t) * x + 2 * (1 - t) * t * ctrlX + t * t * targetX;
+        const cy = (1 - t) * (1 - t) * y + 2 * (1 - t) * t * ctrlY + t * t * targetY;
+        const target = document.elementFromPoint(cx, cy);
+        if (target) {
+          target.dispatchEvent(new MouseEvent('mousemove', { clientX: cx, clientY: cy, bubbles: true, cancelable: true }));
+        }
+        await new Promise(r => setTimeout(r, 10 + Math.random() * 20));
+      }
+      // 到达后：完整事件序列 + 最终点击
+      toEl.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      toEl.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      toEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      toEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      toEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    };
+    const doSend = async () => {
       let sent = false;
       for (const sel of sendSelectors) {
         const el = document.querySelector(sel);
-        if (el && !el.disabled) { diag.sendFound = sel; el.click(); sent = true; break; }
+        if (el && !el.disabled) {
+          diag.sendFound = sel;
+          try {
+            await simulateMouseMoveAndClick(input, el);
+          } catch (e) {
+            try { el.click(); } catch (e2) {}
+          }
+          sent = true;
+          break;
+        }
         if (el) diag.sendFound = sel + '(禁用)';
       }
       if (!sent) {
