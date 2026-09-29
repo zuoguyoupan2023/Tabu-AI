@@ -4643,6 +4643,14 @@ document.addEventListener('DOMContentLoaded', () => {
       injectAttachFile.value = ''; // 允许重复选择同一文件
     });
   }
+  // 后台注入进度提示（方案 A：AI 标签页后台打开，不抢当前页面焦点）
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'injectNote' && msg.text) {
+      const el = document.getElementById('injectStatus');
+      if (el) el.textContent = msg.text;
+      showStatus(msg.text, 'info');
+    }
+  });
   const newChatEl = document.getElementById('injectNewChat');
   if (newChatEl) newChatEl.addEventListener('click', injectNewChat);
   const sendEl = document.getElementById('injectSend');

@@ -987,7 +987,8 @@ async function newConversation(siteKey) {
     if (ids.length) {
       try { await chrome.tabs.remove(ids); } catch (e) {}
     }
-    const tab = await chrome.tabs.create({ url: site.newChatUrl, active: true });
+    // 方案 A：后台打开新对话页，不抢当前页面焦点
+    const tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
     await new Promise(r => setTimeout(r, 5000)); // 等页面加载
     try {
       await chrome.scripting.executeScript({
@@ -1002,7 +1003,7 @@ async function newConversation(siteKey) {
         args: [site.newChatSelectors]
       });
     } catch (e) {}
-    return { success: true, message: '已关闭旧 ' + site.label + ' 页面并打开新对话' };
+    return { success: true, message: '已在后台打开新的 ' + site.label + ' 对话页（当前页面未被切换）' };
   } catch (e) {
     return { success: false, message: '新建对话失败: ' + e.message };
   }
@@ -1059,8 +1060,12 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       if (!(await probeSiteReachable(site.newChatUrl))) {
         return { error: '无法访问 ' + site.label + '（' + safeOrigin(site.newChatUrl) + '）。请检查网络或代理后重试，也可在侧边栏「🌐 浏览器版」里切换其它 AI 站点。' };
       }
-      tab = await chrome.tabs.create({ url: site.newChatUrl, active: true });
+      // 方案 A：后台打开 AI 标签页（active:false），不抢当前页面焦点；回答仍回侧边栏
+      tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
       justCreated = true;
+      try {
+        chrome.runtime.sendMessage({ type: 'injectNote', text: '已在后台打开 ' + site.label + ' 页面执行，回答将显示在侧边栏' });
+      } catch (e) {}
       await new Promise(r => setTimeout(r, 4000)); // 等新标签加载
     }
     const maxAttempts = justCreated ? 8 : 2; // 只有新开的标签才多次重试等待加载
@@ -1085,7 +1090,8 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       if (!justCreated) break; // 已有标签页：直接返回真实错误，避免空转
       await new Promise(r => setTimeout(r, 2500));
     }
-    return { error: lastError || '无法在 ' + site.label + ' 页面执行' };
+    const tail = (justCreated && lastError) ? '（已在后台打开 ' + site.label + ' 标签页，可手动切换过去确认站点状态后重试）' : '';
+    return { error: (lastError || '无法在 ' + site.label + ' 页面执行') + tail };
   } catch (e) {
     return { error: '扩展侧执行失败: ' + e.message };
   }
