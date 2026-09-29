@@ -1672,18 +1672,109 @@ function injectSite() {
   return document.getElementById('injectSite')?.value || 'chatgpt';
 }
 
+// ===== AI 工作台：素材胶囊（005 P0）=====
+// 选中文本/全文不再覆盖输入框，而是添加为可删除的素材胶囊；发送时与输入框文本合成一条 prompt
+let injectMaterials = []; // { id, type: 'selection'|'fulltext', text }
+function injectAddMaterial(type, text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  injectMaterials.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2, 6), type, text: t });
+  renderInjectMaterials();
+  return true;
+}
+function renderInjectMaterials() {
+  const box = document.getElementById('injectMaterials');
+  if (!box) return;
+  box.innerHTML = '';
+  box.classList.toggle('hidden', injectMaterials.length === 0);
+  injectMaterials.forEach((m) => {
+    const chip = document.createElement('span');
+    chip.className = 'material-chip';
+    const label = m.type === 'selection' ? I18N.t('aiMaterialSel') : I18N.t('aiMaterialFull');
+    const preview = m.text.length > 24 ? m.text.slice(0, 24) + '…' : m.text;
+    chip.innerHTML = '<span class="mtag">' + escapeHtml(label) + '</span>' +
+      '<span class="mprev" title="' + escapeHtml(m.text.slice(0, 200)) + '">' + escapeHtml(preview) + '</span>' +
+      '<button class="mremove" data-mid="' + m.id + '">✕</button>';
+    chip.querySelector('.mremove').addEventListener('click', () => {
+      injectMaterials = injectMaterials.filter((x) => x.id !== m.id);
+      renderInjectMaterials();
+    });
+    box.appendChild(chip);
+  });
+}
+// 输入框文本 + 素材胶囊 → 最终发送文本（素材以 Markdown 引用块附加在正文后）
+function injectComposeText() {
+  const base = injectGetInput();
+  const mats = injectMaterials.map((m) => '> ' + m.text.replace(/\n/g, '\n> ')).join('\n>\n');
+  if (!mats) return base;
+  return (base ? base + '\n\n' : '') + mats;
+}
+function injectClearMaterials() { injectMaterials = []; renderInjectMaterials(); }
+
+// ===== AI 工作台：站点能力徽章（005 P0：静态声明，P2 换运行时探测） =====
+const AI_SITE_CAPABILITIES = {
+  chatgpt:  { image: 'ok', file: 'ok' },
+  claude:   { image: 'ok', file: 'ok' },
+  kimi:     { image: 'ok', file: 'ok' },
+  deepseek: { image: 'exp', file: 'exp' } // V4-Flash-Vision-Exp 实验性支持，以站点实际为准
+};
+function renderInjectCapBadges() {
+  const el = document.getElementById('injectCapBadges');
+  if (!el) return;
+  const cap = AI_SITE_CAPABILITIES[injectSite()] || { image: 'ok', file: 'ok' };
+  const okTitle = I18N.t('aiCapOkTitle');
+  const expTitle = I18N.t('aiCapExpTitle');
+  el.innerHTML =
+    '<span class="cap-badge ' + (cap.image === 'ok' ? 'ok' : 'exp') + '" title="🖼 ' + (cap.image === 'ok' ? okTitle : expTitle) + '">🖼</span>' +
+    '<span class="cap-badge ' + (cap.file === 'ok' ? 'ok' : 'exp') + '" title="📄 ' + (cap.file === 'ok' ? okTitle : expTitle) + '">📄</span>';
+}
+
+// ===== AI 工作台：语音输入（browser 后端，识别文本填入输入框可编辑后再发送） =====
+let injectVoiceOn = false;
+async function toggleInjectVoice() {
+  if (injectVoiceOn) { stopBrowserAsr(); return; }
+  // 单一音频通道：先停掉其它面板的录音/识别
+  if (asrRecording) stopAsrRecording();
+  if (vbRecording) stopVoiceCircleRecording();
+  if (chatRecording) stopChatRecording();
+  const hint = await browserAsrHint();
+  if (hint.level === 'unsupported' || hint.level === 'block') { showStatus(hint.msg, true); return; }
+  const input = document.getElementById('injectInput');
+  if (!input) return;
+  const base = input.value ? input.value.replace(/\s*$/, '') + ' ' : '';
+  injectVoiceOn = true;
+  updateInjectVoiceUi(true);
+  try {
+    const out = await startBrowserAsr({
+      onInterim: (t) => { input.value = base + t; },
+      onStatus: (m) => showStatus('🎙 ' + m, 'info')
+    });
+    if (out.text) input.value = base + out.text;
+  } catch (e) {
+    showStatus((e && e.message) || I18N.t('unknownError'), true);
+  } finally {
+    injectVoiceOn = false;
+    updateInjectVoiceUi(false);
+    try { input.focus(); } catch (e) {}
+  }
+}
+function updateInjectVoiceUi(on) {
+  const btn = document.getElementById('injectVoice');
+  if (!btn) return;
+  btn.textContent = on ? I18N.t('aiVoiceStop') : I18N.t('aiVoiceStart');
+  btn.classList.toggle('recording', on);
+}
+
 async function injectCaptureSelected() {
   const text = await getSelectedText();
   if (!text.trim()) { showStatus(I18N.t('noSelectionAny'), 'info'); return; }
-  injectSetInput(text);
-  showStatus(I18N.t('captureSelDone'), 'success');
+  if (injectAddMaterial('selection', text)) showStatus(I18N.t('captureSelDone'), 'success');
 }
 
 async function injectCaptureFull() {
   const text = await getFullPageText();
   if (!text.trim()) { showStatus(I18N.t('pageNoText'), 'info'); return; }
-  injectSetInput(text);
-  showStatus(I18N.t('captureFullDone'), 'success');
+  if (injectAddMaterial('fulltext', text)) showStatus(I18N.t('captureFullDone'), 'success');
 }
 
 async function injectRun(prompt) {
@@ -1703,8 +1794,10 @@ async function injectRun(prompt) {
       showStatus(I18N.t('aiBackendApiNoConfig'), 'info');
       return;
     }
+    injectClearMaterials(); // 已合成进 prompt，派发前清空胶囊
     return injectRunApi(prompt);
   }
+  injectClearMaterials(); // 已合成进 prompt，派发前清空胶囊
   injectBusy = true;
   const sendBtn = document.getElementById('injectSend');
   const stopBtn = document.getElementById('injectStop');
@@ -1820,21 +1913,21 @@ async function injectRunApi(prompt) {
   }
 }
 
-// 合并后的发送：填写了自定义模板（injectCustomTpl）就套用模板，否则原样发送
+// 合并后的发送：输入框文本 + 素材胶囊合成；填写了自定义模板（injectCustomTpl）就套用模板
 function injectSend() {
   const tplInput = document.getElementById('injectCustomTpl');
   const tpl = (tplInput && tplInput.value || '').trim();
+  const text = injectComposeText();
   if (tpl) {
-    const text = injectGetInput();
     if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
     injectRun(TABU_CAPS.PROCESSORS.custom.apply(text, tpl));
   } else {
-    injectRun(injectGetInput());
+    injectRun(text);
   }
 }
 
 function injectSendTemplate(type) {
-  const text = injectGetInput();
+  const text = injectComposeText(); // 输入框 + 素材一起作为 {text}（如：选中文本胶囊 → 点「翻译」）
   if (!text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
   // 模板统一来自 capabilities.js 的 PROCESSORS
   const proc = TABU_CAPS.PROCESSORS[type];
@@ -1943,6 +2036,7 @@ function injectClear() {
   const reasoning = document.getElementById('injectReasoning');
   const copyBtn = document.getElementById('injectCopyResult');
   const statusEl = document.getElementById('injectStatus');
+  injectClearMaterials();
   if (input) input.value = '';
   if (result) result.textContent = '';
   if (reasoning) { reasoning.textContent = ''; reasoning.classList.add('hidden'); }
@@ -4444,6 +4538,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (captureSelEl) captureSelEl.addEventListener('click', injectCaptureSelected);
   const captureFullEl = document.getElementById('injectCaptureFull');
   if (captureFullEl) captureFullEl.addEventListener('click', injectCaptureFull);
+  const injectVoiceEl = document.getElementById('injectVoice');
+  if (injectVoiceEl) injectVoiceEl.addEventListener('click', toggleInjectVoice);
   const newChatEl = document.getElementById('injectNewChat');
   if (newChatEl) newChatEl.addEventListener('click', injectNewChat);
   const sendEl = document.getElementById('injectSend');
@@ -4591,11 +4687,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const INJECT_SITES = ['chatgpt', 'claude', 'kimi', 'deepseek'];
     chrome.storage.local.get('injectSite').then((r) => {
       if (r.injectSite && INJECT_SITES.includes(r.injectSite)) injectSiteSel.value = r.injectSite;
+      renderInjectCapBadges();
     }).catch(() => {});
     injectSiteSel.addEventListener('change', () => {
       chrome.storage.local.set({ injectSite: injectSiteSel.value }).catch(() => {});
+      renderInjectCapBadges();
     });
   }
+  renderInjectCapBadges();
   const bmMaxVersionsSave = document.getElementById('bmMaxVersionsSave');
   if (bmMaxVersionsSave) bmMaxVersionsSave.addEventListener('click', saveBmMaxVersions);
   const histMaxVersionsSave = document.getElementById('histMaxVersionsSave');

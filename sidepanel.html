@@ -222,21 +222,10 @@
             <div id="translateStatus" class="tool-status"></div>
           </div>
 
-          <!-- AI 主体：免费浏览器版（页面注入）/ 自填 API 版（本地版对话在 chatMain） -->
+          <!-- AI 工作台（005 P0：composer 布局）—— 免费浏览器版（页面注入）；API 版共用发送/结果区 -->
           <div id="aiMain" class="hidden">
             <div id="aiModeHint" class="ai-mode-hint hidden"></div>
-            <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入文本，或点上方按钮抓取当前网页内容…"></textarea>
-            <div class="ops">
-              <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="抓取当前网页选中文本">📋 选中文本</button>
-              <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="抓取当前网页正文">📄 选中全文</button>
-              <button class="chip" id="injectNewChat" data-i18n="aiNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕ 新对话</button>
-            </div>
-            <div class="ops">
-              <button class="chip" data-tpl="translate" data-i18n="aiTplTranslate">翻译</button>
-              <button class="chip" data-tpl="summarize" data-i18n="aiTplSummarize">总结</button>
-              <button class="chip" data-tpl="explain" data-i18n="aiTplExplain">解释</button>
-              <button class="chip" data-tpl="polish" data-i18n="aiTplPolish">润色</button>
-            </div>
+            <!-- 顶部：站点选择 + 能力徽章 + 新对话 -->
             <div class="ops ai-site-row">
               <label class="site-label"><span data-i18n="aiSiteLabel">发送到</span>
                 <select id="injectSite">
@@ -246,13 +235,10 @@
                   <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
                 </select>
               </label>
-              <input type="text" id="injectCustomTpl" class="custom-tpl" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位" />
+              <span id="injectCapBadges" class="cap-badges"></span>
+              <button class="chip" id="injectNewChat" data-i18n="aiNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕ 新对话</button>
             </div>
-            <div class="ops">
-              <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（填写了自定义模板时自动套用模板）">🚀 发送</button>
-              <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
-              <span id="injectStatus" class="tool-status inline"></span>
-            </div>
+            <!-- 对话/结果区（上屏） -->
             <div class="result-wrap">
               <div class="result-tools">
                 <button id="injectCopyResult" class="copy-btn" data-i18n="transCopy" style="display:none;">复制</button>
@@ -268,6 +254,29 @@
                 <div id="injectHistory"></div>
               </div>
             </details>
+            <!-- Composer：素材胶囊 → 素材按钮 → 输入框 → 模板 → 发送 -->
+            <div id="injectMaterials" class="material-capsules hidden"></div>
+            <div class="ops">
+              <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="把当前网页选中文本添加为素材">📋 选中文本</button>
+              <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="把当前网页正文添加为素材">📄 全文</button>
+              <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音</button>
+              <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachSoonTitle" title="图片/文件上传将在下一阶段支持（005 P1）" disabled>📎 附件</button>
+            </div>
+            <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
+            <div class="ops">
+              <button class="chip" data-tpl="translate" data-i18n="aiTplTranslate">翻译</button>
+              <button class="chip" data-tpl="summarize" data-i18n="aiTplSummarize">总结</button>
+              <button class="chip" data-tpl="explain" data-i18n="aiTplExplain">解释</button>
+              <button class="chip" data-tpl="polish" data-i18n="aiTplPolish">润色</button>
+            </div>
+            <div class="ops ai-site-row">
+              <input type="text" id="injectCustomTpl" class="custom-tpl" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
+            </div>
+            <div class="ops">
+              <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
+              <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
+              <span id="injectStatus" class="tool-status inline"></span>
+            </div>
           </div><!-- /aiMain -->
         </div>
 
