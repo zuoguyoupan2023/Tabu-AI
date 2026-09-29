@@ -1852,6 +1852,7 @@ async function injectRun(prompt, images = []) {
       if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
       if (copyBtn) copyBtn.style.display = 'inline-block';
       if (statusEl) statusEl.textContent = I18N.t('injectDone');
+      maybeSpeakAnswer(answer);
     } catch (e) {
       if (resultEl) resultEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
       if (statusEl) statusEl.textContent = I18N.t('injectFailed');
@@ -1891,6 +1892,7 @@ async function injectRun(prompt, images = []) {
         if (copyBtn) copyBtn.style.display = 'inline-block';
         if (statusEl) statusEl.textContent = I18N.t('injectDone');
         showStatus(I18N.t('injectSuccess'), 'success');
+        maybeSpeakAnswer(out.result.text);
       } else {
         const msg = out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError'));
         if (resultEl) resultEl.textContent = '❌ ' + msg;
@@ -1961,6 +1963,7 @@ async function injectRunApi(prompt) {
     const answer = (r && r.answer) || acc;
     if (reasoningEl) reasoningEl.classList.add('hidden');
     if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
+    maybeSpeakAnswer(answer);
     if (copyBtn) copyBtn.style.display = 'inline-block';
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
@@ -1984,6 +1987,27 @@ async function injectRunApi(prompt) {
     if (stopBtn) stopBtn.style.display = 'none';
     renderInjectHistory();
   }
+}
+
+// ===== 工作台回答朗读（🔊 可关）：与语音工作台同一朗读引擎与思维链剥离策略 =====
+async function aiSpeakAnswerEnabled() {
+  try {
+    const r = await chrome.storage.local.get('aiSpeakAnswer');
+    return r.aiSpeakAnswer !== false; // 默认开
+  } catch (e) { return true; }
+}
+function maybeSpeakAnswer(text) {
+  if (!text || !String(text).trim()) return;
+  aiSpeakAnswerEnabled().then((on) => {
+    if (!on) return;
+    doSpeak(String(text), document.getElementById('injectStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
+  }).catch(() => {});
+}
+function updateAiSpeakToggleUi(on) {
+  const btn = document.getElementById('aiSpeakToggle');
+  if (!btn) return;
+  btn.textContent = on ? I18N.t('aiSpeakOn') : I18N.t('aiSpeakOff');
+  btn.classList.toggle('on', on);
 }
 
 // 合并后的发送：输入框文本 + 素材胶囊合成；填写了自定义模板（injectCustomTpl）就套用模板
@@ -4633,6 +4657,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (captureFullEl) captureFullEl.addEventListener('click', injectCaptureFull);
   const injectVoiceEl = document.getElementById('injectVoice');
   if (injectVoiceEl) injectVoiceEl.addEventListener('click', toggleInjectVoice);
+  // 🔊 朗读回答开关（默认开）
+  const speakToggle = document.getElementById('aiSpeakToggle');
+  if (speakToggle) {
+    chrome.storage.local.get('aiSpeakAnswer').then((r) => updateAiSpeakToggleUi(r.aiSpeakAnswer !== false)).catch(() => {});
+    speakToggle.addEventListener('click', async () => {
+      const on = !(await aiSpeakAnswerEnabled());
+      await chrome.storage.local.set({ aiSpeakAnswer: on });
+      updateAiSpeakToggleUi(on);
+    });
+  }
   // 📎 附件：图片（随发送粘贴上传）+ 文本类（读为文本素材）
   const injectAttachBtn = document.getElementById('injectAttach');
   const injectAttachFile = document.getElementById('injectAttachFile');

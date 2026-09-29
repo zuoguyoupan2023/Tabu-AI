@@ -1081,8 +1081,8 @@ async function injectAsk(siteKey, prompt, opts = {}) {
           ? '已打开 ' + site.label + ' 独立小窗执行（不占当前页面），回答将显示在侧边栏'
           : '已在后台打开 ' + site.label + ' 页面执行，回答将显示在侧边栏' });
       } catch (e) {}
-      // 等页面加载完成（上限 15s）：load 事件被墙内资源卡住时不死等，由 injectImmediately + 重试兜底
-      for (let i = 0; i < 15; i++) {
+      // 等页面加载完成（上限 10s）：load 事件被墙内资源卡住时不死等，由 injectImmediately + 重试兜底
+      for (let i = 0; i < 10; i++) {
         try {
           const t = await chrome.tabs.get(tab.id);
           if (t.status === 'complete') break;
@@ -1091,7 +1091,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       }
     }
     const maxAttempts = justCreated ? 8 : 2; // 只有新开的标签才多次重试等待加载
-    const deadline = Date.now() + 120000;    // 整体超时：所有重试累计不超过 2 分钟（锁不会无限被占）
+    const deadline = Date.now() + 90000;     // 整体超时 90s（用户反馈 2 分钟不现实）；典型坏页失败 30-40s
     let lastError = '';
     let promoted = false; // 后台打开的标签：首次尝试失败后是否已切换到前台（方案 A 兜底）
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -1106,7 +1106,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {
           func: askInSite,
           args: [prompt, site, opts.requestId || '', opts.images || []],
           injectImmediately: true
-        }), 110000, '注入执行超时（页面加载异常）');
+        }), 75000, '注入执行超时（页面加载异常）');
         const out = results && results[0] ? results[0].result : null;
         if (out && out.answer) return { answer: out.answer };
         if (out && out.error) lastError = out.error;
@@ -1223,7 +1223,7 @@ async function handleBridgeAsk(question, opts = {}) {
 // requestId 非空时（桥接流式请求）：回复增长过程中节流上报文本快照，由后台转发给桥接服务
 function askInSite(question, adapter, requestId, images) {
   return new Promise((resolve) => {
-    const RESOLVE_TIMEOUT = 90000;
+    const RESOLVE_TIMEOUT = 60000;
     let finished = false;
     let observer = null;
     const finish = (result) => { if (finished) return; finished = true; if (observer) observer.disconnect(); resolve(result); };
