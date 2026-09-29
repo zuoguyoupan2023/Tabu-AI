@@ -987,8 +987,9 @@ async function newConversation(siteKey) {
     if (ids.length) {
       try { await chrome.tabs.remove(ids); } catch (e) {}
     }
-    // 方案 A：后台打开新对话页，不抢当前页面焦点
-    const tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
+    // 独立小窗打开新对话页（复用/重建），不抢当前页面焦点
+    const win = await ensureAiWindow(site.newChatUrl);
+    const tab = (win && win.tabId != null) ? await chrome.tabs.get(win.tabId) : await chrome.tabs.create({ url: site.newChatUrl, active: false });
     await new Promise(r => setTimeout(r, 5000)); // 等页面加载
     try {
       await chrome.scripting.executeScript({
@@ -1003,7 +1004,7 @@ async function newConversation(siteKey) {
         args: [site.newChatSelectors]
       });
     } catch (e) {}
-    return { success: true, message: '已在后台打开新的 ' + site.label + ' 对话页（当前页面未被切换）' };
+    return { success: true, message: '已在独立小窗打开新的 ' + site.label + ' 对话页（当前页面未被切换）' };
   } catch (e) {
     return { success: false, message: '新建对话失败: ' + e.message };
   }
@@ -1060,17 +1061,30 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       if (!(await probeSiteReachable(site.newChatUrl))) {
         return { error: '无法访问 ' + site.label + '（' + safeOrigin(site.newChatUrl) + '）。请检查网络或代理后重试，也可在侧边栏「🌐 浏览器版」里切换其它 AI 站点。' };
       }
-      // 方案 A：后台打开 AI 标签页（active:false），不抢当前页面焦点；回答仍回侧边栏
-      tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
+      // 智能策略：无现成 AI 标签 → 自动开独立小窗（可见操作，不占当前页面）；小窗失败退回后台标签
+      let usedAiWindow = false;
+      try {
+        const win = await ensureAiWindow(site.newChatUrl);
+        if (win && win.tabId != null) {
+          tab = await chrome.tabs.get(win.tabId);
+          usedAiWindow = true;
+        }
+      } catch (e) {}
+      if (!tab) {
+        tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
+      }
       justCreated = true;
       try {
-        chrome.runtime.sendMessage({ type: 'injectNote', text: '已在后台打开 ' + site.label + ' 页面执行，回答将显示在侧边栏' });
+        chrome.runtime.sendMessage({ type: 'injectNote', text: usedAiWindow
+          ? '已打开 ' + site.label + ' 独立小窗执行（不占当前页面），回答将显示在侧边栏'
+          : '已在后台打开 ' + site.label + ' 页面执行，回答将显示在侧边栏' });
       } catch (e) {}
       await new Promise(r => setTimeout(r, 4000)); // 等新标签加载
     }
     const maxAttempts = justCreated ? 8 : 2; // 只有新开的标签才多次重试等待加载
     const deadline = Date.now() + 120000;    // 整体超时：所有重试累计不超过 2 分钟（锁不会无限被占）
     let lastError = '';
+    let promoted = false; // 后台打开的标签：首次尝试失败后是否已切换到前台（方案 A 兜底）
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (injectCancelFlag) return { error: '已停止注入' };
       if (Date.now() > deadline) return { error: '注入总超时：' + site.label + ' 页面长时间未就绪，请确认该站点可正常访问。' };
@@ -1087,10 +1101,20 @@ async function injectAsk(siteKey, prompt, opts = {}) {
       } catch (e) {
         lastError = '注入失败: ' + e.message;
       }
+      // 兜底：后台新建的标签首次尝试失败 → 切到前台重试一次（可见执行，同时排除后台节流因素）
+      if (justCreated && !promoted && lastError && tab && tab.id != null) {
+        promoted = true;
+        try {
+          await chrome.tabs.update(tab.id, { active: true });
+          try { chrome.runtime.sendMessage({ type: 'injectNote', text: '后台执行失败，已切换到 ' + site.label + ' 标签页前台重试' }); } catch (e) {}
+        } catch (e) {}
+      }
       if (!justCreated) break; // 已有标签页：直接返回真实错误，避免空转
       await new Promise(r => setTimeout(r, 2500));
     }
-    const tail = (justCreated && lastError) ? '（已在后台打开 ' + site.label + ' 标签页，可手动切换过去确认站点状态后重试）' : '';
+    const tail = (justCreated && lastError) ? (promoted
+      ? '（已自动切换到 ' + site.label + ' 前台标签页，请确认站点状态后重试）'
+      : '（已在后台打开 ' + site.label + ' 标签页，可手动切换过去确认站点状态后重试）') : '';
     return { error: (lastError || '无法在 ' + site.label + ' 页面执行') + tail };
   } catch (e) {
     return { error: '扩展侧执行失败: ' + e.message };
@@ -1118,6 +1142,61 @@ async function probeSiteReachable(url, timeoutMs = 6000) {
 
 function safeOrigin(url) {
   try { return new URL(url).origin; } catch (e) { return url; }
+}
+
+// ===== AI 独立小窗（可见操作模式） =====
+// 智能策略：已有 AI 标签页 → 直接后台复用（injectAsk 的 query 命中即走这条）；
+// 没有现成标签 → 自动开一个独立 popup 小窗（默认定位当前窗口右半屏），用户可亲眼看到 AI 被操作，
+// 且可见窗口不受后台定时器节流影响。窗口留着复用，被用户关闭后下次自动重建。
+let aiWindowId = null;
+const AI_WIN_WIDTH = 560;
+
+async function ensureAiWindow(url) {
+  // 懒校验：上次记的窗口还在不在
+  if (aiWindowId != null) {
+    try {
+      await chrome.windows.get(aiWindowId);
+    } catch (e) {
+      aiWindowId = null; // 已被用户关闭
+    }
+  }
+  // 窗口还在：复用其中的标签页，按需导航
+  if (aiWindowId != null) {
+    try {
+      const win = await chrome.windows.get(aiWindowId, { populate: true });
+      const t = (win.tabs || []).find(t => t && t.id != null);
+      if (t) {
+        const current = String(t.url || '').split('#')[0];
+        const target = String(url).split('#')[0];
+        if (current !== target) {
+          await chrome.tabs.update(t.id, { url: target, active: true });
+          await new Promise(r => setTimeout(r, 800));
+        }
+        return { windowId: aiWindowId, tabId: t.id };
+      }
+    } catch (e) {}
+    aiWindowId = null; // 窗口异常（无标签等），走重建
+  }
+  // 创建新小窗：定位到当前（最后聚焦）窗口的右半屏，不抢焦点
+  let left, top, height;
+  try {
+    const cur = await chrome.windows.getLastFocused();
+    left = Math.round((cur.left || 0) + Math.max((cur.width || 1200) * 0.55, 320));
+    top = (cur.top || 40) + 20;
+    height = Math.max((cur.height || 720) - 60, 400);
+  } catch (e) {}
+  const win = await chrome.windows.create({
+    url,
+    type: 'popup',
+    focused: false,
+    width: AI_WIN_WIDTH,
+    height,
+    left,
+    top
+  });
+  aiWindowId = win.id;
+  const tabId = win.tabs && win.tabs[0] ? win.tabs[0].id : null;
+  return { windowId: win.id, tabId };
 }
 
 // 桥接专用：ChatGPT 提问。带 requestId 时页面内会在流式回复过程中上报增量（真流式给终端/应用）
