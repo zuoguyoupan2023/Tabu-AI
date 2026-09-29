@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Tab AI 终端桥接服务（bridge-server）v2
+ * TabU AI 终端桥接服务（bridge-server）v2
  * ============================================================
  * 把浏览器里已登录的免费 AI 网页（ChatGPT 等）变成一个本地 AI 服务，
  * 供终端工具与桌面/Web 应用接入——类似 Ollama 的本地端口，但后端是网页版 AI。
@@ -378,7 +378,7 @@ const server = http.createServer((req, res) => {
   // 服务信息（免 Token，供连通性检查 / 应用发现）
   if (url.pathname === '/' && req.method === 'GET') {
     return sendJson(req, res, 200, {
-      name: 'Tab AI Bridge',
+      name: 'TabU AI Bridge',
       description: '把浏览器免费网页 AI（ChatGPT 等）变成本地 AI 服务',
       endpoints: {
         anthropic: 'POST /v1/messages',
@@ -423,8 +423,8 @@ const server = http.createServer((req, res) => {
     return sendJson(req, res, 200, {
       object: 'list',
       data: [
-        { id: 'claude-bridge', object: 'model', type: 'model', display_name: 'ChatGPT via Tab AI Bridge', owned_by: 'tabu' },
-        { id: 'chatgpt-web', object: 'model', type: 'model', display_name: 'ChatGPT 免费网页版 (Tab AI Bridge)', owned_by: 'tabu' },
+        { id: 'claude-bridge', object: 'model', type: 'model', display_name: 'ChatGPT via TabU AI Bridge', owned_by: 'tabu' },
+        { id: 'chatgpt-web', object: 'model', type: 'model', display_name: 'ChatGPT 免费网页版 (TabU AI Bridge)', owned_by: 'tabu' },
       ],
     });
   }
@@ -476,7 +476,7 @@ function handleAskRequest(req, res, protocol) {
       return sendJson(req, res, 503, {
         type: 'error',
         error: { type: 'overloaded_error',
-          message: '未检测到 Chrome 扩展连接。请：1) 打开浏览器加载 Tab AI 扩展；2) 在插件「管理设置」里填入桥接 Token 并保存。' },
+          message: '未检测到 Chrome 扩展连接。请：1) 打开浏览器加载 TabU AI 扩展；2) 在插件「管理设置」里填入桥接 Token 并保存。' },
       });
     }
 
@@ -566,7 +566,7 @@ server.once('listening', () => {
   try { fs.mkdirSync(CONFIG_DIR, { recursive: true }); fs.writeFileSync(path.join(CONFIG_DIR, 'http-port'), String(port)); } catch (e) {}
   console.log('');
   console.log('┌──────────────────────────────────────────────────────────────┐');
-  console.log('│  Tab AI 桥接服务已启动（免费网页 AI → 本地 API）               │');
+  console.log('│  TabU AI 桥接服务已启动（免费网页 AI → 本地 API）               │');
   console.log(`│  HTTP : ${HOST}:${port}                                       │`);
   console.log(`│  WS   : ${HOST}:${WS_PORT}（Chrome 扩展接入，固定）            │`);
   console.log('└──────────────────────────────────────────────────────────────┘');

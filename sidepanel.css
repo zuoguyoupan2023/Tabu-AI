@@ -678,3 +678,19 @@ footer a { color: #fff; text-decoration: none; }
 .shot-close:hover { color: #b33a3a; }
 .shot-box img { display: block; width: 100%; max-height: 420px; object-fit: contain; background: #f8f9fc; }
 .shot-actions { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid #eef2f6; }
+
+/* ===== Markdown 渲染（AI 回复区：语音输出/对话/注入结果共用） ===== */
+.md-body { line-height: 1.55; }
+.md-body p { margin: 2px 0; }
+.md-body .md-h { font-weight: 700; margin: 6px 0 2px; }
+.md-body .md-h[data-level="1"] { font-size: 1.12em; }
+.md-body .md-h[data-level="2"] { font-size: 1.06em; }
+.md-body ul, .md-body ol { margin: 2px 0 2px 18px; padding: 0; }
+.md-body li { margin: 1px 0; }
+.md-body code { background: rgba(127,140,170,.14); padding: 1px 4px; border-radius: 3px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; }
+.md-body pre { background: rgba(127,140,170,.12); padding: 8px; border-radius: 6px; overflow-x: auto; margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
+.md-body pre code { background: none; padding: 0; }
+/* 思维链（思考内容）灰色，与正文黑色区分 */
+.md-think { color: #8a93a3; font-size: 12px; }
+.voice-think { color: #8a93a3; font-size: 12px; }
+.voice-think b { color: #8a93a3; margin-right: 4px; }

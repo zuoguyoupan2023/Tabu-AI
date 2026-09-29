@@ -1,4 +1,4 @@
-// ========== Tab AI 全局中英文切换（i18n） ==========
+// ========== TabU AI 全局中英文切换（i18n） ==========
 // 侧边栏界面文案字典：zh（中文）/ en（英文，回退）。
 // 静态文案通过 data-i18n / data-i18n-placeholder / data-i18n-title 属性应用；
 // 动态文案（状态/提示/confirm/生成 HTML）通过 I18N.t(key, ...args) 取词。
@@ -12,7 +12,7 @@ const I18N = (() => {
   // ---------- 字典 ----------
   const DICT = {
     zh: {
-      appTitle: 'Tab AI 浏览器管理器',
+      appTitle: 'TabU AI 浏览器管理器',
 
       // 头部
       incognito: '无痕',
@@ -71,7 +71,7 @@ const I18N = (() => {
       ttsEngineQwen3: 'Qwen3-TTS（本地 · 低延迟）',
       ttsLocalVoiceLabel: '音色',
       ttsLocalTestBtn: '测试朗读',
-      ttsLocalSample: '你好，这是本地语音朗读测试。欢迎使用 Tab AI。',
+      ttsLocalSample: '你好，这是本地语音朗读测试。欢迎使用 TabU AI。',
       ttsLocalNeedServer: '⚠️ 本地朗读需先启动本地服务（cd asr-server && npm start）',
       ttsLocalNotReady: '本地朗读未就绪：{0}',
       ttsLocalServerOffline: '本地服务未在线，请启动 asr-server',
@@ -104,6 +104,8 @@ const I18N = (() => {
       asrBrowserTestOkEdge: 'Edge 内置识别可用（微软语音服务）',
       asrBrowserStuck: '⏳ 15 秒未收到识别结果：请对着麦克风说话；若多次尝试仍无响应，多为当前网络无法访问语音服务（Chrome 走 Google 云）。建议改用 Edge 浏览器打开本插件',
       vcStopRequested: '⏹ 已请求停止，等待当前任务退出（站点注入最长约 2 分钟内解除）…',
+      chatThinking: '💭 思考：',
+      ttsReadThinkingLabel: '朗读时包含 AI 思考内容（默认只读正文）',
 
       // 对话（Chat）
       chatHint: '💬 本地 LLM 对话 · 输入问题或录音，走本地 asr-server（识别 → 思考 → 朗读），全本地无需云端',
@@ -214,7 +216,7 @@ const I18N = (() => {
       cardPaste: '粘贴',
       cardPasteTitle: '读取剪贴板内容进入输入框',
       cardPlaceholder: '输入文本，即卡片正文…',
-      cardTitle: 'Tab AI 摘录卡片',
+      cardTitle: 'TabU AI 摘录卡片',
       cardSampleText: '生活明朗，万物可爱。\n人间值得，未来可期。',
       cardFontLabel: '字体',
       cardFontDefault: '默认',
@@ -533,8 +535,8 @@ const I18N = (() => {
       exportFail: '导出失败: ',
       getExportFail: '获取导出数据失败',
       backupSaved: '备份文件（{0}）已保存至浏览器下载目录，请找到该文件并手动添加为邮件附件。',
-      mailSubject: 'Tab AI 浏览器数据备份',
-      mailBody: 'Tab AI 数据备份文件（{0}）已下载，请手动添加该文件为邮件附件。',
+      mailSubject: 'TabU AI 浏览器数据备份',
+      mailBody: 'TabU AI 数据备份文件（{0}）已下载，请手动添加该文件为邮件附件。',
       opFail: '操作失败: ',
       emptyBookmarks: '暂无书签',
       open: '打开',
@@ -699,18 +701,18 @@ const I18N = (() => {
       dataMail: '邮件',
 
       // ---------- 欢迎引导页（welcome.html） ----------
-      welcomeTitle: '欢迎使用 Tab AI',
+      welcomeTitle: '欢迎使用 TabU AI',
       welcomeRed: '红 · 高频工具',
       welcomeRedList: '朗读 · 翻译 · AI · 标签快照 · 搜索',
       welcomeBlue: '蓝 · 低频回溯',
       welcomeBlueList: '备份 · 定时快照 · 设置 · 数据管理',
       welcomeInstalled: '✓ 安装成功！接下来 <strong>3 步</strong>快速上手',
-      welcomeSub: 'Tab AI 是智能标签页管家，帮你管理标签、快照、书签与历史。',
+      welcomeSub: 'TabU AI 是智能标签页管家，帮你管理标签、快照、书签与历史。',
       welcomeStart: '▶ 开始引导',
       welcomePinTitle: '📌 固定到工具栏',
-      welcomePinSub: '把 Tab AI 固定到浏览器工具栏，随时一键打开侧边栏',
+      welcomePinSub: '把 TabU AI 固定到浏览器工具栏，随时一键打开侧边栏',
       welcomePinStep1: '点击浏览器右上角的 <strong>拼图图标</strong>（扩展程序管理按钮）',
-      welcomePinStep2: '在列表中找到 <strong>Tab AI Browser Manager</strong>',
+      welcomePinStep2: '在列表中找到 <strong>TabU AI</strong>',
       welcomePinStep3: '点击它右侧的 <span class="hl">📌 图钉</span>，固定到工具栏',
       welcomePinHere: '点这里',
       welcomeBack: '◀ 返回',
@@ -729,7 +731,7 @@ const I18N = (() => {
       welcomePairHint: '点击工具栏图标即可打开侧边栏（红层默认） · 快捷键 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> 或 <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>',
       welcomeNextStart: '下一步：开始使用 ▶',
       welcomeReadyTitle: '准备好了！',
-      welcomeReadySub: 'Tab AI 已就绪，开始高效管理你的标签页吧',
+      welcomeReadySub: 'TabU AI 已就绪，开始高效管理你的标签页吧',
       welcomeFeatSnapshot: '一键快照',
       welcomeFeatDedup: '去重标签',
       welcomeFeatSearch: '全局搜索',
@@ -740,11 +742,11 @@ const I18N = (() => {
       welcomeDocs: '📄 文档',
       welcomeFeedback: '💬 反馈',
       welcomePrivacy: '💾 所有数据仅保存在本地，不会上传到任何服务器',
-      welcomeFooter: 'Tab AI Browser Manager · 智能标签页管家',
+      welcomeFooter: 'TabU AI · 智能标签页管家',
 
       // ---------- 卸载调查页（uninstall.html） ----------
-      uninstallTitle: '真的要离开 Tab AI 吗？',
-      uninstallRetentionH1: '真的要离开 Tab AI 吗？',
+      uninstallTitle: '真的要离开 TabU AI 吗？',
+      uninstallRetentionH1: '真的要离开 TabU AI 吗？',
       uninstallSub: '在离开之前，能告诉我们你的想法吗？我们随时欢迎你回来！',
       uninstallFreeTip: '💡 核心功能全部<strong>免费</strong>：一键快照 · 去重 · 全局搜索 · 书签/历史版本 · 朗读/翻译',
       uninstallReinstall: '💡 想重新使用',
@@ -763,13 +765,13 @@ const I18N = (() => {
       uninstallFeedbackPlaceholder: '你的建议将帮助我们做得更好…',
       uninstallTip: '💾 所有数据仅保存在本地 · 反馈匿名',
       uninstallSubmit: '📮 发送反馈',
-      uninstallFooter: 'Tab AI Browser Manager · 感谢你的使用，再见 👋',
+      uninstallFooter: 'TabU AI · 感谢你的使用，再见 👋',
       uninstallReinstallDone: '期待与你重逢！💛',
-      uninstallConfirmProceed: '确认不再使用 Tab AI 吗？',
+      uninstallConfirmProceed: '确认不再使用 TabU AI 吗？',
       uninstallSubmitOk: '✅ 已收到你的反馈，感谢！',
       uninstallSubmitMailOk: '✅ 已为你打开反馈邮件，发送即可完成提交',
       uninstallSubmitFail: '❌ 提交失败：{0}（可重试，或直接发邮件反馈）',
-      uninstallMailSubject: 'Tab AI 卸载反馈',
+      uninstallMailSubject: 'TabU AI 卸载反馈',
       uninstallMailReason: '卸载原因：',
       uninstallMailNoReason: '未填写',
       uninstallMailFeedback: '反馈：',
@@ -777,7 +779,7 @@ const I18N = (() => {
     },
 
     en: {
-      appTitle: 'Tab AI Browser Manager',
+      appTitle: 'TabU AI',
 
       // Header
       incognito: 'Incognito',
@@ -836,7 +838,7 @@ const I18N = (() => {
       ttsEngineQwen3: 'Qwen3-TTS (local · low latency)',
       ttsLocalVoiceLabel: 'Voice',
       ttsLocalTestBtn: 'Test speak',
-      ttsLocalSample: 'Hello, this is a local TTS speak test. Welcome to Tab AI.',
+      ttsLocalSample: 'Hello, this is a local TTS speak test. Welcome to TabU AI.',
       ttsLocalNeedServer: '⚠️ Local speak needs the local service running (cd asr-server && npm start)',
       ttsLocalNotReady: 'Local TTS not ready: {0}',
       ttsLocalServerOffline: 'Local service offline — please start asr-server',
@@ -869,6 +871,8 @@ const I18N = (() => {
       asrBrowserTestOkEdge: 'Edge built-in recognition available (Microsoft speech service)',
       asrBrowserStuck: '⏳ No recognition result after 15s: please speak into the mic; if this keeps happening, the speech service is likely unreachable on this network (Chrome uses Google cloud). Tip: open this extension in Microsoft Edge',
       vcStopRequested: '⏹ Stop requested — waiting for the current task to exit (site injection releases within ~2 min)…',
+      chatThinking: '💭 Thinking:',
+      ttsReadThinkingLabel: 'Read AI thinking aloud (body only by default)',
 
       // Chat
       chatHint: '💬 Local LLM chat · type a question or record voice; runs through the local asr-server (STT → LLM → TTS), fully local',
@@ -979,7 +983,7 @@ const I18N = (() => {
       cardPaste: 'Paste',
       cardPasteTitle: 'Read clipboard content into the input',
       cardPlaceholder: 'Enter the card text…',
-      cardTitle: 'Tab AI Excerpt Card',
+      cardTitle: 'TabU AI Excerpt Card',
       cardSampleText: 'Life is bright, and all is lovely.\nThe world is worth living; the future holds promise.',
       cardFontLabel: 'Font',
       cardFontDefault: 'Default',
@@ -1298,8 +1302,8 @@ const I18N = (() => {
       exportFail: 'Export failed: ',
       getExportFail: 'Failed to get export data',
       backupSaved: 'Backup file ({0}) saved to your downloads. Find it and attach it to the email manually.',
-      mailSubject: 'Tab AI data backup',
-      mailBody: 'Tab AI backup file ({0}) has been downloaded. Please attach it to the email manually.',
+      mailSubject: 'TabU AI data backup',
+      mailBody: 'TabU AI backup file ({0}) has been downloaded. Please attach it to the email manually.',
       opFail: 'Operation failed: ',
       emptyBookmarks: 'No bookmarks',
       open: 'Open',
@@ -1464,18 +1468,18 @@ const I18N = (() => {
       dataMail: 'Email',
 
       // ---------- Welcome page (welcome.html) ----------
-      welcomeTitle: 'Welcome to Tab AI',
+      welcomeTitle: 'Welcome to TabU AI',
       welcomeRed: 'Red · Daily Tools',
       welcomeRedList: 'Read · Translate · AI · Snapshot · Search',
       welcomeBlue: 'Blue · Archive',
       welcomeBlueList: 'Backup · Auto-snapshot · Settings · Data',
       welcomeInstalled: '✓ Installed! Get started in <strong>3 steps</strong>',
-      welcomeSub: 'Tab AI is a smart tab manager for your tabs, snapshots, bookmarks &amp; history.',
+      welcomeSub: 'TabU AI is a smart tab manager for your tabs, snapshots, bookmarks &amp; history.',
       welcomeStart: '▶ Start Tour',
       welcomePinTitle: '📌 Pin to Toolbar',
-      welcomePinSub: 'Pin Tab AI to the browser toolbar to open the side panel anytime',
+      welcomePinSub: 'Pin TabU AI to the browser toolbar to open the side panel anytime',
       welcomePinStep1: 'Click the <strong>puzzle icon</strong> in the top-right corner (extensions button)',
-      welcomePinStep2: 'Find <strong>Tab AI Browser Manager</strong> in the list',
+      welcomePinStep2: 'Find <strong>TabU AI</strong> in the list',
       welcomePinStep3: 'Click the <span class="hl">📌 pin</span> next to it to pin it to the toolbar',
       welcomePinHere: 'Click here',
       welcomeBack: '◀ Back',
@@ -1494,7 +1498,7 @@ const I18N = (() => {
       welcomePairHint: 'Click the toolbar icon to open the side panel (red layer by default) · Shortcut <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>',
       welcomeNextStart: 'Next: Start Using ▶',
       welcomeReadyTitle: 'You’re All Set!',
-      welcomeReadySub: 'Tab AI is ready — start managing your tabs efficiently',
+      welcomeReadySub: 'TabU AI is ready — start managing your tabs efficiently',
       welcomeFeatSnapshot: 'One-click snapshot',
       welcomeFeatDedup: 'Deduplicate tabs',
       welcomeFeatSearch: 'Global search',
@@ -1505,11 +1509,11 @@ const I18N = (() => {
       welcomeDocs: '📄 Docs',
       welcomeFeedback: '💬 Feedback',
       welcomePrivacy: '💾 All data stays local — nothing is uploaded to any server',
-      welcomeFooter: 'Tab AI Browser Manager · Smart tab manager',
+      welcomeFooter: 'TabU AI · Smart tab manager',
 
       // ---------- Uninstall survey (uninstall.html) ----------
-      uninstallTitle: 'Really leaving Tab AI?',
-      uninstallRetentionH1: 'Really leaving Tab AI?',
+      uninstallTitle: 'Really leaving TabU AI?',
+      uninstallRetentionH1: 'Really leaving TabU AI?',
       uninstallSub: 'Before you go, could you tell us your thoughts? You’re always welcome back!',
       uninstallFreeTip: '💡 Core features are all <strong>free</strong>: one-click snapshot · dedupe · global search · bookmark/history versions · read/translate',
       uninstallReinstall: '💡 I want to reinstall',
@@ -1528,13 +1532,13 @@ const I18N = (() => {
       uninstallFeedbackPlaceholder: 'Your suggestions will help us do better…',
       uninstallTip: '💾 All data stays local · Feedback is anonymous',
       uninstallSubmit: '📮 Send Feedback',
-      uninstallFooter: 'Tab AI Browser Manager · Thanks for using Tab AI, goodbye 👋',
+      uninstallFooter: 'TabU AI · Thanks for using TabU AI, goodbye 👋',
       uninstallReinstallDone: 'Looking forward to seeing you again! 💛',
-      uninstallConfirmProceed: 'Are you sure you want to stop using Tab AI?',
+      uninstallConfirmProceed: 'Are you sure you want to stop using TabU AI?',
       uninstallSubmitOk: '✅ Got your feedback — thank you!',
       uninstallSubmitMailOk: '✅ A feedback email has been opened for you — just send it',
       uninstallSubmitFail: '❌ Submit failed: {0} (retry, or send an email directly)',
-      uninstallMailSubject: 'Tab AI uninstall feedback',
+      uninstallMailSubject: 'TabU AI uninstall feedback',
       uninstallMailReason: 'Reason: ',
       uninstallMailNoReason: 'Not provided',
       uninstallMailFeedback: 'Feedback: ',

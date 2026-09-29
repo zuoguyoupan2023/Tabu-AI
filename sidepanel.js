@@ -135,7 +135,7 @@ async function mailExport() {
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const dateStr = new Date().toISOString().slice(0, 10);
-    const fileName = `Tab AI备份_${dateStr}.json`;
+    const fileName = `TabU AI备份_${dateStr}.json`;
     const link = document.createElement('a');
     link.href = url;
     link.download = fileName;
@@ -516,12 +516,70 @@ function applyVoiceFilter() {
   if (select.options.length > 0) select.selectedIndex = 0;
 }
 
+// ===== 思维链（思考内容）处理 =====
+// 已知思考标题行：DeepSeek「已深度思考…」/ Kimi「思考过程」/ ChatGPT「Thought for…」/ API 思考标注等
+const THINKING_LINE_RE = /^\s*(?:已深度思考.*|深度思考.*|思考过程.*|思考中.*|推理过程.*|已思考.*|thought for.*|thinking\s*(?:…|\.\.\.)?|reasoning\s*(?:…|\.\.\.)?)$/i;
+
+// 分离思考标题行与正文（尽力而为）：站点提取阶段（askInSite）已尽量扣除思维链 DOM，
+// 这里兜底剥离漏网的标题行。返回 { thinking, body }，thinking 为空串表示没有识别到思考内容。
+function splitThinkingText(text) {
+  const lines = String(text || '').split('\n');
+  const thinkLines = [];
+  let i = 0;
+  while (i < lines.length && THINKING_LINE_RE.test(lines[i])) { thinkLines.push(lines[i].trim()); i++; }
+  const rest = lines.slice(i).join('\n').replace(/^\s*\n+/, '');
+  return { thinking: thinkLines.join('\n'), body: rest || String(text || '') };
+}
+
+// 朗读用：默认剥掉思考标题行（设置「朗读包含思考内容」开启时跳过剥离，由调用方决定是否拼入 reasoning）
+function stripThinkingForTts(text) {
+  return splitThinkingText(text).body;
+}
+
+// ===== Markdown 轻量渲染（无依赖）=====
+// 支持：代码块 ```、行内代码 `x`、标题 #~####、粗体 **x**、斜体 *x*、无序/有序列表、段落换行。
+// 思考标题行渲染为灰色（.md-think）；所有内容先 escapeHtml 再转换，安全。
+function renderMarkdown(src) {
+  const lines = escapeHtml(String(src || '')).split('\n');
+  const out = [];
+  let inCode = false, codeBuf = [], listOpen = null;
+  const closeList = () => { if (listOpen) { out.push('</' + listOpen + '>'); listOpen = null; } };
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  for (const raw of lines) {
+    const t = raw.trim();
+    if (t.startsWith('```')) {
+      if (inCode) { out.push('<pre><code>' + codeBuf.join('\n') + '</code></pre>'); codeBuf = []; inCode = false; }
+      else { closeList(); inCode = true; }
+      continue;
+    }
+    if (inCode) { codeBuf.push(raw); continue; }
+    if (!t) { closeList(); continue; }
+    if (THINKING_LINE_RE.test(raw)) { closeList(); out.push('<div class="md-think">' + inline(t) + '</div>'); continue; }
+    const h = t.match(/^(#{1,4})\s+(.*)$/);
+    if (h) { closeList(); out.push('<div class="md-h" data-level="' + h[1].length + '">' + inline(h[2]) + '</div>'); continue; }
+    const ul = t.match(/^[-*•]\s+(.*)$/);
+    if (ul) { if (listOpen !== 'ul') { closeList(); out.push('<ul>'); listOpen = 'ul'; } out.push('<li>' + inline(ul[1]) + '</li>'); continue; }
+    const ol = t.match(/^\d+[.、)]\s+(.*)$/);
+    if (ol) { if (listOpen !== 'ol') { closeList(); out.push('<ol>'); listOpen = 'ol'; } out.push('<li>' + inline(ol[1]) + '</li>'); continue; }
+    closeList();
+    out.push('<p>' + inline(t) + '</p>');
+  }
+  if (inCode) out.push('<pre><code>' + codeBuf.join('\n') + '</code></pre>');
+  closeList();
+  return out.join('');
+}
+
 function doSpeak(text, statusEl, triggerBtn, forceSystem) {
   if (!text || !text.trim()) {
     showStatus(I18N.t('noTextToSpeak'), 'info');
     if (statusEl) statusEl.textContent = I18N.t('noText');
     return;
   }
+  // 思考内容默认不朗读：剥掉思维链（站点提取残留的思考块/标题行）；设置开启时保留
+  if (!currentVoiceConfig.ttsReadThinking) text = stripThinkingForTts(text);
   // 本地朗读引擎分流：Kokoro / Qwen3 走本地服务 /speak（fetch + AudioContext 播放），否则系统 chrome.tts
   // forceSystem=true（如语音工作台自动朗读）→ 固定用系统 TTS，即时出声，不受本地引擎慢首帧影响
   // 统一来源「自动」时按可达性解析；否则沿用显式引擎
@@ -1106,7 +1164,7 @@ function updateCardPreview() {
   if (fitEl) {
     fitEl.style.transform = 'translate(' + posX + 'px,' + posY + 'px)';
   }
-  // 标题「Tab AI 摘录卡片」字号随卡片宽度联动（与 card.js titleSize 同公式，clamp 9~20）
+  // 标题「TabU AI 摘录卡片」字号随卡片宽度联动（与 card.js titleSize 同公式，clamp 9~20）
   const titleEl = cardEl.querySelector('.ec-title');
   if (titleEl) {
     titleEl.style.fontSize = Math.max(9, Math.min(20, Math.round(W / 62))) + 'px';
@@ -1663,7 +1721,7 @@ async function injectRun(prompt) {
   execute({ action: 'inject', text: prompt, options: { site: injectSite() } })
     .then((out) => {
       if (out.ok) {
-        if (resultEl) resultEl.textContent = out.result.text;
+        if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(out.result.text) + '</div>';
         if (copyBtn) copyBtn.style.display = 'inline-block';
         if (statusEl) statusEl.textContent = I18N.t('injectDone');
         showStatus(I18N.t('injectSuccess'), 'success');
@@ -1736,7 +1794,7 @@ async function injectRunApi(prompt) {
     }
     const answer = (r && r.answer) || acc;
     if (reasoningEl) reasoningEl.classList.add('hidden');
-    if (resultEl) resultEl.textContent = answer;
+    if (resultEl) resultEl.innerHTML = '<div class="md-body">' + renderMarkdown(answer) + '</div>';
     if (copyBtn) copyBtn.style.display = 'inline-block';
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
@@ -2039,7 +2097,7 @@ function toggleAiAllowAny() {
 // ASR 后端：浏览器内置（Web Speech API）/ 微软 Azure（REST）/ OpenAI Whisper（兼容服务）/ 阿里云（DashScope）/ 本地服务（本地部署 HTTP）。
 // browser 后端：Chrome 走 Google 云（中国大陆网络不可达，见 browserAsrHint），Edge 走微软 Azure（国内外可用）。
 const ASR_BACKEND_IDS = ['browser', 'azure', 'openai', 'aliyun', 'local'];
-const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice', 'cloudTtsBase', 'cloudTtsKey', 'cloudTtsModel', 'cloudTtsVoice', 'ttsProvider', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'cosyTtsKey', 'cosyTtsModel', 'cosyTtsVoice', 'voiceCircleForceSystem'];
+const ASR_STORAGE_KEYS = ['voiceAzureKey', 'voiceAzureRegion', 'voiceOpenaiKey', 'voiceOpenaiBase', 'voiceAliyunKey', 'voiceLocalServer', 'asrBackend', 'asrMicDeviceId', 'ttsEngine', 'ttsLocalSid', 'ttsLocalVoice', 'cloudTtsBase', 'cloudTtsKey', 'cloudTtsModel', 'cloudTtsVoice', 'ttsProvider', 'azureTtsKey', 'azureTtsRegion', 'azureTtsVoice', 'cosyTtsKey', 'cosyTtsModel', 'cosyTtsVoice', 'voiceCircleForceSystem', 'ttsReadThinking'];
 
 // 本地 TTS 引擎（本地模型，朗读面板显示「音色」行）
 const LOCAL_TTS_ENGINES = ['kokoro', 'qwen3'];
@@ -2103,7 +2161,8 @@ let currentVoiceConfig = {
   cosyTtsKey: '',         // 🔵 阿里云 CosyVoice（独立协议）
   cosyTtsModel: 'cosyvoice-v1',
   cosyTtsVoice: 'longxiaochun',
-  voiceCircleForceSystem: false  // 工作台朗读：true=固定系统 TTS（即时），false=跟随朗读引擎
+  voiceCircleForceSystem: false,  // 工作台朗读：true=固定系统 TTS（即时），false=跟随朗读引擎
+  ttsReadThinking: false          // 朗读是否包含 AI 思考内容（默认只读正文）
 };
 let currentAsrBackend = 'browser';
 
@@ -2133,7 +2192,8 @@ async function loadVoiceConfig() {
     cosyTtsKey: String(r.cosyTtsKey || '').trim(),
     cosyTtsModel: String(r.cosyTtsModel || 'cosyvoice-v1').trim(),
     cosyTtsVoice: String(r.cosyTtsVoice || 'longxiaochun').trim(),
-    voiceCircleForceSystem: !!r.voiceCircleForceSystem
+    voiceCircleForceSystem: !!r.voiceCircleForceSystem,
+    ttsReadThinking: !!r.ttsReadThinking
   };
   const key = voiceField('voiceAzureKey'); if (key) key.value = currentVoiceConfig.voiceAzureKey;
   const reg = voiceField('voiceAzureRegion'); if (reg) reg.value = currentVoiceConfig.voiceAzureRegion;
@@ -2154,6 +2214,7 @@ async function loadVoiceConfig() {
   const csm = voiceField('cosyTtsModel'); if (csm) csm.value = currentVoiceConfig.cosyTtsModel;
   const csv = voiceField('cosyTtsVoice'); if (csv) csv.value = currentVoiceConfig.cosyTtsVoice;
   const cfs = voiceField('voiceCircleForceSystem'); if (cfs) cfs.checked = currentVoiceConfig.voiceCircleForceSystem;
+  const trt = voiceField('ttsReadThinking'); if (trt) trt.checked = currentVoiceConfig.ttsReadThinking;
   currentAsrBackend = ASR_BACKEND_IDS.includes(r.asrBackend) ? r.asrBackend : 'browser';
   syncAsrBackendUi();
   syncTtsEngineUi();
@@ -2181,7 +2242,8 @@ function collectVoiceConfig() {
     cosyTtsKey: (voiceField('cosyTtsKey') && voiceField('cosyTtsKey').value || '').trim(),
     cosyTtsModel: (voiceField('cosyTtsModel') && voiceField('cosyTtsModel').value || 'cosyvoice-v1').trim(),
     cosyTtsVoice: (voiceField('cosyTtsVoice') && voiceField('cosyTtsVoice').value || 'longxiaochun').trim(),
-    voiceCircleForceSystem: !!(voiceField('voiceCircleForceSystem') && voiceField('voiceCircleForceSystem').checked)
+    voiceCircleForceSystem: !!(voiceField('voiceCircleForceSystem') && voiceField('voiceCircleForceSystem').checked),
+    ttsReadThinking: !!(voiceField('ttsReadThinking') && voiceField('ttsReadThinking').checked)
   };
 }
 
@@ -2201,6 +2263,7 @@ async function saveTtsConfig() {
     cosyTtsModel: (voiceField('cosyTtsModel') && voiceField('cosyTtsModel').value || 'cosyvoice-v1').trim(),
     cosyTtsVoice: (voiceField('cosyTtsVoice') && voiceField('cosyTtsVoice').value || 'longxiaochun').trim(),
     voiceCircleForceSystem: !!(voiceField('voiceCircleForceSystem') && voiceField('voiceCircleForceSystem').checked),
+    ttsReadThinking: !!(voiceField('ttsReadThinking') && voiceField('ttsReadThinking').checked),
     ttsEngine: c.ttsEngine,
     ttsLocalSid: c.ttsLocalSid,
     ttsLocalVoice: c.ttsLocalVoice
@@ -3232,17 +3295,26 @@ async function runVoiceCirclePipeline(text) {
     setVoiceCircleStatus('💭 ' + I18N.t('voiceCircleThinking'));
     const mode = await getEffectiveAiMode();
     const tLlm0 = performance.now();
-    const answer = await voiceChatAskText(text, mode);
+    let reasoningAcc = '';
+    const answer = await voiceChatAskText(text, mode, {
+      onReasoning: (t) => {
+        reasoningAcc += t;
+        setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
+      }
+    });
     const tLlm = performance.now() - tLlm0;
-    renderVoiceOutput(null, answer);
+    renderVoiceOutput(null, answer, reasoningAcc.trim() || null);
     logDebug('voice#' + round, 'LLM ' + tLlm.toFixed(0) + 'ms（渠道 ' + mode + '）→ ' + (answer ? String(answer).slice(0, 80) : '(无/在站点)'));
 
     // ③ 朗读（文本输出 → 发起朗读的间隔；首帧延迟见 [tts] 日志）
-    // inject 渠道的回答现在也会回传 → 有答案就朗读；无答案（真注入失败/站点无文本）才落到底部提示
+    // 思考内容默认不朗读；设置「朗读包含思考内容」开启时先读思考再读正文。
+    // inject 渠道的回答现在也会回传 → 有答案就朗读；无答案才落到底部提示
     if (answer) {
+      const reasoning = reasoningAcc.trim();
+      const spoken = (currentVoiceConfig.ttsReadThinking && reasoning) ? reasoning + '\n\n' + answer : answer;
       const tSpk0 = performance.now();
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
-      doSpeak(answer, document.getElementById('voiceCircleStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
+      doSpeak(spoken, document.getElementById('voiceCircleStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
       logDebug('voice#' + round, '输出→朗读发起 ' + (performance.now() - tSpk0).toFixed(0) + 'ms');
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
@@ -3290,13 +3362,15 @@ async function toggleVoiceCircleBrowser() {
   }
 }
 
-// 按渠道文本问答：api → askApiStream；inject → 页面注入（回答在站点）；local → /chat
-async function voiceChatAskText(text, mode) {
+// 按渠道文本问答：api → askApiStream；inject → 页面注入；local → /chat
+// opts.onReasoning(t)：API 渠道的思考增量回调（供 UI 灰色展示；朗读默认不含思考内容）
+async function voiceChatAskText(text, mode, opts = {}) {
   if (mode === 'api') {
     if (!currentAiConfig.aiBaseUrl) throw new Error(I18N.t('aiBackendApiNoConfig'));
     let acc = '';
     await TABU_CAPS.askApiStream(text, currentAiConfig, [], {
-      onDelta: (t) => { acc += t; }
+      onDelta: (t) => { acc += t; },
+      onReasoning: (t) => { if (opts.onReasoning) opts.onReasoning(t); }
     });
     return acc;
   }
@@ -3317,15 +3391,16 @@ async function voiceChatAskText(text, mode) {
   return data.text || '';
 }
 
-// 渲染到输出栏（追加 识别 + 回答）
-function renderVoiceOutput(recognized, answer) {
+// 渲染到输出栏（追加 识别 + 思考(灰) + 回答，回答走 Markdown 渲染）
+function renderVoiceOutput(recognized, answer, reasoning) {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
   const empty = document.getElementById('voiceOutputEmpty');
   if (empty) empty.remove();
   let html = '';
+  if (reasoning) html += '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(reasoning) + '</div>';
   if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(I18N.t('chatRecognized')) + '</b> ' + escapeHtml(recognized) + '</div>';
-  if (answer) html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b> ' + escapeHtml(answer) + '</div>';
+  if (answer) html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
   if (html) body.innerHTML += html;
 }
 
@@ -3475,14 +3550,14 @@ async function onChatRecordingDone() {
   }
 }
 
-// 渲染识别文本 + LLM 回答
+// 渲染识别文本 + LLM 回答（回答走 Markdown 渲染；思维链标题行自动灰色）
 function renderChatResult(recognized, answer) {
   const box = document.getElementById('chatResult');
   if (box) {
     box.classList.remove('hidden');
     let html = '';
     if (recognized) html += '<div class="chat-msg chat-user"><b>' + I18N.t('chatRecognized') + '</b> ' + escapeHtml(recognized) + '</div>';
-    if (answer) html += '<div class="chat-msg chat-bot"><b>' + I18N.t('chatAnswer') + '</b> ' + escapeHtml(answer) + '</div>';
+    if (answer) html += '<div class="chat-msg chat-bot"><b>' + I18N.t('chatAnswer') + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
     box.innerHTML = html;
   }
   const speakBtn = document.getElementById('chatSpeakAnswer');
@@ -4143,7 +4218,7 @@ async function importDataFromFile(file) {
 
 // ========== 初始化 ==========
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('Tab AI sidepanel loaded');
+  console.log('TabU AI sidepanel loaded');
   const yearEl = document.getElementById('year');
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 

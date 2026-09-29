@@ -188,10 +188,10 @@ async function autoCreateSnapshot() {
     const snapshot = await captureSnapshotData();
     if (snapshot) {
       await setSetting('lastAutoSnapshotAt', now); // 记录自动保存时间，供补存判断 / 蓝区展示
-      console.log(`[Tab AI] 自动存档完成: ${snapshot.totalTabs} 个标签页`);
+      console.log(`[TabU AI] 自动存档完成: ${snapshot.totalTabs} 个标签页`);
     }
   } catch (e) {
-    console.warn('[Tab AI] 自动存档失败:', e);
+    console.warn('[TabU AI] 自动存档失败:', e);
   }
 }
 
@@ -498,7 +498,7 @@ async function setupAutoSnapshotAlarm() {
     const periodMin = sched.hours * 60;
     chrome.alarms.create(AUTO_SNAPSHOT_ALARM, { periodInMinutes: periodMin, delayInMinutes: periodMin });
   }
-  console.log(`[Tab AI] 自动存档已设置：${sched.mode === 'daily' ? '每天 ' + sched.at : sched.mode === 'interval' ? '每 ' + sched.hours + ' 小时' : '关闭'}`);
+  console.log(`[TabU AI] 自动存档已设置：${sched.mode === 'daily' ? '每天 ' + sched.at : sched.mode === 'interval' ? '每 ' + sched.hours + ' 小时' : '关闭'}`);
   return { success: true, ...sched };
 }
 
@@ -524,10 +524,10 @@ async function catchUpAutoSnapshot() {
     }
     if (need) {
       await autoCreateSnapshot();
-      console.log('[Tab AI] 打开浏览器时检测到错过自动保存，已补存');
+      console.log('[TabU AI] 打开浏览器时检测到错过自动保存，已补存');
     }
   } catch (e) {
-    console.warn('[Tab AI] 补存检查失败:', e);
+    console.warn('[TabU AI] 补存检查失败:', e);
   }
 }
 
@@ -548,7 +548,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
       `?extension_name=tabu&extension_id=${chrome.runtime.id}&device_id=${deviceId}`
     );
   } catch (e) {
-    console.warn('[Tab AI] 卸载页 URL 尚未配置，跳过 setUninstallURL:', e.message);
+    console.warn('[TabU AI] 卸载页 URL 尚未配置，跳过 setUninstallURL:', e.message);
   }
   // ③ 首次安装时打开欢迎页（带归因 + 版本参数）
   if (details.reason === 'install') {
@@ -689,9 +689,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
-console.log('🧩 Tab AI Browser Manager v' + chrome.runtime.getManifest().version + ' 已启动');
+console.log('🧩 TabU AI v' + chrome.runtime.getManifest().version + ' 已启动');
 
-// ========== 终端桥接客户端（Tab AI Bridge） ==========
+// ========== 终端桥接客户端（TabU AI Bridge） ==========
 // 连接本地 bridge/server.js（ws://127.0.0.1:9527）。
 // 桥接服务未启动或未配置 Token 时静默重连，不影响其他功能。
 const TABU_BRIDGE_WS_URL = 'ws://127.0.0.1:9527';
@@ -716,18 +716,18 @@ function connectBridge() {
       let msg;
       try { msg = JSON.parse(String(ev.data)); } catch (e) { return; }
       if (msg.type === 'auth_ok') {
-        console.log('[Tab AI Bridge] 已连接本地桥接服务');
+        console.log('[TabU AI Bridge] 已连接本地桥接服务');
         sendBridgeOrigins(); // 同步设置页里用户添加的网页来源白名单
       } else if (msg.type === 'bridge_info') {
         // 服务端告知实际 HTTP 端口（默认 11434 被占用时会自动顺延），供设置页显示正确地址
         if (msg.httpPort) chrome.storage.local.set({ bridgeHttpPort: msg.httpPort });
       } else if (msg.type === 'auth_error') {
-        console.warn('[Tab AI Bridge] Token 认证失败，请检查选项页中的桥接 Token');
+        console.warn('[TabU AI Bridge] Token 认证失败，请检查选项页中的桥接 Token');
         try { bridgeSocket.close(); } catch (e) {}
       } else if (msg.type === 'ask') {
-        console.log('[Tab AI Bridge] 收到 ask，问题:', msg.question);
+        console.log('[TabU AI Bridge] 收到 ask，问题:', msg.question);
         const result = await handleBridgeAsk(msg.question, { requestId: msg.requestId, stream: !!msg.stream });
-        console.log('[Tab AI Bridge] ask 结果:', JSON.stringify(result).slice(0, 200));
+        console.log('[TabU AI Bridge] ask 结果:', JSON.stringify(result).slice(0, 200));
         if (bridgeSocket && bridgeSocket.readyState === 1) {
           try { bridgeSocket.send(JSON.stringify({ type: 'ask_result', requestId: msg.requestId, result })); } catch (e) {}
         }
@@ -1015,7 +1015,7 @@ let injectLockSince = 0;   // 锁获取时间：超 3 分钟视为异常残留�
 let injectCancelFlag = false; // 用户请求停止当前注入（injectStop / 圆球再点一次）
 async function injectAskWithSave(site, prompt) {
   if (injectLock && Date.now() - injectLockSince > 180000) {
-    console.warn('[Tab AI] 注入锁超过 3 分钟未释放（异常残留），强制解锁');
+    console.warn('[TabU AI] 注入锁超过 3 分钟未释放（异常残留），强制解锁');
     injectLock = false;
   }
   if (injectLock) return { error: '上一条注入还在处理中，请稍候，或点「⏹ 停止」取消它' };
@@ -1278,14 +1278,28 @@ function askInSite(question, adapter, requestId) {
         selectorPool = selectorPool.concat(GENERIC_REPLY_SELECTORS.filter(s => !selectorPool.includes(s)));
       }
       const newElements = list.slice(before.length);
+      // 尽力扣除思维链子块：DeepSeek/Kimi 的折叠思考区、思考摘要等有独立容器时整段去掉，
+      // 避免思考内容混进回答（侧边栏显示/朗读/终端桥接都受益）
+      const pickText = (el) => {
+        let t = (el.innerText || '').trim();
+        if (!t) return '';
+        try {
+          const thinkEl = el.querySelector('[class*="think" i], [class*="reason" i], [class*="thought" i], details');
+          if (thinkEl) {
+            const tt = (thinkEl.innerText || '').trim();
+            if (tt && tt.length < t.length) t = t.replace(tt, '').trim();
+          }
+        } catch (e) {}
+        return t;
+      };
       let text = '';
       if (newElements.length > 0) {
         // 情况 b：有新增元素，拼接所有新增元素的文本；过滤与问题原文相同的元素
         //（通用兜底选择器可能连用户气泡一起匹配到）
-        text = newElements.map(el => (el.innerText || '').trim()).filter(t => t && t !== question).join('\n');
+        text = newElements.map(pickText).filter(t => t && t !== question).join('\n');
       } else if (list.length > 0) {
         // 情况 a：元素被复用，读最后一个元素的 innerText
-        text = (list[list.length - 1].innerText || '').trim();
+        text = pickText(list[list.length - 1]);
       }
       if (!text) return;
       const isNew = list.length > before.length || (text && text !== baselineLast);

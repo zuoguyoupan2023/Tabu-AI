@@ -1,4 +1,4 @@
-# Tab AI Browser Manager
+# TabU AI
 
 > 智能标签页管家 · Chrome 扩展 (MV3)
 
@@ -27,7 +27,7 @@
 | 定时保存快照 | 自动定期保存标签状态 |
 | 设置 / 统计 / 数据管理 | 版本保留数配置、数据清理 |
 
-### 🔌 本地 AI 服务 (Tab AI Bridge)
+### 🔌 本地 AI 服务 (TabU AI Bridge)
 
 把浏览器里已登录的免费 AI 网页（ChatGPT 等）变成一个**本地 AI 服务端口**——类似 Ollama 的 `11434`，但后端是网页版 AI，不花 API 钱。终端工具和桌面/网页应用都能接：
 

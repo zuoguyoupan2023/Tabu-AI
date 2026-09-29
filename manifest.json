@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Tab AI Browser Manager",
-  "short_name": "Tab AI",
+  "name": "TabU AI",
+  "short_name": "TabU AI",
   "version": "0.5.0",
   "description": "智能标签页管家 | 一键快照 · 版本回溯 · 全局搜索",
   "permissions": [
@@ -22,7 +22,7 @@
     "https://api.mymemory.translated.net/*"
   ],
   "action": {
-    "default_title": "Tab AI"
+    "default_title": "TabU AI"
   },
   "commands": {
     "_execute_action": {
@@ -30,7 +30,7 @@
         "default": "Ctrl+Shift+S",
         "mac": "Command+Shift+S"
       },
-      "description": "打开/关闭 Tab AI 侧边栏"
+      "description": "打开/关闭 TabU AI 侧边栏"
     }
   },
   "side_panel": {

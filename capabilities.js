@@ -1,4 +1,4 @@
-// ========== Tab AI 底层共享能力层（capabilities） ==========
+// ========== TabU AI 底层共享能力层（capabilities） ==========
 // 内容能力管线：文本来源（Sources）→ 文本处理（Processors）→ 输出动作（Actions）。
 // 浏览器动作（TAB_ACTIONS）与数据动作（DATA_ACTIONS）走平行的注册表，调用方式一致。
 // 红蓝两层 + 当前侧边栏统一通过 execute() / runAction() 调用；能力只在此实现一次。

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tab AI 浏览器管理器</title>
+  <title>TabU AI 浏览器管理器</title>
   <link rel="stylesheet" href="sidepanel.css" />
   <style>
     #toast {
@@ -30,9 +30,9 @@
 </head>
 <body>
   <div class="app" id="app" data-layer="red">
-    <!-- ===== 头部：Tab AI + 红蓝胶囊（无痕/导出为 Tabu 版专属，已移除） ===== -->
+    <!-- ===== 头部：TabU AI + 红蓝胶囊（无痕/导出为 Tabu 版专属，已移除） ===== -->
     <header class="app-header">
-      <h1>Tab AI</h1>
+      <h1>TabU AI</h1>
       <div class="header-right">
         <button id="btnLang" class="lang-btn" data-i18n-title="switchToEn" title="切换语言">EN</button>
         <div class="layer-switch">
@@ -317,7 +317,7 @@
                     <div class="ec-text" id="cardText">生活明朗，万物可爱。
 人间值得，未来可期。</div>
                   </div>
-                  <div class="ec-title" data-i18n="cardTitle">Tab AI 摘录卡片</div>
+                  <div class="ec-title" data-i18n="cardTitle">TabU AI 摘录卡片</div>
                 </div>
               </div>
               <div class="card-controls">
@@ -595,6 +595,10 @@
                 <input type="checkbox" id="voiceCircleForceSystem" style="accent-color:var(--accent);width:auto;">
                 <span data-i18n="voiceCircleForceSystemLabel" style="opacity:.85;font-size:11px;">固定系统 TTS（即时，忽略朗读引擎）</span>
               </label>
+              <label class="cfg-row">
+                <input type="checkbox" id="ttsReadThinking" style="accent-color:var(--accent);width:auto;">
+                <span data-i18n="ttsReadThinkingLabel" style="opacity:.85;font-size:11px;">朗读时包含 AI 思考内容（默认只读正文）</span>
+              </label>
               <div class="ai-config-actions">
                 <button type="button" class="mini-btn" id="ttsLocalTestBtn" data-i18n="ttsLocalTestBtn">测试朗读</button>
                 <button type="button" class="mini-btn" id="ttsSaveBtn" data-i18n="saveBtn" style="flex:none;">保存</button>
@@ -721,7 +725,7 @@
         <section class="sec">
           <div class="sec-title" data-i18n="secAbout">ℹ️ 关于</div>
           <div class="card">
-            <div class="card-title">Tab AI Browser Manager<span class="about-ver">v0.5.0</span></div>
+            <div class="card-title">TabU AI<span class="about-ver">v0.5.0</span></div>
             <div class="hint" data-i18n="aboutDesc">智能标签页管家 · 一键快照 · 版本回溯 · 全局搜索</div>
             <div class="hint" data-i18n="aboutPrivacy">所有数据仅保存在本地，不会上传。</div>
           </div>
