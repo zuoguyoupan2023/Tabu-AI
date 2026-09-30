@@ -535,6 +535,18 @@ async function applyVoiceFilter() {
     }
   } catch (e) {}
   if (select.options.length > 0 && !select.value) select.selectedIndex = 0;
+  mirrorVoiceToBlue(select, langFilter);
+}
+
+// 蓝区「🗣 TTS 朗读」卡的系统音色选择：镜像红区朗读面板（双向同步）
+function mirrorVoiceToBlue(redVoiceSel, redLangSel) {
+  const blueLang = document.getElementById('ttsLangFilterBlue');
+  const blueVoice = document.getElementById('ttsVoiceBlue');
+  if (!blueLang || !blueVoice || !redVoiceSel || !redLangSel) return;
+  blueLang.innerHTML = redLangSel.innerHTML;
+  blueLang.value = redLangSel.value;
+  blueVoice.innerHTML = redVoiceSel.innerHTML;
+  blueVoice.value = redVoiceSel.value;
 }
 
 // ===== 思维链（思考内容）处理 =====
@@ -4227,87 +4239,23 @@ function switchCapTab(name) {
   document.querySelectorAll('[data-captab-panel]').forEach(p => p.classList.toggle('hidden', p.getAttribute('data-captab-panel') !== name));
 }
 
-// 存储键：capSourceTts / capSourceLlm / capSourceAsr / capAutoFallback
-//  - 来源：'auto'（按可达性回退）| 'system'/'local'/'cloud'/'inject'
-//  - 选择非 auto 时，同步到底层引擎/后端；auto 仅作偏好，运行时按可达性决定。
-async function loadCapSource() {
-  const r = await chrome.storage.local.get(['capSourceTts', 'capSourceLlm', 'capSourceAsr', 'capAutoFallback']);
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-  set('capSourceTts', r.capSourceTts || 'auto');
-  set('capSourceLlm', r.capSourceLlm || 'auto');
-  set('capSourceAsr', r.capSourceAsr || 'auto');
-  const sw = document.getElementById('capAutoFallbackSwitch');
-  if (sw) sw.classList.toggle('on', !!r.capAutoFallback);
+// 能力自动回退开关（每个能力独立，存 capAutoTts / capAutoAsr / capAutoLlm；
+// 旧全局 capAutoFallback 迁移为三者的初始值）
+async function loadCapabilityAutos() {
+  const r = await chrome.storage.local.get(['capAutoFallback', 'capAutoTts', 'capAutoAsr', 'capAutoLlm']);
+  const legacy = !!r.capAutoFallback;
+  const patch = {};
+  [['capAutoTts', 'capAutoTts'], ['capAutoAsr', 'capAutoAsr'], ['capAutoLlm', 'capAutoLlm']].forEach(([key, id]) => {
+    const v = (key in r) ? !!r[key] : legacy;
+    patch[key] = v;
+    const el = document.getElementById(id);
+    if (el) el.checked = v;
+  });
+  await chrome.storage.local.set(patch).catch(() => {});
 }
-
-function toggleCapAutoFallback() {
-  const sw = document.getElementById('capAutoFallbackSwitch');
-  const on = sw ? sw.classList.toggle('on') : false;
-  chrome.storage.local.set({ capAutoFallback: on });
-  showStatus(I18N.t(on ? 'capAutoFallbackOn' : 'capAutoFallbackOff'), 'success');
-}
-
-async function applyCapSource() {
-  const get = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
-  const tts = get('capSourceTts', 'auto');
-  const llm = get('capSourceLlm', 'auto');
-  const asr = get('capSourceAsr', 'auto');
-  await chrome.storage.local.set({ capSourceTts: tts, capSourceLlm: llm, capSourceAsr: asr });
-
-  // TTS：来源 → 具体引擎
-  if (tts !== 'auto') {
-    const engMap = { system: 'system', local: 'kokoro', cloud: 'cloud' };
-    const eng = engMap[tts] || 'system';
-    await chrome.storage.local.set({ ttsEngine: eng });
-    if (currentVoiceConfig) currentVoiceConfig.ttsEngine = eng;
-    const selBlue = document.getElementById('ttsEngineBlue');
-    if (selBlue) selBlue.value = eng;
-    const sel = document.getElementById('ttsEngine');
-    if (sel) sel.value = eng;
-  }
-  // LLM：来源 → aiMode
-  if (llm !== 'auto') {
-    const modeMap = { local: 'local', inject: 'inject', cloud: 'api' };
-    await setAiMode(modeMap[llm] || 'local');
-  }
-  // ASR：来源 → 后端
-  if (asr !== 'auto') {
-    setAsrBackend(asr === 'local' ? 'local' : 'azure');
-  }
-  showStatus(I18N.t('capSourceSaved'), 'success');
-}
-
-// 探测各来源可达性：本地 Tabu-Local /health、系统 TTS 语音数、云端配置
-async function probeReachability() {
-  const statusEl = document.getElementById('capReachStatus');
-  if (statusEl) statusEl.textContent = I18N.t('capProbeRunning');
-  let localOk = false, ttsDetail = '';
-  const serverUrl = (currentVoiceConfig && currentVoiceConfig.voiceLocalServer) || 'http://127.0.0.1:9528';
-  try {
-    const r = await fetch(serverUrl.replace(/\/+$/, '') + '/health', { signal: AbortSignal.timeout(4000) });
-    if (r.ok) {
-      localOk = true;
-      try {
-        const h = await r.json();
-        const kokoro = h.tts && (h.tts.kokoro === 'reachable' || h.tts.kokoro);
-        const qwen3 = h.tts && (h.tts.qwen3 === 'reachable' || h.tts.qwen3);
-        if (kokoro) ttsDetail += 'Kokoro✓';
-        if (qwen3) ttsDetail += (ttsDetail ? ',' : '') + 'Qwen3✓';
-      } catch (e) {}
-    }
-  } catch (e) {}
-  let sysVoices = 0;
-  try { sysVoices = await new Promise(res => { chrome.tts.getVoices(v => res(v ? v.length : 0)); }); } catch (e) {}
-  const cloudTtsConfigured = !!(currentVoiceConfig && currentVoiceConfig.cloudTtsBase && currentVoiceConfig.cloudTtsKey);
-  const cloudLlmConfigured = !!(currentAiConfig && currentAiConfig.aiBaseUrl);
-  const txt = I18N.t('capReachLocal') + ' ' + (localOk ? '●' : '○') + (ttsDetail ? '·' + ttsDetail : '')
-    + '   ' + I18N.t('capReachSystem') + ' ' + (sysVoices > 0 ? '●' : '○') + '(' + sysVoices + ')'
-    + '   ' + I18N.t('capReachCloud') + ' ' + (cloudTtsConfigured || cloudLlmConfigured ? '●' : '○');
-  if (statusEl) statusEl.textContent = txt;
-}
-
 // ========== 统一来源 · 运行时解析（TTS / ASR / LLM 自动回退） ==========
-// 仅在「来源=auto 且 开启自动回退」时按可达性自动选；否则完全沿用当前显式设置。
+// 每个能力独立的「自动按可达性回退」开关（capAutoTts / capAutoAsr / capAutoLlm，蓝区各详细卡内）；
+// 开关关闭 = 完全沿用当前显式设置。
 let _localReachCache = null; // { ok, at } 短暂缓存本地可达性，避免高频 /health
 async function localReachable(ttlMs = 5000) {
   const now = Date.now();
@@ -4320,20 +4268,18 @@ async function localReachable(ttlMs = 5000) {
 }
 
 async function resolveEffectiveTtsEngine() {
-  const r = await chrome.storage.local.get(['capSourceTts', 'capAutoFallback']);
-  const src = r.capSourceTts || 'auto';
-  const fallback = !!r.capAutoFallback;
-  if (src === 'auto' && fallback) {
+  const r = await chrome.storage.local.get('capAutoTts');
+  if (r.capAutoTts) {
     const reach = await localReachable();
-    return reach ? 'kokoro' : 'system'; // 本地在线→本地 kokoro；否则系统兜底
+    if (reach) return 'kokoro'; // 本地在线 → 本地引擎；离线/失败 → 系统（运行中失败也会自动回退，见 doSpeak）
+    return 'system';
   }
   return (currentVoiceConfig && currentVoiceConfig.ttsEngine) || 'system';
 }
 
 async function resolveEffectiveAsrBackend() {
-  const r = await chrome.storage.local.get(['capSourceAsr', 'capAutoFallback']);
-  const src = r.capSourceAsr || 'auto';
-  if (src === 'auto' && !!r.capAutoFallback) {
+  const r = await chrome.storage.local.get('capAutoAsr');
+  if (r.capAutoAsr) {
     const reach = await localReachable();
     if (reach) return 'local';
   }
@@ -4341,9 +4287,8 @@ async function resolveEffectiveAsrBackend() {
 }
 
 async function resolveEffectiveAiModeForChat() {
-  const r = await chrome.storage.local.get(['capSourceLlm', 'capAutoFallback']);
-  const src = r.capSourceLlm || 'auto';
-  if (src === 'auto' && !!r.capAutoFallback) {
+  const r = await chrome.storage.local.get('capAutoLlm');
+  if (r.capAutoLlm) {
     const reach = await localReachable();
     if (reach) return 'local';
     return (currentAiConfig && currentAiConfig.aiBaseUrl) ? 'api' : 'inject';
@@ -4515,7 +4460,21 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   // 音色选择持久化（重开侧边栏后保持上次选择）
   const voiceSelEl = document.getElementById('ttsVoice');
-  if (voiceSelEl) voiceSelEl.addEventListener('change', () => chrome.storage.local.set({ ttsVoiceSel: voiceSelEl.value }).catch(() => {}));
+  if (voiceSelEl) voiceSelEl.addEventListener('change', () => {
+    chrome.storage.local.set({ ttsVoiceSel: voiceSelEl.value }).catch(() => {});
+    mirrorVoiceToBlue(voiceSelEl, document.getElementById('ttsLangFilter'));
+  });
+  // 蓝区音色选择 → 反向同步红区
+  const blueLang = document.getElementById('ttsLangFilterBlue');
+  const blueVoice = document.getElementById('ttsVoiceBlue');
+  if (blueLang) blueLang.addEventListener('change', () => {
+    const red = document.getElementById('ttsLangFilter');
+    if (red) { red.value = blueLang.value; red.dispatchEvent(new Event('change')); }
+  });
+  if (blueVoice) blueVoice.addEventListener('change', () => {
+    const red = document.getElementById('ttsVoice');
+    if (red) { red.value = blueVoice.value; red.dispatchEvent(new Event('change')); }
+  });
   // OS TTS 引擎常懒加载语音：等 voiceschanged 再补一次列表（首次可能返回空）
   if (chrome.tts && chrome.tts.onVoicesChanged) {
     chrome.tts.onVoicesChanged.addListener(() => { if (allVoices.length === 0) populateVoices(); });
@@ -4979,14 +4938,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnLang = document.getElementById('btnLang');
   if (btnLang) btnLang.addEventListener('click', () => I18N.toggle());
 
-  // ===== 统一能力来源设置区 =====
-  const capAutoFallbackSwitch = document.getElementById('capAutoFallbackSwitch');
-  if (capAutoFallbackSwitch) capAutoFallbackSwitch.addEventListener('click', toggleCapAutoFallback);
-  const capProbeBtn = document.getElementById('capProbeBtn');
-  if (capProbeBtn) capProbeBtn.addEventListener('click', probeReachability);
-  ['capSourceTts', 'capSourceLlm', 'capSourceAsr'].forEach(id => {
+  // ===== 能力自动回退开关（识别/LLM/朗读 三卡内） =====
+  [['capAutoTts', 'capAutoTts'], ['capAutoAsr', 'capAutoAsr'], ['capAutoLlm', 'capAutoLlm']].forEach(([id, key]) => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener('change', applyCapSource);
+    if (el) el.addEventListener('change', () => chrome.storage.local.set({ [key]: !!el.checked }).catch(() => {}));
   });
   // 能力来源维度标签页（识别/LLM/朗读）
   document.querySelectorAll('.cap-tab').forEach(btn => {
@@ -5011,7 +4966,7 @@ function refreshAll() {
     loadVersionSettings().catch(e => console.error(e)),
     loadAiConfig().catch(e => console.error(e)),
     loadVoiceConfig().catch(e => console.error(e)),
-    loadCapSource().catch(e => console.error(e)),
+    loadCapabilityAutos().catch(e => console.error(e)),
     loadAutoSaveSettings().catch(e => console.error(e)),
     initCardFonts().catch(e => console.error(e))
   ]).then(() => { console.log('所有数据加载完成'); });

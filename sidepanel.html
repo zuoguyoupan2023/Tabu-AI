@@ -155,6 +155,7 @@
                 <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilter"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
                 <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoice"></select></label>
               </div>
+              <p class="hint" data-i18n="ttsRedHint">💡 引擎与音色的完整设置在蓝区「🗣 TTS 朗读」；此处为快捷选择，两处修改自动同步。</p>
               <div class="voice-filter-row hidden" id="ttsLocalVoiceRow">
                 <label><span data-i18n="ttsLocalVoiceLabel">音色</span> <select id="ttsLocalVoice"></select></label>
               </div>
@@ -423,46 +424,6 @@
         <section class="sec">
           <div class="sec-title" data-i18n="secSystem">⚙️ 系统 / 设置</div>
           <div class="card">
-            <div class="card-title" data-i18n="capSourceTitle">🎛 能力来源（统一）</div>
-            <div class="ai-config">
-              <label class="cfg-row"><span data-i18n="capAutoFallbackLabel">可达性自动回退</span>
-                <span class="switch" id="capAutoFallbackSwitch" data-i18n-title="capAutoFallbackTitle" title="开启后，各能力维度按来源可达性自动回退"></span>
-              </label>
-              <div class="cfg-row">
-                <span data-i18n="capReachLabel">来源状态</span>
-                <button type="button" class="mini-btn" id="capProbeBtn" data-i18n="capProbe" style="flex:none;">检测可达性</button>
-                <span id="capReachStatus" class="ai-test-status" style="flex:1;margin-left:8px;"></span>
-              </div>
-              <div class="ai-svc-sep" data-i18n="ttsSvcLabel">🗣 TTS 朗读</div>
-              <label class="cfg-row"><span data-i18n="capSourceTtsLabel">朗读来源</span>
-                <select id="capSourceTts" class="row-select" style="flex:1;">
-                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
-                  <option value="system" data-i18n="capSourceSystem">🔊 系统</option>
-                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
-                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
-                </select>
-              </label>
-              <div class="ai-svc-sep" data-i18n="aiSvcLabel">💬 LLM 对话</div>
-              <label class="cfg-row"><span data-i18n="capSourceLlmLabel">对话来源</span>
-                <select id="capSourceLlm" class="row-select" style="flex:1;">
-                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
-                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
-                  <option value="inject" data-i18n="capSourceInject">🌐 页面注入</option>
-                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
-                </select>
-              </label>
-              <div class="ai-svc-sep" data-i18n="asrSvcLabel">🎙 ASR 识别</div>
-              <label class="cfg-row"><span data-i18n="capSourceAsrLabel">识别来源</span>
-                <select id="capSourceAsr" class="row-select" style="flex:1;">
-                  <option value="auto" data-i18n="capSourceAuto">🔄 自动（按可达性回退）</option>
-                  <option value="local" data-i18n="capSourceLocal">💻 本地</option>
-                  <option value="cloud" data-i18n="capSourceCloud">☁️ 云端</option>
-                </select>
-              </label>
-              <div class="hint" data-i18n="capSourceHint">选择后同步下方各维度的具体引擎/后端；「自动」按可达性选择。可点「检测可达性」刷新状态。</div>
-            </div>
-          </div>
-          <div class="card">
             <div class="card-title" data-i18n="statOverview">统计概览</div>
             <div class="stats">
               <div class="stat"><b id="statCurrent">0</b><span data-i18n="statCurrentLabel">当前标签</span></div>
@@ -491,6 +452,7 @@
           <div class="card hidden" data-captab-panel="llm">
             <div class="card-title" data-i18n="aiSvcLabel">💬 LLM 对话</div>
             <div class="ai-config">
+              <label class="cfg-row"><input type="checkbox" id="capAutoLlm" style="accent-color:var(--accent);width:auto;"> <span data-i18n="capAutoLlmRow" style="opacity:.85;font-size:11px;">🔄 自动按可达性回退（本地在线→本地；否则 API 已配置→API；再否则页面注入）</span></label>
               <div class="ai-svc-sep" data-i18n="llmSourceLocalLabel">💻 本地（asr-server）</div>
               <div class="hint" data-i18n="llmLocalHint">本地 LLM 走 asr-server /chat，无需额外配置；服务地址在「🎙 ASR 识别」卡。</div>
               <div class="ai-svc-sep" data-i18n="llmSourceBrowserLabel">🌐 系统级 · 页面注入</div>
@@ -534,6 +496,7 @@
           <div class="card hidden" data-captab-panel="tts">
             <div class="card-title" data-i18n="ttsSvcLabel">🗣 TTS 朗读</div>
             <div class="ai-config">
+              <label class="cfg-row"><input type="checkbox" id="capAutoTts" style="accent-color:var(--accent);width:auto;"> <span data-i18n="capAutoTtsRow" style="opacity:.85;font-size:11px;">🔄 自动按可达性回退（本地在线→本地引擎，否则系统 TTS；朗读运行失败亦自动回退系统）</span></label>
               <div class="ai-svc-sep" data-i18n="ttsEngineSepLabel">🔀 朗读引擎（来源）</div>
               <label class="cfg-row"><span data-i18n="ttsEngineLabel">朗读引擎</span>
                 <select id="ttsEngineBlue">
@@ -551,6 +514,11 @@
               <div class="hint" data-i18n="ttsEngineHint">系统语音 = chrome.tts 即时；本地 = 走本地服务 /speak；云端 = 走云端语音服务（Base URL / Key / 模型 / 音色见下方）。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceSystemLabel">🔊 系统语音</div>
               <div class="hint" data-i18n="ttsSystemHint">chrome.tts 系统朗读，即时零配置，无需本地服务。</div>
+              <div class="voice-filter-row" style="padding:0 4px;">
+                <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilterBlue"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
+                <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoiceBlue"></select></label>
+              </div>
+              <div class="hint" data-i18n="ttsBlueVoiceHint">与红区「🗣 朗读」面板双向同步，两处修改等效。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceLocalLabel">💻 本地</div>
               <div class="hint" data-i18n="ttsLocalHint">kokoro / qwen3 本地模型走 asr-server /speak；服务地址在「🎙 ASR 识别」卡，模型在「🧩 本地模型管理」安装。</div>
               <div class="ai-svc-sep" data-i18n="cloudTtsLabel">☁️ 云端</div>
@@ -622,6 +590,7 @@
           <div class="card" data-captab-panel="asr">
             <div class="card-title" data-i18n="asrSvcLabel">🎙 ASR 识别（STT）</div>
             <div class="ai-config">
+              <label class="cfg-row"><input type="checkbox" id="capAutoAsr" style="accent-color:var(--accent);width:auto;"> <span data-i18n="capAutoAsrRow" style="opacity:.85;font-size:11px;">🔄 自动按可达性回退（本地在线→本地 asr-server，否则用下方所选后端）</span></label>
               <div class="ai-svc-sep" data-i18n="asrBackendSepLabel">🔀 识别后端（来源）</div>
               <label class="cfg-row"><span data-i18n="asrBackendLabel">识别后端</span>
                 <select id="asrBackendBlue" class="row-select" style="flex:1;">
