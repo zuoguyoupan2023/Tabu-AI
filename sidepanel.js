@@ -2054,28 +2054,51 @@ function renderInjectCapBadges() {
   const el = document.getElementById('injectCapBadges');
   if (!el) return;
   const site = injectSite();
-  const declared = AI_SITE_CAPABILITIES[site] || { image: 'ok', file: 'ok' };
-  const cap = { image: declared.image, file: declared.file };
   const probe = (injectCapProbe && injectCapProbe.site === site) ? injectCapProbe : null;
-  if (probe && probe.present) {
-    cap.image = probe.acceptsImage ? 'ok' : 'exp';
-    cap.file = probe.fileInput ? 'ok' : 'exp';
-  }
+  // 未探测到该站点页面 → 直接隐藏（不显示"未探测"占位）
+  if (!probe || !probe.present) { el.innerHTML = ''; return; }
+  const declared = AI_SITE_CAPABILITIES[site] || { image: 'ok', file: 'ok' };
+  const cap = {
+    image: (probe.acceptsImage === undefined) ? declared.image : (probe.acceptsImage ? 'ok' : 'exp'),
+    file: (probe.fileInput === undefined) ? declared.file : (probe.fileInput ? 'ok' : 'exp')
+  };
   const badge = (kind) => {
     const st = cap[kind] === 'ok' ? 'ok' : (cap[kind] === 'exp' ? 'exp' : 'unknown');
-    const title = st === 'ok' ? I18N.t('aiCapOkTitle') : (st === 'exp' ? I18N.t('aiCapExpTitle') : I18N.t('aiCapUnknownTitle'));
-    const label = I18N.t(kind === 'image' ? 'aiCapImage' : 'aiCapFile');
-    return '<span class="cap-badge ' + st + '" title="' + escapeHtml(label + '：' + title) + '">' + CAP_ICON[kind] + '</span>';
+    const label = I18N.t(kind === 'image' ? 'aiCapImageTip' : 'aiCapFileTip');
+    const status = st === 'ok' ? I18N.t('aiCapStatusOk') : (st === 'exp' ? I18N.t('aiCapStatusExp') : I18N.t('aiCapStatusUnknown'));
+    const tip = label + ' · ' + status;
+    return '<span class="cap-badge ' + st + '" data-tip="' + escapeHtml(tip) + '">' + CAP_ICON[kind] + '</span>';
   };
   el.innerHTML = badge('image') + badge('file');
 }
 async function refreshInjectCapBadges() {
-  renderInjectCapBadges(); // 先按静态声明渲染，避免空窗
+  bindCapBadgeTips();
+  renderInjectCapBadges(); // 未探测则清空
   try {
     const site = injectSite();
     const r = await sendMessage('probeSiteCapabilities', { site });
     if (r && !r.error) { injectCapProbe = Object.assign({ site }, r); renderInjectCapBadges(); }
   } catch (e) {}
+}
+// 能力徽章的鼠标悬浮浮窗（自定义，避免原生 title 显示不直观/被裁切）
+let capTipEl = null;
+function showCapTip(target, text) {
+  if (!text) return;
+  if (!capTipEl) { capTipEl = document.createElement('div'); capTipEl.className = 'cap-tip'; document.body.appendChild(capTipEl); }
+  capTipEl.textContent = text;
+  capTipEl.classList.add('show');
+  const r = target.getBoundingClientRect();
+  const w = capTipEl.offsetWidth || 200;
+  capTipEl.style.left = Math.max(6, Math.min(r.left, window.innerWidth - w - 6)) + 'px';
+  capTipEl.style.top = (r.bottom + 6) + 'px';
+}
+function hideCapTip() { if (capTipEl) capTipEl.classList.remove('show'); }
+function bindCapBadgeTips() {
+  const box = document.getElementById('injectCapBadges');
+  if (!box || box.dataset.tipBound) return;
+  box.dataset.tipBound = '1';
+  box.addEventListener('mouseover', (e) => { const b = e.target.closest('.cap-badge'); if (b) showCapTip(b, b.dataset.tip); });
+  box.addEventListener('mouseout', (e) => { if (e.target.closest('.cap-badge')) hideCapTip(); });
 }
 
 // ===== AI 工作台：语音输入（browser 后端，识别文本填入输入框可编辑后再发送） =====
@@ -5305,11 +5328,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (selTgtLang) selTgtLang.addEventListener('change', () => chrome.storage.local.set({ chatTransTarget: selTgtLang.value }).catch(() => {}));
   refreshPageSelection();
   window.addEventListener('focus', refreshPageSelection);
+  window.addEventListener('focus', () => { refreshInjectCapBadges(); });
   // 转写标签页：仅页面含音视频时显示；随标签页切换/加载更新
   updateAsrTabVisibility();
   window.addEventListener('focus', updateAsrTabVisibility);
-  if (chrome.tabs && chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => { updateAsrTabVisibility(); refreshPageSelection(); });
-  if (chrome.tabs && chrome.tabs.onUpdated) chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete' || info.url) updateAsrTabVisibility(); });
+  if (chrome.tabs && chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => { updateAsrTabVisibility(); refreshPageSelection(); refreshInjectCapBadges(); });
+  if (chrome.tabs && chrome.tabs.onUpdated) chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete' || info.url) { updateAsrTabVisibility(); refreshInjectCapBadges(); } });
   // 语音模式行为（识别后直接发 / 填入文本）
   document.querySelectorAll('input[name="chatVoiceBehavior"]').forEach(radio => {
     radio.addEventListener('change', () => {
