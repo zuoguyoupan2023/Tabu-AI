@@ -197,6 +197,81 @@ async function getFullPageText() {
   }
 }
 
+// ========== 页面视频字幕/台词抓取（尽力而为） ==========
+// 在页面上下文执行（自包含）：优先 <track> 字幕（同源可读则直接取 cues，否则抓取并解析 VTT/SRT）；
+// 无 <track> 时收集常见实时字幕容器（YouTube / Bilibili / 通用）的叶子文本。
+// 跨域/WAF 站点可能拿不到，返回空串由调用方提示。
+async function extractPageSubtitlesInPage() {
+  const lines = [];
+  const seen = new Set();
+  const push = (t) => {
+    t = String(t || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    if (t && !seen.has(t)) { seen.add(t); lines.push(t); }
+  };
+  const isTimeLine = (s) => /^\d{1,2}:\d{2}(?::\d{2})?[.,]\d{1,3}\s*-->/.test(s);
+  const parseCaptions = (txt) => {
+    for (let ln of String(txt || '').split(/\r?\n/)) {
+      ln = ln.trim();
+      if (!ln) continue;
+      if (/^WEBVTT/i.test(ln) || /^NOTE\b/.test(ln)) continue;
+      if (isTimeLine(ln) || /^\d+$/.test(ln)) continue; // 时间轴 / SRT 序号
+      push(ln);
+    }
+  };
+  // 1) <track> 字幕
+  for (const tr of Array.from(document.querySelectorAll('track'))) {
+    let got = false;
+    try {
+      const tt = tr.track;
+      if (tt) {
+        if (tt.mode === 'disabled') tt.mode = 'hidden';
+        const list = tt.cues;
+        if (list && list.length) { for (const c of list) push(c.text || ''); got = true; }
+      }
+    } catch (e) {}
+    if (!got) {
+      const src = tr.getAttribute('src');
+      if (src) {
+        try { const r = await fetch(src, { credentials: 'include' }); if (r.ok) parseCaptions(await r.text()); } catch (e) {}
+      }
+    }
+  }
+  // 2) 实时字幕容器（仅取叶子节点，减少噪声）
+  if (!lines.length) {
+    const sels = [
+      '.ytp-caption-segment', '.caption-window',
+      '.bpx-player-subtitle-text', '.bpx-player-subtitle',
+      '[class*="closed-caption" i]', '[class*="caption" i]', '[class*="subtitle" i]'
+    ];
+    for (const sel of sels) {
+      let nodes;
+      try { nodes = document.querySelectorAll(sel); } catch (e) { continue; }
+      for (const el of nodes) {
+        if (el.children && el.children.length > 1) continue; // 跳过容器，取字幕段/叶子
+        const t = (el.innerText || el.textContent || '').trim();
+        if (t && t.length <= 300) push(t);
+      }
+      if (lines.length) break;
+    }
+  }
+  return lines.join('\n');
+}
+
+async function getPageSubtitles() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab) return '';
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractPageSubtitlesInPage
+    });
+    return results && results[0] ? (results[0].result || '') : '';
+  } catch (e) {
+    console.warn('获取页面字幕失败:', e);
+    return '';
+  }
+}
+
 // 剪贴板通用文本来源
 async function readClipboard() {
   return navigator.clipboard.readText();
@@ -602,6 +677,7 @@ const TABU_CAPS = {
   runAction,
   getSelectedText,
   getFullPageText,
+  getPageSubtitles,
   readClipboard,
   readInputBox,
   translateText,

@@ -181,7 +181,7 @@ function switchTool(toolName, force) {
     const panel = document.getElementById(`panel-${name}`);
     if (panel) panel.classList.toggle('hidden', name !== toolName || !show);
   });
-  if (show && toolName === 'ai') { renderInjectHistory(); loadChatMicDevices(); }
+  if (show && toolName === 'ai') { renderInjectHistory(); }
   if (show && toolName === 'asr') { syncAsrBackendUi(); loadAsrDevices(); }
 }
 
@@ -557,6 +557,12 @@ function mirrorVoiceToBlue(redVoiceSel, redLangSel) {
   blueLang.value = redLangSel.value;
   blueVoice.innerHTML = redVoiceSel.innerHTML;
   blueVoice.value = redVoiceSel.value;
+  // 主对话面板 i 设置的系统音色：同步选项
+  const chatVoice = document.getElementById('chatTtsVoice');
+  if (chatVoice) {
+    chatVoice.innerHTML = redVoiceSel.innerHTML;
+    chatVoice.value = redVoiceSel.value;
+  }
   // LLM 回复音色选择：同步音色选项（保留已选偏好；首项"跟随系统语音"由 HTML 提供）
   const prefSel = document.getElementById('aiSpeakVoice');
   if (prefSel) {
@@ -1882,6 +1888,7 @@ function renderInjectCapBadges() {
 let injectVoiceOn = false;
 async function toggleInjectVoice() {
   if (injectVoiceOn) { stopBrowserAsr(); return; }
+  setChatMode('text'); // 语音填入到文本框：确保文本模式可见
   // 单一音频通道：先停掉其它面板的录音/识别
   if (asrRecording) stopAsrRecording();
   if (vbRecording) stopVoiceCircleRecording();
@@ -2845,8 +2852,13 @@ function syncTtsEngineUi() {
   const engine = currentVoiceConfig.ttsEngine;
   const selPanel = voiceField('ttsEngine');
   const selBlue = voiceField('ttsEngineBlue');
+  const selChat = voiceField('chatTtsEngine');
   if (selPanel) selPanel.value = engine;
   if (selBlue) selBlue.value = engine;
+  if (selChat) selChat.value = engine;
+  // i 设置里的音色行仅系统引擎适用（本地/云端音色各自在蓝区配置）
+  const chatVoiceRow = document.getElementById('chatTtsVoiceRow');
+  if (chatVoiceRow) chatVoiceRow.classList.toggle('hidden', engine !== 'system');
   const isLocal = LOCAL_TTS_ENGINES.includes(engine);   // 本地引擎 → 显示本地音色行
   const isSys = engine === 'system';                     // 系统 → 显示系统音色行
   const sysRow = document.getElementById('ttsSysVoiceRow');
@@ -3059,6 +3071,8 @@ function setAsrBackend(id) {
 function syncAsrBackendUi() {
   const selBlue = voiceField('asrBackendBlue');
   if (selBlue) selBlue.value = currentAsrBackend;
+  const selChat = document.getElementById('chatAsrBackend');
+  if (selChat) selChat.value = currentAsrBackend;
   const map = { asrBackendBrowser: 'browser', asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
   document.querySelectorAll('#panel-asr .ai-backend').forEach(btn => {
     btn.classList.toggle('active', map[btn.id] === currentAsrBackend);
@@ -3454,22 +3468,70 @@ async function loadVoiceCircleMode() {
   } catch (e) {}
 }
 
-// 对话输入模式切换（005 P0.5）：voice = 纯圆球语音交互；text = 显示主界面输入工作台
-let vcUIMode = 'text';
-function setVcUiMode(mode) {
-  vcUIMode = (mode === 'voice') ? 'voice' : 'text';
-  chrome.storage.local.set({ vcUIMode }).catch(() => {});
-  document.querySelectorAll('#vcUIMode .vc-mode').forEach(b => {
-    b.classList.toggle('active', b.dataset.uimode === vcUIMode);
-  });
-  const wb = document.getElementById('chatWorkbench');
-  if (wb) wb.classList.toggle('hidden', vcUIMode !== 'text');
+// ===== 主对话面板（chatMain 扶正）：语音/文本模式 + i 设置 =====
+// chatMode：'voice'（默认，圆球）| 'text'（输入框）
+// chatVoiceBehavior：'direct'（识别后直接问答+朗读）| 'compose'（识别后填入文本可编辑再发）
+let chatMode = 'voice';
+let chatVoiceBehavior = 'direct';
+
+function setChatMode(mode) {
+  chatMode = (mode === 'text') ? 'text' : 'voice';
+  chrome.storage.local.set({ chatMode }).catch(() => {});
+  const voiceBody = document.getElementById('chatVoiceBody');
+  const textBody = document.getElementById('chatTextBody');
+  if (voiceBody) voiceBody.classList.toggle('hidden', chatMode !== 'voice');
+  if (textBody) textBody.classList.toggle('hidden', chatMode !== 'text');
+  const btn = document.getElementById('chatModeSwitch');
+  if (btn) {
+    // 按钮显示「切换目标」：语音态显示 T（去文本），文本态显示 S（去语音）
+    btn.textContent = chatMode === 'voice' ? 'T' : 'S';
+    const key = chatMode === 'voice' ? 'chatModeToText' : 'chatModeToVoice';
+    btn.setAttribute('data-i18n-title', key);
+    btn.title = I18N.t(key);
+  }
 }
-async function loadVcUiMode() {
+async function loadChatMode() {
   try {
-    const r = await chrome.storage.local.get('vcUIMode');
-    setVcUiMode(r.vcUIMode === 'voice' ? 'voice' : 'text');
-  } catch (e) { setVcUiMode('text'); }
+    const r = await chrome.storage.local.get('chatMode');
+    setChatMode(r.chatMode === 'text' ? 'text' : 'voice');
+  } catch (e) { setChatMode('voice'); }
+}
+
+// i 设置区：默认收起；点击展开/收起
+function toggleChatSettings() {
+  const el = document.getElementById('chatSettings');
+  const btn = document.getElementById('chatSettingsToggle');
+  if (!el) return;
+  const show = el.classList.toggle('hidden') === false;
+  if (btn) btn.classList.toggle('active', show);
+}
+async function loadChatSettings() {
+  const el = document.getElementById('chatSettings');
+  if (el) el.classList.add('hidden');
+  const btn = document.getElementById('chatSettingsToggle');
+  if (btn) btn.classList.remove('active');
+  try {
+    const r = await chrome.storage.local.get('chatVoiceBehavior');
+    chatVoiceBehavior = (r.chatVoiceBehavior === 'compose') ? 'compose' : 'direct';
+  } catch (e) { chatVoiceBehavior = 'direct'; }
+  document.querySelectorAll('input[name="chatVoiceBehavior"]').forEach(radio => {
+    radio.checked = radio.value === chatVoiceBehavior;
+  });
+}
+
+// 语音识别完成后的分流：compose → 填入文本框并切到文本模式；direct → 直接问答+朗读
+async function handleVoiceRecognized(text) {
+  if (!text) return;
+  if (chatVoiceBehavior === 'compose') {
+    const input = document.getElementById('injectInput');
+    if (input) input.value = text;
+    setChatMode('text');
+    setVoiceCircleStatus('✅ ' + I18N.t('chatVoiceFilled'));
+    try { input.focus(); } catch (e) {}
+    return;
+  }
+  renderVoiceOutput(text, null);
+  await runVoiceCirclePipeline(text);
 }
 
 // VAD 监控：检测到有说话后，静音持续超过阈值 → 自动结束录音；超长 30s 强制结束兜底
@@ -3595,8 +3657,7 @@ async function onVoiceCircleDone() {
     setVoiceCircleStatus('⏳ ' + I18N.t('voiceCircleRecognizing'));
     const text = await runAsr(pcm16); // 跟随当前识别后端（browser 后端不经过本路径）
     if (!text) { setVoiceCircleStatus(I18N.t('asrNoAudioError'), true); return; }
-    renderVoiceOutput(text, null);
-    await runVoiceCirclePipeline(text);
+    await handleVoiceRecognized(text);
   } catch (e) {
     logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
     setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
@@ -3680,8 +3741,7 @@ async function toggleVoiceCircleBrowser() {
     });
     if (vbSuppress) { vbSuppress = false; return; } // 被对话录音接管，丢弃本段
     if (!out.text) { setVoiceCircleStatus(I18N.t('asrNoAudioError'), true); return; }
-    renderVoiceOutput(out.text, null);
-    await runVoiceCirclePipeline(out.text);
+    await handleVoiceRecognized(out.text);
   } catch (e) {
     logDebug('voice', 'browser 识别失败: ' + ((e && e.message) || ''), true);
     setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
@@ -3764,25 +3824,21 @@ function voiceOutputClear() {
   body.innerHTML = '<div class="voice-output-empty" id="voiceOutputEmpty">' + escapeHtml(I18N.t('voiceOutputEmpty')) + '</div>';
 }
 
-// 输出栏 显示/不显示
-function toggleVoiceOutput() {
-  const show = document.getElementById('voiceOutputShow');
+// 对话记录：折叠/展开（点击标题行；折叠状态持久化到 voiceOutputShow）
+function toggleVoiceOutput(forceCollapsed) {
   const out = document.getElementById('voiceOutput');
-  if (!show || !out) return;
-  const visible = !!show.checked;
-  out.classList.toggle('hidden', !visible);
-  chrome.storage.local.set({ voiceOutputShow: visible }).catch(() => {});
+  if (!out) return;
+  const collapsed = (typeof forceCollapsed === 'boolean') ? forceCollapsed : !out.classList.contains('collapsed');
+  out.classList.toggle('collapsed', collapsed);
+  chrome.storage.local.set({ voiceOutputShow: !collapsed }).catch(() => {});
 }
 
 async function loadVoiceOutputSetting() {
-  const show = document.getElementById('voiceOutputShow');
   const out = document.getElementById('voiceOutput');
-  if (!show || !out) return;
+  if (!out) return;
   try {
     const r = await chrome.storage.local.get('voiceOutputShow');
-    const visible = r.voiceOutputShow !== false;
-    show.checked = visible;
-    out.classList.toggle('hidden', !visible);
+    out.classList.toggle('collapsed', r.voiceOutputShow === false);
   } catch (e) {}
 }
 
@@ -4246,6 +4302,20 @@ async function asrSendToAi() {
   injectSend();
 }
 
+// 抓取当前网页视频字幕/台词 → 填入转写结果框（下游可 朗读/翻译/发给 AI）
+async function asrFetchPageSubtitles() {
+  const out = document.getElementById('asrResult');
+  setAsrStatus(I18N.t('asrSubsLoading'));
+  try {
+    const text = await TABU_CAPS.getPageSubtitles();
+    if (!text || !text.trim()) { setAsrStatus(I18N.t('asrSubsNone'), true); return; }
+    if (out) out.value = text;
+    setAsrStatus(I18N.t('asrSubsFound'));
+  } catch (e) {
+    setAsrStatus(I18N.t('asrSubsNone'), true);
+  }
+}
+
 // AI 面板渠道：'local' 本地版（默认，本地 LLM 对话）/ 'inject' 浏览器版（页面注入）/ 'api' API 版 / 'trans' 免费翻译（特殊功能，非 LLM 渠道）
 // 用户显式选择前：默认走本地 LLM（llmchat 默认本地，可在蓝区设置切浏览器版 / API版）
 async function getEffectiveAiMode() {
@@ -4260,10 +4330,7 @@ async function setAiMode(mode) {
 }
 
 // 同步渠道切换 UI + 提示 + 站点下拉置灰：
-//   local：显示「本地版」对话（chatMain），AI 主体与翻译隐藏
-//   inject：站点下拉可用，提示显示站点名
-//   api：站点下拉置灰（API 忽略 site）；已配置显示「API 模式 · 模型 @ host」，未配置提示去蓝区设置
-//   trans：免费翻译（特殊功能），AI 主体与本地对话隐藏
+//   local/inject/api：AI 标签页显示会话历史；trans：显示免费翻译
 async function syncAiBackendUi() {
   const mode = await getEffectiveAiMode();
   const localBtn = aiField('aiBackendLocal');
@@ -4275,15 +4342,14 @@ async function syncAiBackendUi() {
   if (injectBtn) injectBtn.classList.toggle('active', mode === 'inject');
   if (apiBtn) apiBtn.classList.toggle('active', mode === 'api');
 
-  const chatMain = aiField('chatMain');
   const transMode = aiField('transMode');
   const aiMain = aiField('aiMain');
-  if (chatMain) chatMain.classList.toggle('hidden', mode !== 'local');
   if (transMode) transMode.classList.toggle('hidden', mode !== 'trans');
-  if (aiMain) aiMain.classList.toggle('hidden', mode === 'local' || mode === 'trans');
+  if (aiMain) aiMain.classList.toggle('hidden', mode === 'trans');
 
   const hint = aiField('aiModeHint');
-  const siteRow = document.querySelector('.ai-site-row');
+  const siteSelEl = document.getElementById('injectSite');
+  const siteRow = siteSelEl ? siteSelEl.closest('.cfg-row') : null;
   const apiConfigured = !!currentAiConfig.aiBaseUrl;
   if (siteRow) siteRow.classList.toggle('api-mode', mode === 'api');
   if (hint) {
@@ -4306,7 +4372,6 @@ async function syncAiBackendUi() {
       hint.classList.add('hidden');
     }
   }
-  if (mode === 'local') loadChatMicDevices();
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
@@ -4568,6 +4633,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       input.addEventListener('change', () => {
         chrome.storage.local.set({ [id + 'Sel']: parseFloat(input.value) }).catch(() => {});
+        // 语速同步到主对话面板 i 设置
+        if (id === 'ttsRate') {
+          const c = document.getElementById('chatTtsRate');
+          const cl = document.getElementById('chatTtsRateLabel');
+          if (c && c.value !== input.value) { c.value = input.value; if (cl) cl.textContent = parseFloat(input.value).toFixed(1); }
+        }
       });
     }
   });
@@ -4582,6 +4653,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (label) label.textContent = v.toFixed(1);
       }
     });
+    // 语速恢复到 i 设置
+    const c = document.getElementById('chatTtsRate');
+    const cl = document.getElementById('chatTtsRateLabel');
+    if (c && typeof r.ttsRateSel === 'number') { c.value = r.ttsRateSel; if (cl) cl.textContent = r.ttsRateSel.toFixed(1); }
   }).catch(() => {});
   // 朗读引擎 + 本地音色（朗读面板 / 蓝区共用，双向同步）
   const ttsEngineSel = document.getElementById('ttsEngine');
@@ -4877,13 +4952,44 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => setVoiceCircleMode(b.dataset.vcmode));
   });
   loadVoiceCircleMode();
-  // 主界面对话输入模式（语音 / 文本）切换
-  document.querySelectorAll('#vcUIMode .vc-mode').forEach(b => {
-    b.addEventListener('click', () => setVcUiMode(b.dataset.uimode));
+  // ===== 主对话面板：语音/文本模式切换 + i 设置 =====
+  const chatModeSwitch = document.getElementById('chatModeSwitch');
+  if (chatModeSwitch) chatModeSwitch.addEventListener('click', () => setChatMode(chatMode === 'voice' ? 'text' : 'voice'));
+  const chatSettingsToggle = document.getElementById('chatSettingsToggle');
+  if (chatSettingsToggle) chatSettingsToggle.addEventListener('click', toggleChatSettings);
+  loadChatMode();
+  loadChatSettings();
+  // 语音模式行为（识别后直接发 / 填入文本）
+  document.querySelectorAll('input[name="chatVoiceBehavior"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!radio.checked) return;
+      chatVoiceBehavior = radio.value === 'compose' ? 'compose' : 'direct';
+      chrome.storage.local.set({ chatVoiceBehavior }).catch(() => {});
+    });
   });
-  loadVcUiMode();
-  const voiceOutputShow = document.getElementById('voiceOutputShow');
-  if (voiceOutputShow) voiceOutputShow.addEventListener('change', toggleVoiceOutput);
+  // i 设置：识别后端 / 朗读引擎 / 系统音色 / 语速（与红区面板、蓝区双向同步）
+  const chatAsrBackend = document.getElementById('chatAsrBackend');
+  if (chatAsrBackend) chatAsrBackend.addEventListener('change', () => setAsrBackend(chatAsrBackend.value));
+  const chatTtsEngine = document.getElementById('chatTtsEngine');
+  if (chatTtsEngine) chatTtsEngine.addEventListener('change', () => setTtsEngine(chatTtsEngine.value));
+  const chatTtsVoice = document.getElementById('chatTtsVoice');
+  if (chatTtsVoice) chatTtsVoice.addEventListener('change', () => {
+    const red = document.getElementById('ttsVoice');
+    if (red) { red.value = chatTtsVoice.value; red.dispatchEvent(new Event('change')); }
+  });
+  const chatTtsRate = document.getElementById('chatTtsRate');
+  if (chatTtsRate) {
+    const label = document.getElementById('chatTtsRateLabel');
+    chatTtsRate.addEventListener('input', () => { if (label) label.textContent = parseFloat(chatTtsRate.value).toFixed(1); });
+    chatTtsRate.addEventListener('change', () => {
+      chrome.storage.local.set({ ttsRateSel: parseFloat(chatTtsRate.value) }).catch(() => {});
+      const red = document.getElementById('ttsRate');
+      if (red) { red.value = chatTtsRate.value; red.dispatchEvent(new Event('change')); }
+    });
+  }
+  // 对话记录折叠
+  const voiceOutputToggle = document.getElementById('voiceOutputToggle');
+  if (voiceOutputToggle) voiceOutputToggle.addEventListener('click', () => toggleVoiceOutput());
   const voiceOutputClearBtn = document.getElementById('voiceOutputClear');
   // 复制最近一条 AI 回答（统一对话流）
   const copyLastBtn = document.getElementById('voiceCopyLast');
@@ -4947,6 +5053,8 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAsrDevices();
   const asrClearBtn = document.getElementById('asrClear');
   if (asrClearBtn) asrClearBtn.addEventListener('click', asrClearResult);
+  const asrPageSubsBtn = document.getElementById('asrPageSubs');
+  if (asrPageSubsBtn) asrPageSubsBtn.addEventListener('click', asrFetchPageSubtitles);
   const asrCopyBtn = document.getElementById('asrCopy');
   if (asrCopyBtn) asrCopyBtn.addEventListener('click', asrCopyResult);
   const asrSendTtsBtn = document.getElementById('asrSendTts');
