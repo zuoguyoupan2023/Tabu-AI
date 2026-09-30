@@ -15,7 +15,8 @@
     "incognito",
     "scripting",
     "tts",
-    "audioCapture"
+    "audioCapture",
+    "tabCapture"
   ],
   "host_permissions": [
     "<all_urls>",

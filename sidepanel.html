@@ -54,7 +54,6 @@
           <!-- 顶栏：标题 + 能力徽章 + 模式切换 + 设置 -->
           <div class="chat-main-head">
             <span class="chat-main-title" data-i18n="chatMainTitle">💬 对话</span>
-            <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
             <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
               <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
@@ -228,6 +227,9 @@
           <div class="asr-record-row">
             <button class="op primary" id="asrRecord" data-i18n="asrRecordStart">🎙 开始录音</button>
             <button class="op" id="asrPageSubs" data-i18n="asrPageSubs" data-i18n-title="asrPageSubsTitle" title="抓取当前网页视频的字幕/台词（<track> 或站点字幕）">🎬 页面字幕</button>
+            <button class="op" id="asrImportAudio" data-i18n="asrImportAudio" data-i18n-title="asrImportAudioTitle" title="导入音频文件（mp3/wav/m4a 等）识别为文本">📁 导入音频</button>
+            <input type="file" id="asrImportFile" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac" hidden />
+            <button class="op" id="asrTabAudio" data-i18n="asrTabAudio" data-i18n-title="asrTabAudioTitle" title="捕获当前标签页正在播放的声音，实时转写（仅本机处理）">🎧 网页音频</button>
             <button class="op" id="asrClear" data-i18n="asrClear">清空</button>
           </div>
           <div class="asr-mic-row">
@@ -477,6 +479,7 @@
               <div class="hint" data-i18n="ttsBlueVoiceHint">系统音色/语速/音调/音量在此设置；朗读动作在红区（选区条「朗读」、对话流「朗读回答」、i 设置里「朗读全文/输入框」）。</div>
               <div class="ai-svc-sep" data-i18n="aiSpeakSectionLabel">🤖 LLM 回复朗读</div>
               <label class="cfg-row"><input type="checkbox" id="aiSpeakAnswerBlue" style="accent-color:var(--accent);width:auto;"> <span data-i18n="aiSpeakAnswerRow" style="opacity:.85;font-size:11px;">AI 回答后自动朗读（与工作台 🔊 开关同步）</span></label>
+              <label class="cfg-row"><input type="checkbox" id="ttsStreamSpeakBlue" style="accent-color:var(--accent);width:auto;"> <span data-i18n="ttsStreamSpeakRow" style="opacity:.85;font-size:11px;">流式朗读（边生成边分句朗读，需先开启自动朗读）</span></label>
               <label class="cfg-row"><span data-i18n="aiSpeakVoiceLabel">回复音色</span>
                 <select id="aiSpeakVoice" class="row-select" style="flex:1;"><option value="" data-i18n="aiSpeakVoiceFollow">跟随系统语音</option></select>
               </label>

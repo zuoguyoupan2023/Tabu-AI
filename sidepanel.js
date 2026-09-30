@@ -651,7 +651,8 @@ function renderMarkdown(src) {
 
 // 系统 TTS 朗读：优先 Web SpeechSynthesis（全浏览器通用——chrome.tts 在 Edge 不完整，
 // 是"选了音色却不发声"的根因）；SpeechSynthesis 不可用/无音色时回退 chrome.tts。
-async function speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride) {
+async function speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride, round) {
+  if (round && activeSpeakRound !== round) { logDebug('tts', '#' + round + ' 系统朗读已被取代，跳过'); return; }
   let voice = voiceOverride || document.getElementById('ttsVoiceBlue')?.value || '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
@@ -726,23 +727,34 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
   }
   // 思考内容默认不朗读：剥掉思维链（站点提取残留的思维块/标题行）；设置开启时保留
   if (!currentVoiceConfig.ttsReadThinking) text = stripThinkingForTts(text);
+  // 朗读轮次：同一回答只朗读一次（008 §4）
+  const round = ++speakRoundSeq;
+  activeSpeakRound = round;
+  logDebug('tts', '#' + round + ' doSpeak 开始（' + text.length + ' 字）');
   // 本地朗读引擎分流：Kokoro / Qwen3 走本地服务 /speak（fetch + AudioContext 播放），否则系统 chrome.tts
   // forceSystem=true（如语音工作台自动朗读）→ 固定用系统 TTS，即时出声，不受本地引擎慢首帧影响
   // 统一来源「自动」时按可达性解析；否则沿用显式引擎
   resolveEffectiveTtsEngine().then(async (engine) => {
+    if (activeSpeakRound !== round) { logDebug('tts', '#' + round + ' 已被新朗读取代，跳过'); return; }
     if (forceSystem) engine = 'system'; // 语音工作台等固定用系统 TTS，即时出声
     if (engine !== 'system') {
       try {
-        await speakLocalTts(text, statusEl, triggerBtn, engine);
+        await speakLocalTts(text, statusEl, triggerBtn, engine, round);
         return;
       } catch (e) {
         if (e && e.name === 'AbortError') return; // 用户主动停止，不回退
-        // 本地/云端引擎不可用（服务未启动、Key 失效等）→ 回退系统 TTS，避免无法朗读
-        logDebug('tts', '本地/云端引擎失败，回退系统 TTS：' + ((e && e.message) || ''), true);
+        // 已出声但中途失败 → 绝不回退系统整段重读（否则会出现「读一遍再读一遍」，见 008 §4）
+        if (e && e.audioStarted) {
+          logDebug('tts', '#' + round + ' 本地/云端引擎中途失败但已出声，跳过系统回退（防二次朗读）', true);
+          if (statusEl) statusEl.textContent = I18N.t('readErrorStatus');
+          return;
+        }
+        // 本地/云端引擎完全没出声（服务未启动、Key 失效等）→ 回退系统 TTS，避免无法朗读
+        logDebug('tts', '#' + round + ' 本地/云端引擎失败，回退系统 TTS：' + ((e && e.message) || ''), true);
         if (statusEl) statusEl.textContent = I18N.t('ttsLocalFallback');
       }
     }
-    await speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride);
+    await speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride, round);
   });
   showStatus(I18N.t('startSpeaking'), 'success');
   if (statusEl) statusEl.textContent = I18N.t('speakStarting');
@@ -753,6 +765,143 @@ let localTtsAbort = null;   // AbortController：停止 = abort
 let localTtsActive = false;
 let localTtsCtx = null;     // AudioContext 单例
 let localTtsSrc = null;     // 当前播放 source（停止时停掉）
+let localTtsPlayed = false; // 本次本地朗读是否已出声（用于「已出声不回退重读」，防读两遍）
+
+// 朗读轮次（008 §4）：每次 doSpeak 递增；异步引擎解析回到时若轮次已被更新则放弃，
+// 避免同一回答被多条路径（自动朗读 + 语音管线）重复朗读。
+let speakRoundSeq = 0;
+let activeSpeakRound = 0;
+
+// 自动朗读去重（008 §4 候选 2）：同一回答短时间内只自动朗读一次
+let lastAutoSpeak = { key: '', at: 0 };
+const AUTO_SPEAK_DEDUP_MS = 8000;
+
+// 自动朗读统一入口（工作台/语音管线共用）：按规范化文本 + 时间窗去重，避免双触发读两遍。
+function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride) {
+  const key = String(text || '').trim();
+  if (!key) return;
+  const now = Date.now();
+  if (key === lastAutoSpeak.key && now - lastAutoSpeak.at < AUTO_SPEAK_DEDUP_MS) {
+    logDebug('tts', '自动朗读去重：同一回答 ' + (AUTO_SPEAK_DEDUP_MS / 1000) + 's 内已朗读，跳过重复触发');
+    return;
+  }
+  lastAutoSpeak = { key, at: now };
+  doSpeak(key, statusEl, null, forceSystem, voiceOverride);
+}
+
+// ===== 流式朗读（008 §3）：边流式生成边按句合成/播放 TTS =====
+// 模块：按句切分 → 播放队列（顺序播放）→ 停止清空。与「自动朗读」开关并存，
+// 开关 ttsStreamSpeak 打开且自动朗读开启时，回答在流式过程中即开始朗读。
+let streamSpeakOn = false;
+async function loadStreamSpeakPref() {
+  try { const r = await chrome.storage.local.get('ttsStreamSpeak'); streamSpeakOn = r.ttsStreamSpeak === true; } catch (e) {}
+}
+function isStreamSpeakEnabled() { return streamSpeakOn === true; }
+function setStreamSpeakPref(on) { streamSpeakOn = !!on; chrome.storage.local.set({ ttsStreamSpeak: !!on }).catch(() => {}); }
+
+let _streamSpeaker = { token: 0, active: false, stopped: true, buffer: '', queue: [], speaking: false, spoke: false };
+function streamSpeakStart() {
+  // 打断上一轮朗读，避免新旧句子叠加
+  try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+  if (localTtsActive && localTtsAbort) { try { localTtsAbort.abort(); } catch (e) {} }
+  _streamSpeaker.token++;
+  const token = _streamSpeaker.token;
+  _streamSpeaker.active = true; _streamSpeaker.stopped = false;
+  _streamSpeaker.buffer = ''; _streamSpeaker.queue = []; _streamSpeaker.speaking = false; _streamSpeaker.spoke = false;
+  warmAudioContext();
+  logDebug('tts', '流式朗读开始 #' + token);
+  return token;
+}
+function streamSpeakIsCurrent(token) { return _streamSpeaker.active && !_streamSpeaker.stopped && _streamSpeaker.token === token; }
+function streamSpeakFeed(token, text) {
+  if (!streamSpeakIsCurrent(token) || !text) return;
+  _streamSpeaker.buffer += text;
+  const { done, rest } = splitStreamSentences(_streamSpeaker.buffer);
+  _streamSpeaker.buffer = rest;
+  if (done.length) { _streamSpeaker.queue.push(...done); streamSpeakPump(token); }
+}
+function streamSpeakEnd(token) {
+  if (!streamSpeakIsCurrent(token)) return;
+  const rest = _streamSpeaker.buffer.trim();
+  if (rest) _streamSpeaker.queue.push(rest);
+  _streamSpeaker.buffer = '';
+  streamSpeakPump(token);
+}
+function streamSpeakStop() {
+  if (!_streamSpeaker.active && !_streamSpeaker.queue.length && !_streamSpeaker.speaking) return;
+  _streamSpeaker.stopped = true; _streamSpeaker.active = false;
+  _streamSpeaker.buffer = ''; _streamSpeaker.queue = [];
+  logDebug('tts', '流式朗读已停止并清空队列');
+}
+async function streamSpeakPump(token) {
+  if (_streamSpeaker.speaking || !streamSpeakIsCurrent(token)) return;
+  const s = _streamSpeaker.queue.shift();
+  if (!s) return;
+  _streamSpeaker.speaking = true;
+  try { await streamSpeakOne(s, token); } catch (e) { logDebug('tts', '流式分句朗读失败: ' + ((e && e.message) || ''), true); }
+  _streamSpeaker.speaking = false;
+  if (streamSpeakIsCurrent(token)) streamSpeakPump(token);
+}
+async function streamSpeakOne(sentence, token) {
+  const text = String(sentence || '').trim();
+  if (!text || !streamSpeakIsCurrent(token)) return;
+  let engine = await resolveEffectiveTtsEngine();
+  if (currentVoiceConfig.voiceCircleForceSystem) engine = 'system';
+  if (!streamSpeakIsCurrent(token)) return;
+  _streamSpeaker.spoke = true;
+  if (engine === 'system') {
+    await speakUtteranceOnce(text);
+  } else {
+    // 本地/云端：逐句请求 /speak 播放（顺序，避免重叠；quiet 抑制每句弹提示）
+    await speakLocalTts(text, null, null, engine, 0, true);
+  }
+}
+// 流式分句：终止符 = 中英文句末标点或换行；过短片段与后文合并后再播放
+function splitStreamSentences(buf) {
+  const done = [];
+  let last = 0;
+  const re = /([。！？；\n]+|[.!?;](?=\s))/g;
+  let m;
+  while ((m = re.exec(buf)) !== null) {
+    done.push(buf.slice(last, m.index + m[0].length));
+    last = m.index + m[0].length;
+  }
+  const rest = buf.slice(last);
+  const MIN = 4;
+  const merged = [];
+  let pending = '';
+  for (const s of done) {
+    pending += s;
+    if (pending.trim().length >= MIN) { merged.push(pending); pending = ''; }
+  }
+  return { done: merged, rest: pending + rest };
+}
+// 系统 TTS 单句：Promise 于播完/出错/停止时 resolve（供流式队列顺序控制）
+function speakUtteranceOnce(text) {
+  return new Promise((resolve) => {
+    if (!window.speechSynthesis) return resolve();
+    try {
+      const voices = speechSynthesis.getVoices() || [];
+      const voiceName = document.getElementById('ttsVoiceBlue')?.value || '';
+      const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+      const wantLang = uiZh ? 'zh' : 'en';
+      let v = voiceName ? voices.find(x => x.name === voiceName) : null;
+      if (!v) v = voices.find(x => String(x.lang || '').toLowerCase().startsWith(wantLang)) || null;
+      const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
+      const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
+      const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
+      const u = new SpeechSynthesisUtterance(text);
+      if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = uiZh ? 'zh-CN' : 'en-US'; }
+      u.rate = Math.max(0.1, Math.min(10, rate));
+      u.pitch = Math.max(0, Math.min(2, pitch));
+      u.volume = Math.max(0, Math.min(1, volume));
+      let done = false;
+      const fin = () => { if (done) return; done = true; resolve(); };
+      u.onend = fin; u.onerror = fin;
+      speechSynthesis.speak(u);
+    } catch (e) { resolve(); }
+  });
+}
 
 // 按句切块（本地模型单次文本长度受限），每块 ≤ maxChars 字
 // ========== /speak 流式帧协议（013-P1）：整段提交，服务端逐句流式输出（去双段切分） ==========
@@ -830,15 +979,17 @@ async function playSpeakStream(res, playbackRate, volume) {
   return firstFrameMs;
 }
 
-async function speakLocalTts(text, statusEl, triggerBtn, engine) {
+async function speakLocalTts(text, statusEl, triggerBtn, engine, round, quiet) {
   if (!SPEAK_ENGINES.includes(engine)) return;
+  if (round && activeSpeakRound !== round) { logDebug('tts', '#' + round + ' 本地朗读已被取代，跳过'); return; }
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
   if (localTtsActive) stopSpeaking();
   localTtsAbort = new AbortController();
   localTtsActive = true;
+  localTtsPlayed = false;
   setSpeakButtonState(triggerBtn, true);
   if (statusEl) statusEl.textContent = I18N.t('speakStarting');
-  showStatus(I18N.t('startSpeaking'), 'success');
+  if (!quiet) showStatus(I18N.t('startSpeaking'), 'success');
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
   const tClick = performance.now();
@@ -868,20 +1019,22 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
     }
     if (localTtsAbort && localTtsAbort.signal.aborted) throw new DOMException('aborted', 'AbortError');
     if (statusEl) statusEl.textContent = I18N.t('speakDone');
-    showStatus(I18N.t('speakDone'), 'success');
+    if (!quiet) showStatus(I18N.t('speakDone'), 'success');
     logDebug('tts', '朗读完成 · 总 ' + (performance.now() - tClick).toFixed(0) + 'ms');
   } catch (e) {
     if (e.name === 'AbortError' || (localTtsAbort && localTtsAbort.signal.aborted)) {
       if (statusEl) statusEl.textContent = '';
-      showStatus(I18N.t('stopSpeak'), 'info');
+      if (!quiet) showStatus(I18N.t('stopSpeak'), 'info');
       logDebug('tts', '已停止');
     } else {
       // fetch 网络层失败（本地服务未启动）→ 明确提示；HTTP 错误已含服务端 detail
       const isConnErr = e instanceof TypeError && !/^本地服务|^HTTP/.test(String(e.message));
       const msg = isConnErr ? I18N.t('ttsLocalServerOffline') : ((e && e.message) || I18N.t('unknown'));
       if (statusEl) statusEl.textContent = I18N.t('speakError') + msg;
-      showStatus(I18N.t('readErrorStatus'), 'error');
+      if (!quiet) showStatus(I18N.t('readErrorStatus'), 'error');
       logDebug('tts', '朗读错误: ' + msg, true);
+      // 标记「是否已出声」：doSpeak 据此决定是否回退系统 TTS（已出声则不回退，防读两遍）
+      if (e && typeof e === 'object') e.audioStarted = localTtsPlayed;
       throw e; // 向上传递：doSpeak 据此回退系统 TTS（AbortError 除外，已在上面处理）
     }
   } finally {
@@ -914,6 +1067,7 @@ function playLocalBuffer(pcm, playbackRate, volume) {
       if (signal) {
         signal.addEventListener('abort', () => { try { src.stop(); } catch (e) {} resolve(); }, { once: true });
       }
+      localTtsPlayed = true; // 已开始出声（供「已出声不回退」判定）
       src.start();
     } catch (e) {
       resolve();
@@ -965,7 +1119,15 @@ function setSpeakButtonState(btn, active) {
   }
 }
 
+// 是否有朗读正在进行（供 Stop 按钮判断是否需要中断，避免无谓提示）
+function isSpeakingActive() {
+  return !!(activeSpeakBtn || localTtsActive || _streamSpeaker.active || _streamSpeaker.speaking ||
+    (window.speechSynthesis && speechSynthesis.speaking));
+}
+
 function stopSpeaking() {
+  // 流式朗读：清空队列并停止后续分句（008 §3）
+  streamSpeakStop();
   // Web SpeechSynthesis 朗读停止（系统 TTS 优先路径）
   try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
   // 本地 TTS 朗读中：abort 请求 + 停当前音频源
@@ -1743,24 +1905,6 @@ async function injectAttachPick(fileList) {
   }
 }
 
-// ===== AI 工作台：站点能力徽章（005 P0：静态声明，P2 换运行时探测） =====
-const AI_SITE_CAPABILITIES = {
-  chatgpt:  { image: 'ok', file: 'ok' },
-  claude:   { image: 'ok', file: 'ok' },
-  kimi:     { image: 'ok', file: 'ok' },
-  deepseek: { image: 'exp', file: 'exp' } // V4-Flash-Vision-Exp 实验性支持，以站点实际为准
-};
-function renderInjectCapBadges() {
-  const el = document.getElementById('injectCapBadges');
-  if (!el) return;
-  const cap = AI_SITE_CAPABILITIES[injectSite()] || { image: 'ok', file: 'ok' };
-  const okTitle = I18N.t('aiCapOkTitle');
-  const expTitle = I18N.t('aiCapExpTitle');
-  el.innerHTML =
-    '<span class="cap-badge ' + (cap.image === 'ok' ? 'ok' : 'exp') + '" title="🖼 ' + (cap.image === 'ok' ? okTitle : expTitle) + '">🖼</span>' +
-    '<span class="cap-badge ' + (cap.file === 'ok' ? 'ok' : 'exp') + '" title="📄 ' + (cap.file === 'ok' ? okTitle : expTitle) + '">📄</span>';
-}
-
 // ===== AI 工作台：语音输入（browser 后端，识别文本填入输入框可编辑后再发送） =====
 let injectVoiceOn = false;
 async function toggleInjectVoice() {
@@ -1818,7 +1962,7 @@ async function injectRun(prompt, images = [], opts = {}) {
     images = [];
   }
   if (mode === 'local') {
-    // 本地渠道：本地 LLM /chat 问答，问答同样进统一对话流
+    // 本地渠道：本地 LLM /chat 问答（008 §2 流式），问答同样进统一对话流
     injectClearMaterials();
     injectBusy = true;
     const sendBtn = document.getElementById('injectSend');
@@ -1828,16 +1972,33 @@ async function injectRun(prompt, images = [], opts = {}) {
     if (stopBtn) stopBtn.style.display = 'inline-block';
     if (statusEl) statusEl.textContent = I18N.t('sending');
     renderVoiceOutput(displayPrompt, null, null, I18N.t('chatYou'));
+    const ansEl = appendStreamBubble('voice-bot');
+    const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
+    const autoOn = await aiSpeakAnswerEnabled();
+    const streamOn = autoOn && isStreamSpeakEnabled();
+    const spToken = streamOn ? streamSpeakStart() : 0;
+    const controller = new AbortController();
+    aiAbortController = controller;
+    let acc = '';
     try {
-      const llmOut = await voiceChatAskText(sendPrompt, 'local');
-      const answer = llmOut && llmOut.answer;
-      renderVoiceOutput(null, answer);
+      const r = await TABU_CAPS.askLocalStream(sendPrompt, {
+        signal: controller.signal,
+        onDelta: (t) => { acc += t; setAns(acc); if (streamOn) streamSpeakFeed(spToken, t); }
+      });
+      const answer = (r && r.answer) || acc;
+      finalizeStreamBubble(ansEl, answer);
       if (statusEl) statusEl.textContent = I18N.t('injectDone');
-      maybeSpeakAnswer(answer);
+      if (streamOn) streamSpeakEnd(spToken); else maybeSpeakAnswer(answer);
     } catch (e) {
-      if (statusEl) statusEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
+      if (streamOn) streamSpeakStop();
+      if (controller.signal.aborted) {
+        if (statusEl) statusEl.textContent = I18N.t('injectStopped');
+      } else if (statusEl) {
+        statusEl.textContent = '❌ ' + ((e && e.message) || I18N.t('unknownError'));
+      }
     } finally {
       injectBusy = false;
+      if (aiAbortController === controller) aiAbortController = null;
       if (sendBtn) sendBtn.disabled = false;
       if (stopBtn) stopBtn.style.display = 'none';
     }
@@ -1860,19 +2021,45 @@ async function injectRun(prompt, images = [], opts = {}) {
   if (stopBtn) stopBtn.style.display = 'inline-block';
   if (statusEl) statusEl.textContent = I18N.t('sending');
   renderVoiceOutput(displayPrompt, null, null, I18N.t('chatYou'));
+  // 注入渠道流式（008 §2）：页面 300ms 快照经后台 'injectDeltaPanel' 回传，实时更新气泡
+  const streamId = 'sp' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const injectAnsEl = appendStreamBubble('voice-bot');
+  const setInjectAns = (t) => { const s = injectAnsEl && injectAnsEl.querySelector('.stream-text'); if (s) s.textContent = t; };
+  let injectAcc = '';
+  const autoOn = await aiSpeakAnswerEnabled();
+  const streamOn = autoOn && isStreamSpeakEnabled();
+  const spToken = streamOn ? streamSpeakStart() : 0;
+  let lastSnap = '';
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
-  execute({ action: 'inject', text: sendPrompt, options: { site: injectSite(), images } })
+  execute({
+    action: 'inject', text: sendPrompt,
+    options: {
+      site: injectSite(), images, streamId,
+      onDelta: (t) => {
+        const snap = String(t || '');
+        injectAcc = snap; setInjectAns(snap);
+        if (streamOn) { const inc = snap.startsWith(lastSnap) ? snap.slice(lastSnap.length) : snap; lastSnap = snap; streamSpeakFeed(spToken, inc); }
+      }
+    }
+  })
     .then(async (out) => {
       if (out.ok) {
         const think = (out.result && out.result.thinking) || '';
         const showThink = await aiShowThinkingEnabled();
-        renderVoiceOutput(null, out.result.text, (showThink && think) || null);
+        const finalText = (out.result && out.result.text) || injectAcc;
+        finalizeStreamBubble(injectAnsEl, finalText);
+        if (showThink && think) {
+          const thinkHtml = '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(think) + '</div>';
+          if (injectAnsEl && injectAnsEl.parentNode) injectAnsEl.insertAdjacentHTML('beforebegin', thinkHtml);
+        }
         if (statusEl) statusEl.textContent = I18N.t('injectDone');
         showStatus(I18N.t('injectSuccess'), 'success');
-        maybeSpeakAnswer(out.result.text);
+        if (streamOn) streamSpeakEnd(spToken); else maybeSpeakAnswer(finalText);
       } else {
+        if (streamOn) streamSpeakStop();
         const msg = out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError'));
+        if (injectAnsEl) injectAnsEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">❌ ' + escapeHtml(msg) + '</div>';
         if (statusEl) statusEl.textContent = I18N.t('injectFailed') + '：' + msg;
       }
       renderInjectHistory();
@@ -1885,6 +2072,14 @@ async function injectRun(prompt, images = [], opts = {}) {
       if (sendBtn) sendBtn.disabled = false;
       if (stopBtn) stopBtn.style.display = 'none';
     });
+}
+
+// 流式气泡收尾：把逐字纯文本替换为 Markdown 化正文 + 小喇叭操作
+function finalizeStreamBubble(el, answer) {
+  if (!el) return;
+  text = String(answer || '');
+  if (text) lastAnswerText = text;
+  el.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(text) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div>';
 }
 
 // 自定义 API 流式发送（P2）：aiContext 取 session + 多轮历史 → askApiStream 逐字渲染 → 完成写历史
@@ -1902,6 +2097,9 @@ async function injectRunApi(sendText, displayText) {
   renderVoiceOutput(shown, null, null, I18N.t('chatYou'));
   // 流式气泡：思考（灰，受 💭 开关控制）+ 回答（逐字），完成后正文 Markdown 化
   const showThink = await aiShowThinkingEnabled();
+  const autoOn = await aiSpeakAnswerEnabled();
+  const streamOn = autoOn && isStreamSpeakEnabled();
+  const spToken = streamOn ? streamSpeakStart() : 0;
   const thinkEl = showThink ? appendStreamBubble('voice-think') : null;
   const ansEl = appendStreamBubble('voice-bot');
   const setThink = (t) => { const s = thinkEl && thinkEl.querySelector('.stream-text'); if (s) s.textContent = t.slice(-600); };
@@ -1925,6 +2123,7 @@ async function injectRunApi(sendText, displayText) {
         contentStarted = true;
         acc += t;
         setAns(acc);
+        if (streamOn) streamSpeakFeed(spToken, t);
       },
       // 思考增量：思考型模型先吐思考再吐正文；灰色气泡实时显示末尾一段
       onReasoning: (t) => {
@@ -1935,12 +2134,13 @@ async function injectRunApi(sendText, displayText) {
     });
 
     if (r && r.aborted) {
+      if (streamOn) streamSpeakStop();
       if (statusEl) statusEl.textContent = I18N.t('injectStopped');
       return;
     }
     const answer = (r && r.answer) || acc;
     if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div>';
-    maybeSpeakAnswer(answer);
+    if (streamOn) streamSpeakEnd(spToken); else maybeSpeakAnswer(answer);
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
     // 会话历史写库（site:'api' + session，供多轮跟随）
@@ -1948,6 +2148,7 @@ async function injectRunApi(sendText, displayText) {
       sendMessage('saveAiConversation', { session, prompt: shown, answer }).catch(() => {});
     }
   } catch (e) {
+    if (streamOn) streamSpeakStop();
     const aborted = controller.signal.aborted;
     if (aborted) {
       if (statusEl) statusEl.textContent = I18N.t('injectStopped');
@@ -1990,7 +2191,7 @@ function maybeSpeakAnswer(text) {
   Promise.all([aiSpeakAnswerEnabled(), aiSpeakVoicePref()]).then(([on, pref]) => {
     if (!on) { logDebug('tts', '自动朗读已关闭（工作台 🔊 开关或蓝区「LLM 回复朗读」）'); return; }
     logDebug('tts', '自动朗读 LLM 回答（' + String(text).length + ' 字）');
-    doSpeak(String(text), document.getElementById('injectStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref);
+    autoSpeakAnswer(String(text), document.getElementById('injectStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref);
   }).catch(() => {});
 }
 function updateAiSpeakToggleUi(on) {
@@ -2017,6 +2218,7 @@ function injectStop() {
   // API 模式：真正中断流式请求；页面注入模式：通知后台在下个检查点退出并释放注入锁
   if (aiAbortController) aiAbortController.abort();
   sendMessage('cancelInject').catch(() => {});
+  if (isSpeakingActive()) stopSpeaking(); // 中断朗读并清空流式朗读队列（008 §3）
   injectBusy = false;
   const sendBtn = document.getElementById('injectSend');
   const stopBtn = document.getElementById('injectStop');
@@ -3526,6 +3728,7 @@ function stopVoiceCircleRecording() {
 async function toggleVoiceCircle() {
   if (vcPipelineRunning) {
     // 问答管线进行中（等待 LLM/站点注入）：再次点击 = 请求停止，后台会在下个检查点退出并释放注入锁
+    if (isSpeakingActive()) stopSpeaking(); // 同时中断朗读并清空流式朗读队列
     sendMessage('cancelInject').catch(() => {});
     setVoiceCircleStatus(I18N.t('vcStopRequested'));
     return;
@@ -3617,27 +3820,45 @@ async function runVoiceCirclePipeline(text) {
     const questionCtx = await appendPageContext(question); // 「关联页面」自动并入当前页正文
     const round = ++_voiceRoundSeq;
     const tRound = performance.now();
+    let vcAnsEl = null;
     logDebug('voice#' + round, '新一轮语音对话开始 → ' + String(question).slice(0, 40));
     try {
-      // ② LLM 按渠道问答（本地 /chat · api 流式 · 浏览器注入）
+      // ② LLM 按渠道问答（本地 /chat · api 流式 · 浏览器注入）——三渠道均边出边显示（008 §2）
       setVoiceCircleStatus('💭 ' + I18N.t('voiceCircleThinking'));
       const mode = await getEffectiveAiMode();
       const tLlm0 = performance.now();
+      const showThink = await aiShowThinkingEnabled();
+      const autoOn = await aiSpeakAnswerEnabled();
+      const streamOn = autoOn && isStreamSpeakEnabled();
+      const spToken = streamOn ? streamSpeakStart() : 0;
+      const ansEl = appendStreamBubble('voice-bot');
+      vcAnsEl = ansEl;
+      const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
+      let streamAcc = '';
       let reasoningAcc = '';
       const llmOut = await voiceChatAskText(questionCtx, mode, {
         images: parts.images,
-      onReasoning: (t) => {
-        reasoningAcc += t;
-        setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
+        onDelta: (t) => { streamAcc += t; setAns(streamAcc); if (streamOn) streamSpeakFeed(spToken, t); },
+        onReasoning: (t) => {
+          reasoningAcc += t;
+          setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
+        }
+      });
+      const answer = (llmOut && llmOut.answer) || streamAcc;
+      const pageThinking = (llmOut && llmOut.thinking) || '';
+      const thinkingAll = reasoningAcc.trim() || pageThinking; // API 思考回调 / 站点提取的思考块
+      const tLlm = performance.now() - tLlm0;
+      if (answer) {
+        finalizeStreamBubble(ansEl, answer);
+        if (showThink && thinkingAll) {
+          const thinkHtml = '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(thinkingAll) + '</div>';
+          if (ansEl && ansEl.parentNode) ansEl.insertAdjacentHTML('beforebegin', thinkHtml);
+          else renderVoiceOutput(null, null, thinkingAll);
+        }
+      } else if (ansEl) {
+        ansEl.remove();
       }
-    });
-    const answer = llmOut && llmOut.answer;
-    const pageThinking = (llmOut && llmOut.thinking) || '';
-    const thinkingAll = reasoningAcc.trim() || pageThinking; // API 思考回调 / 站点提取的思考块
-    const showThink = await aiShowThinkingEnabled();
-    const tLlm = performance.now() - tLlm0;
-    renderVoiceOutput(null, answer, (showThink && thinkingAll) || null);
-    logDebug('voice#' + round, 'LLM ' + tLlm.toFixed(0) + 'ms（渠道 ' + mode + '）→ ' + (answer ? String(answer).slice(0, 80) : '(无/在站点)'));
+      logDebug('voice#' + round, 'LLM ' + tLlm.toFixed(0) + 'ms（渠道 ' + mode + '）→ ' + (answer ? String(answer).slice(0, 80) : '(无/在站点)'));
 
     // ③ 朗读（文本输出 → 发起朗读的间隔；首帧延迟见 [tts] 日志）
     // 思考内容默认不朗读；设置「朗读包含思考内容」开启时先读思考再读正文。
@@ -3647,14 +3868,23 @@ async function runVoiceCirclePipeline(text) {
       const spoken = (currentVoiceConfig.ttsReadThinking && reasoning) ? reasoning + '\n\n' + answer : answer;
       const tSpk0 = performance.now();
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
-      doSpeak(spoken, document.getElementById('voiceCircleStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
+      // 流式朗读开启时：分句队列已随流式喂入，这里只收尾；否则整段朗读（autoSpeakAnswer 去重）
+      if (streamOn) streamSpeakEnd(spToken);
+      else autoSpeakAnswer(spoken, document.getElementById('voiceCircleStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
       logDebug('voice#' + round, '输出→朗读发起 ' + (performance.now() - tSpk0).toFixed(0) + 'ms');
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
+      if (streamOn) streamSpeakStop();
       setVoiceCircleStatus('✅ ' + (mode === 'inject' ? I18N.t('voiceSentToSite') : I18N.t('voiceCircleDone')));
       logDebug('voice#' + round, '结束（' + (mode === 'inject' ? '已发送到站点，站点未返回文本' : '无回答') + '）· 总 ' + (performance.now() - tRound).toFixed(0) + 'ms');
     }
     } catch (e) {
+      streamSpeakStop();
+      // 出错时若气泡还是空的（未收到任何增量），移除占位
+      if (vcAnsEl) {
+        const st = vcAnsEl.querySelector('.stream-text');
+        if (!st || !String(st.textContent || '').trim()) vcAnsEl.remove();
+      }
       logDebug('voice', '失败: ' + ((e && e.message) || ''), true);
       setVoiceCircleStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
     }
@@ -3699,19 +3929,30 @@ async function toggleVoiceCircleBrowser() {
 }
 
 // 按渠道文本问答：api → askApiStream；inject → 页面注入；local → /chat
-// opts.onReasoning(t)：API 渠道的思考增量回调（供 UI 灰色展示；朗读默认不含思考内容）
+// opts.onReasoning(t)：思考增量回调（供 UI 灰色展示；朗读默认不含思考内容）
+// opts.onDelta(t)：回答增量回调（008 §2：三渠道均支持边出边显示）
 async function voiceChatAskText(text, mode, opts = {}) {
+  const onDelta = opts.onDelta || (() => {});
   if (mode === 'api') {
     if (!currentAiConfig.aiBaseUrl) throw new Error(I18N.t('aiBackendApiNoConfig'));
     let acc = '';
     await TABU_CAPS.askApiStream(text, currentAiConfig, [], {
-      onDelta: (t) => { acc += t; },
+      onDelta: (t) => { acc += t; onDelta(t); },
       onReasoning: (t) => { if (opts.onReasoning) opts.onReasoning(t); }
     });
     return { answer: acc, thinking: '' };
   }
   if (mode === 'inject') {
-    const out = await execute({ action: 'inject', text, options: { site: injectSite(), images: opts.images || [] } });
+    const streamId = 'sp' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    // 注入渠道回传的是「累计全文快照」→ 换算为增量后再 onDelta（与 api/local 语义一致）
+    let prevSnap = '';
+    const onInjectDelta = (snap) => {
+      const s = String(snap || '');
+      const inc = s.startsWith(prevSnap) ? s.slice(prevSnap.length) : s;
+      prevSnap = s;
+      if (inc) onDelta(inc);
+    };
+    const out = await execute({ action: 'inject', text, options: { site: injectSite(), images: opts.images || [], streamId, onDelta: onInjectDelta } });
     if (!out.ok) throw new Error(out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError')));
     // 站点回复的答案 + 思考（分离结构）带回语音管线显示/朗读
     return {
@@ -3719,15 +3960,12 @@ async function voiceChatAskText(text, mode, opts = {}) {
       thinking: (out.result && out.result.thinking) || ''
     };
   }
-  // local
-  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
-  const res = await fetch(serverUrl + '/chat', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'user', content: text }] }), signal: AbortSignal.timeout(120000)
+  // local（008 §2 流式）
+  const r = await TABU_CAPS.askLocalStream(text, {
+    serverUrl: currentVoiceConfig.voiceLocalServer,
+    onDelta
   });
-  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
-  const data = await res.json();
-  return { answer: data.text || '', thinking: '' };
+  return { answer: (r && r.answer) || '', thinking: '' };
 }
 
 // 统一对话流渲染（006 方案二）：语音/文本/本地/API 的问答都追加到同一容器。
@@ -3804,11 +4042,157 @@ function toggleVoiceOutput() {
 async function runAsr(pcm16) {
   // 统一来源「自动」时按可达性解析后端；否则沿用当前显式后端
   const backend = await resolveEffectiveAsrBackend();
-  if (backend === 'azure') return await asrViaAzure(pcm16);
-  if (backend === 'openai') return await asrViaOpenai(pcm16);
-  if (backend === 'aliyun') return await asrViaAliyun(pcm16);
-  if (backend === 'local') return await asrViaLocal(pcm16);
+  return runAsrOnBackend(pcm16, backend);
+}
+
+// 指定后端识别（音频导入需固定后端：浏览器内置不吃文件，见 008 §1）
+function runAsrOnBackend(pcm16, backend) {
+  if (backend === 'azure') return asrViaAzure(pcm16);
+  if (backend === 'openai') return asrViaOpenai(pcm16);
+  if (backend === 'aliyun') return asrViaAliyun(pcm16);
+  if (backend === 'local') return asrViaLocal(pcm16);
   throw new Error(I18N.t('asrNoAudioError'));
+}
+
+// ===== 音频文件导入识别（008 §1）：mp3/wav/m4a → 解码 → 16k → 分段 ASR =====
+async function asrImportAudioFile(file) {
+  if (!file) return;
+  const MAX_FILE = 50 * 1024 * 1024;
+  if (file.size > MAX_FILE) { setAsrStatus(I18N.t('asrImportTooLarge'), true); return; }
+  const outEl = document.getElementById('asrResult');
+  setAsrStatus('📁 ' + I18N.t('asrImportDecoding'));
+  try {
+    const buf = await file.arrayBuffer();
+    const pcm = await decodeAndResample(buf, 16000);
+    if (!pcm.length) throw new Error(I18N.t('asrNoAudioError'));
+    // 后端：浏览器内置（Web Speech）只吃实时麦克风，文件必须走 local/云端
+    let backend = await resolveEffectiveAsrBackend();
+    if (backend === 'browser') {
+      if (await localReachable()) backend = 'local';
+      else { setAsrStatus(I18N.t('asrImportBrowserUnsupported'), true); return; }
+    }
+    const SR = 16000, SEG = 28 * SR; // 28s/段（Azure ≤60s、本地模型单段有限）
+    let text = '';
+    if (pcm.length <= SEG) {
+      setAsrStatus('📁 ' + I18N.t('asrImportProgress', '1', '1'));
+      text = await runAsrOnBackend(pcm, backend);
+    } else {
+      const total = Math.ceil(pcm.length / SEG);
+      const parts = [];
+      for (let i = 0, idx = 1; i < pcm.length; i += SEG, idx++) {
+        const seg = pcm.subarray(i, Math.min(i + SEG, pcm.length));
+        if (seg.length < SR * 0.3) break; // <0.3s 尾段忽略
+        setAsrStatus('📁 ' + I18N.t('asrImportProgress', String(idx), String(total)));
+        const t = await runAsrOnBackend(seg, backend);
+        if (t) parts.push(String(t).trim());
+      }
+      text = parts.join('\n');
+    }
+    text = String(text || '').trim();
+    if (outEl) outEl.value = text;
+    setAsrStatus(text ? '✅ ' + I18N.t('asrTestOk') : I18N.t('asrNoAudioError'), !text);
+  } catch (e) {
+    setAsrStatus(I18N.t('asrError', (e && e.message) || I18N.t('asrNoAudioError')), true);
+  }
+}
+
+// ===== 抓标签页音视频（007 §3 B 原型）：tabCapture → 分段 ASR → 结果框 =====
+let tabAudioState = null;
+async function toggleTabAudioCapture() {
+  if (tabAudioState && tabAudioState.active) { stopTabAudioCapture(); return; }
+  const btn = document.getElementById('asrTabAudio');
+  if (!chrome.tabCapture || !chrome.tabCapture.getMediaStreamId) {
+    setAsrStatus(I18N.t('asrTabAudioFail', '当前环境不支持 tabCapture'), true); return;
+  }
+  // 先取 tabId 并完成捕获（tabCapture 依赖用户手势，尽量减少其前的 await）
+  let tabId = null;
+  try { const tabs = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = tabs[0] && tabs[0].id; } catch (e) {}
+  if (tabId == null) { setAsrStatus(I18N.t('asrTabAudioNoTab'), true); return; }
+  let stream = null;
+  try {
+    setAsrStatus('🎧 ' + I18N.t('asrTabAudioStarting'));
+    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: tabId });
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { mandatory: { chromeMediaSource: 'tab', chromeMediaSourceId: streamId } },
+      video: false
+    });
+  } catch (e) {
+    setAsrStatus(I18N.t('asrTabAudioFail', (e && e.message) || I18N.t('unknown')), true);
+    return;
+  }
+  // 浏览器内置（Web Speech）无法处理标签流 → 强制 local/云端
+  let backend = await resolveEffectiveAsrBackend();
+  if (backend === 'browser') {
+    if (await localReachable()) backend = 'local';
+    else { try { stream.getTracks().forEach((t) => t.stop()); } catch (e) {} setAsrStatus(I18N.t('asrTabAudioBrowserUnsupported'), true); return; }
+  }
+  try {
+    // 捕获后标签默认静音：接回 destination 让用户继续听到声音
+    let ctx = null;
+    try {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      ctx.createMediaStreamSource(stream).connect(ctx.destination);
+      ctx.resume().catch(() => {});
+    } catch (e) { ctx = null; }
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+      : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
+    tabAudioState = { stream, ctx, recorder: null, timer: null, active: true, backend, mime, pending: Promise.resolve() };
+    startTabAudioRecorder(tabAudioState);
+    if (btn) { btn.classList.add('recording'); btn.textContent = I18N.t('asrTabAudioStop'); }
+    setAsrStatus('🎧 ' + I18N.t('asrTabAudioRecording'));
+  } catch (e) {
+    stopTabAudioCapture();
+    setAsrStatus(I18N.t('asrTabAudioFail', (e && e.message) || I18N.t('unknown')), true);
+  }
+}
+// 每 ~4s 一段：停旧 recorder → 完整 blob → 解码识别 → 起新 recorder
+function startTabAudioRecorder(state) {
+  if (tabAudioState !== state) return;
+  let rec;
+  try { rec = new MediaRecorder(state.stream, state.mime ? { mimeType: state.mime } : undefined); }
+  catch (e) { setAsrStatus(I18N.t('asrTabAudioFail', (e && e.message) || ''), true); stopTabAudioCapture(); return; }
+  state.recorder = rec;
+  const chunks = [];
+  rec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  rec.onstop = () => {
+    const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
+    if (tabAudioState === state) {
+      state.pending = state.pending.then(() => tabAudioChunkToText(blob)).catch(() => {});
+      startTabAudioRecorder(state); // 下一段
+    }
+  };
+  try { rec.start(); } catch (e) { return; }
+  state.timer = setTimeout(() => { try { if (rec.state === 'recording') rec.stop(); } catch (e) {} }, 4000);
+}
+async function tabAudioChunkToText(blob) {
+  const state = tabAudioState;
+  if (!state || !state.active) return;
+  try {
+    const buf = await blob.arrayBuffer();
+    const pcm = await decodeAndResample(buf, 16000);
+    if (pcm.length < 1600) return; // <0.1s
+    const t = await runAsrOnBackend(pcm, state.backend);
+    if (t && tabAudioState === state) {
+      const outEl = document.getElementById('asrResult');
+      if (outEl) outEl.value = (outEl.value ? outEl.value.replace(/\s*$/, '') + '\n' : '') + String(t).trim();
+      setAsrStatus('🎧 ' + I18N.t('asrTabAudioRecording'));
+    }
+  } catch (e) {
+    // 单段失败不终止整体（网络抖动/空段），仅提示
+    logDebug('asr', '标签页音频分段识别失败: ' + ((e && e.message) || ''), true);
+  }
+}
+function stopTabAudioCapture() {
+  const st = tabAudioState;
+  tabAudioState = null;
+  const btn = document.getElementById('asrTabAudio');
+  if (btn) { btn.classList.remove('recording'); btn.textContent = I18N.t('asrTabAudio'); }
+  if (!st) return;
+  if (st.timer) clearTimeout(st.timer);
+  try { if (st.recorder && st.recorder.state !== 'inactive') st.recorder.stop(); } catch (e) {}
+  try { if (st.stream) st.stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+  try { if (st.ctx) st.ctx.close(); } catch (e) {}
+  setAsrStatus(I18N.t('asrTabAudioStopped'));
 }
 
 // 本地服务（本地部署 asr-server）：POST WAV → http://127.0.0.1:9528/transcribe
@@ -4368,7 +4752,8 @@ document.addEventListener('DOMContentLoaded', () => {
       if (voiceField('ttsTestStatus')) voiceField('ttsTestStatus').textContent = tip;
       return;
     }
-    speakLocalTts(I18N.t('ttsLocalSample'), voiceField('ttsTestStatus'), ttsLocalTestBtn, engine);
+    const round = ++speakRoundSeq; activeSpeakRound = round;
+    speakLocalTts(I18N.t('ttsLocalSample'), voiceField('ttsTestStatus'), ttsLocalTestBtn, engine, round);
   });
 
   // 本地模型管理（014 §5.2）：刷新按钮 + 首次加载状态
@@ -4725,6 +5110,14 @@ document.addEventListener('DOMContentLoaded', () => {
       updateAiSpeakToggleUi(speakAnswerBlue.checked);
     });
   }
+  // 流式朗读开关（008 §3）：边生成边分句朗读
+  const streamSpeakBlue = document.getElementById('ttsStreamSpeakBlue');
+  if (streamSpeakBlue) {
+    loadStreamSpeakPref().then(() => { streamSpeakBlue.checked = isStreamSpeakEnabled(); }).catch(() => {});
+    streamSpeakBlue.addEventListener('change', () => setStreamSpeakPref(streamSpeakBlue.checked));
+  } else {
+    loadStreamSpeakPref().catch(() => {});
+  }
   const aiSpeakVoiceSel = document.getElementById('aiSpeakVoice');
   if (aiSpeakVoiceSel) {
     aiSpeakVoicePref().then((v) => { aiSpeakVoiceSel.value = v; }).catch(() => {});
@@ -4763,6 +5156,20 @@ document.addEventListener('DOMContentLoaded', () => {
   if (asrClearBtn) asrClearBtn.addEventListener('click', asrClearResult);
   const asrPageSubsBtn = document.getElementById('asrPageSubs');
   if (asrPageSubsBtn) asrPageSubsBtn.addEventListener('click', asrFetchPageSubtitles);
+  // 📁 导入音频（008 §1）：选择文件 → 解码 → 分段 ASR → 填结果框
+  const asrImportBtn = document.getElementById('asrImportAudio');
+  const asrImportFile = document.getElementById('asrImportFile');
+  if (asrImportBtn && asrImportFile) {
+    asrImportBtn.addEventListener('click', () => asrImportFile.click());
+    asrImportFile.addEventListener('change', (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (f) asrImportAudioFile(f);
+      e.target.value = ''; // 允许重复选择同一文件
+    });
+  }
+  // 🎧 网页音频（007 §3）：捕获当前标签页声音实时转写
+  const asrTabAudioBtn = document.getElementById('asrTabAudio');
+  if (asrTabAudioBtn) asrTabAudioBtn.addEventListener('click', toggleTabAudioCapture);
   const asrCopyBtn = document.getElementById('asrCopy');
   if (asrCopyBtn) asrCopyBtn.addEventListener('click', asrCopyResult);
   const asrSendTtsBtn = document.getElementById('asrSendTts');
@@ -4784,14 +5191,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const INJECT_SITES = ['chatgpt', 'claude', 'kimi', 'deepseek'];
     chrome.storage.local.get('injectSite').then((r) => {
       if (r.injectSite && INJECT_SITES.includes(r.injectSite)) injectSiteSel.value = r.injectSite;
-      renderInjectCapBadges();
     }).catch(() => {});
     injectSiteSel.addEventListener('change', () => {
       chrome.storage.local.set({ injectSite: injectSiteSel.value }).catch(() => {});
-      renderInjectCapBadges();
     });
   }
-  renderInjectCapBadges();
   const bmMaxVersionsSave = document.getElementById('bmMaxVersionsSave');
   if (bmMaxVersionsSave) bmMaxVersionsSave.addEventListener('click', saveBmMaxVersions);
   const histMaxVersionsSave = document.getElementById('histMaxVersionsSave');

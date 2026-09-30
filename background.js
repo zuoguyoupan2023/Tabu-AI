@@ -659,7 +659,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           }
           break;
         // 注入功能（AI 页面问答）
-        case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt, { images: request.images || [] }); break;
+        case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt, { images: request.images || [], requestId: request.streamId || '' }); break;
         // 自定义 API：测试连接 / 单次调用（openai 兼容或 anthropic 原生）
         case 'askViaApi': result = await askViaApi(request.prompt, request.config, request.history); break;
         // 自定义 API：多轮会话上下文（session + 历史消息）
@@ -759,10 +759,17 @@ async function sendBridgeOrigins() {
   } catch (e) {}
 }
 
-// 页面内 askInSite 在流式回复过程中上报的文本快照 → 转发给桥接服务（由服务端换算增量推 SSE）
+// 页面内 askInSite 在流式回复过程中上报的文本快照 → 转发给桥接服务（由服务端换算增量推 SSE），
+// 并同步转发给侧边栏，供「注入渠道」边出边显示（008 §2）。
 function relayBridgeDelta(msg) {
+  const text = String(msg.text || '');
   if (bridgeSocket && bridgeSocket.readyState === 1) {
-    try { bridgeSocket.send(JSON.stringify({ type: 'ask_delta', requestId: msg.requestId, text: String(msg.text || '') })); } catch (e) {}
+    try { bridgeSocket.send(JSON.stringify({ type: 'ask_delta', requestId: msg.requestId, text })); } catch (e) {}
+  }
+  if (msg.requestId) {
+    try {
+      chrome.runtime.sendMessage({ type: 'injectDeltaPanel', requestId: msg.requestId, text }, () => void chrome.runtime.lastError);
+    } catch (e) {}
   }
 }
 
@@ -1035,7 +1042,7 @@ async function injectAskWithSave(site, prompt, opts = {}) {
       if (r.answer) await saveConversation({ site: 'api', session, prompt, answer: r.answer });
       return r;
     }
-    const r = await injectAsk(site, prompt, { allowCreate: true, images: opts.images || [] });
+    const r = await injectAsk(site, prompt, { allowCreate: true, images: opts.images || [], requestId: opts.requestId || '' });
     if (r.answer) {
       await saveConversation({ site, prompt, answer: r.answer });
     }

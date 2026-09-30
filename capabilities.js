@@ -444,10 +444,109 @@ async function translateText(text, opts = {}) {
 }
 
 // 发送到 AI：注入 askInSite（后台）并返回 { ok, text, error }
-async function sendToAI(site, prompt, images) {
-  const r = await sendMessage('injectAsk', { site: site || 'chatgpt', prompt, images: images || [] });
-  if (r && r.answer) return { ok: true, text: r.answer, thinking: r.thinking || '' };
-  return { ok: false, text: '', error: (r && r.error) || I18N.t('unknownError') };
+// opts: { streamId, onDelta(text) } —— 传入 streamId 时，后台会把页面回复过程中的文本快照
+// 经 'injectDeltaPanel' 消息实时转发回侧边栏，onDelta 收到的是「目前累计全文」。
+async function sendToAI(site, prompt, images, opts = {}) {
+  const streamId = opts.streamId || '';
+  const onDelta = opts.onDelta || null;
+  let listener = null;
+  if (streamId && onDelta) {
+    listener = (msg) => {
+      if (msg && msg.type === 'injectDeltaPanel' && msg.requestId === streamId) {
+        try { onDelta(String(msg.text || '')); } catch (e) {}
+      }
+    };
+    try { chrome.runtime.onMessage.addListener(listener); } catch (e) {}
+  }
+  try {
+    const r = await sendMessage('injectAsk', { site: site || 'chatgpt', prompt, images: images || [], streamId });
+    if (r && r.answer) return { ok: true, text: r.answer, thinking: r.thinking || '' };
+    return { ok: false, text: '', error: (r && r.error) || I18N.t('unknownError') };
+  } finally {
+    if (listener) { try { chrome.runtime.onMessage.removeListener(listener); } catch (e) {} }
+  }
+}
+
+// 本地 LLM（asr-server /chat）流式调用：优先透传服务端流（SSE / NDJSON），
+// 服务端不支持流时读取整段 JSON 并「伪分块」渐进回调，保证 UI 边出边显示（008 §2）。
+// opts: { signal, onDelta(text) }；返回 { answer }；出错 throw Error。
+async function askLocalStream(prompt, opts = {}) {
+  const onDelta = opts.onDelta || (() => {});
+  const serverUrl = (opts.serverUrl || 'http://127.0.0.1:9528').replace(/\/+$/, '');
+  const res = await fetch(serverUrl + '/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: String(prompt || '') }], stream: true }),
+    signal: opts.signal || AbortSignal.timeout(120000)
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.error || 'HTTP ' + res.status);
+  }
+  const ct = (res.headers.get('content-type') || '').toLowerCase();
+  // ① SSE（text/event-stream）：逐事件取增量
+  if (ct.includes('text/event-stream') && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', answer = '';
+    const handleEvent = (block) => {
+      const lines = block.split('\n').filter((l) => l.startsWith('data:'));
+      for (const l of lines) {
+        const data = l.slice(5).trim();
+        if (!data) continue;
+        if (data === '[DONE]') continue;
+        let piece = '';
+        try {
+          const j = JSON.parse(data);
+          piece = j.delta || j.text || j.content || (j.choices && j.choices[0] && (j.choices[0].delta?.content || j.choices[0].text)) || '';
+        } catch (e) { piece = data; }
+        if (piece) { answer += piece; onDelta(piece); }
+      }
+    };
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop();
+      for (const ev of events) handleEvent(ev);
+    }
+    if (buffer.trim()) handleEvent(buffer);
+    const tail = decoder.decode();
+    if (tail) { answer += tail; onDelta(tail); }
+    return { answer };
+  }
+  // ② NDJSON：逐行为 JSON
+  if ((ct.includes('x-ndjson') || ct.includes('jsonl')) && res.body) {
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '', answer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        const t = line.trim(); if (!t) continue;
+        let piece = '';
+        try { const j = JSON.parse(t); piece = j.delta || j.text || j.content || ''; } catch (e) { piece = t; }
+        if (piece) { answer += piece; onDelta(piece); }
+      }
+    }
+    return { answer };
+  }
+  // ③ 不支持流：整段 JSON → 伪分块渐进渲染
+  const data = await res.json().catch(() => ({}));
+  const answer = String(data.text || data.answer || data.content || '');
+  if (!answer) return { answer: '' };
+  const CHUNK = Math.max(4, Math.ceil(answer.length / 40));
+  for (let i = 0; i < answer.length; i += CHUNK) {
+    if (opts.signal && opts.signal.aborted) break;
+    onDelta(answer.slice(i, i + CHUNK));
+    if (i + CHUNK < answer.length) await new Promise((r) => setTimeout(r, 16));
+  }
+  return { answer };
 }
 
 // 自定义 API 流式调用（sidepanel 上下文执行）。
@@ -602,7 +701,7 @@ const ACTIONS = {
     const translated = await translateText(t, o || {});
     return { ok: true, text: translated };
   } },
-  inject:    { label: I18N.t('actInject'), run: (t, o) => sendToAI((o && o.site) || 'chatgpt', t, (o && o.images) || []) },
+  inject:    { label: I18N.t('actInject'), run: (t, o) => sendToAI((o && o.site) || 'chatgpt', t, (o && o.images) || [], { streamId: o && o.streamId, onDelta: o && o.onDelta }) },
   copy:      { label: I18N.t('actCopy'),      run: (t) => copyText(t) },
   card:      { label: I18N.t('actCard'),      run: (t, o) => downloadCardImage(t, o) }
 };
@@ -684,5 +783,6 @@ const TABU_CAPS = {
   speakText,
   sendToAI,
   askApiStream,
+  askLocalStream,
   copyText
 };
