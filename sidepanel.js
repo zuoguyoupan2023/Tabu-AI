@@ -627,7 +627,13 @@ function stripMarkdownForTts(text) {
 // 支持：代码块 ```、行内代码 `x`、标题 #~####、粗体 **x**、斜体 *x*、无序/有序列表、段落换行。
 // 思考标题行渲染为灰色（.md-think）；所有内容先 escapeHtml 再转换，安全。
 function renderMarkdown(src) {
-  const lines = escapeHtml(String(src || '')).split('\n');
+  // 先把跨行的 [label](url) 归一化为单行，避免链接被逐行渲染拆散而无法点击
+  const normalized = String(src || '').replace(/\[([^\]]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/g, (m, label, url) => {
+    let l = label.replace(/\s+/g, ' ').trim();
+    if (/^[-\s\d]+$/.test(l)) l = l.replace(/[^\d]/g, ''); // 引用编号（如 "- 2"）只留数字
+    return '[' + l + '](' + url + ')';
+  });
+  const lines = escapeHtml(normalized).split('\n');
   const out = [];
   let inCode = false, codeBuf = [], listOpen = null;
   const closeList = () => { if (listOpen) { out.push('</' + listOpen + '>'); listOpen = null; } };
@@ -2350,6 +2356,31 @@ async function aiShowThinkingEnabled() {
     const r = await chrome.storage.local.get('aiShowThinking');
     return r.aiShowThinking === true; // 默认隐藏
   } catch (e) { return false; }
+}
+function updateAiShowThinkingToggleUi(on) {
+  const btn = document.getElementById('aiShowThinkingToggle');
+  if (!btn) return;
+  btn.textContent = on ? I18N.t('aiShowThinkingOn') : I18N.t('aiShowThinkingOff');
+  btn.classList.toggle('on', on);
+}
+// 仅当当前 LLM 可能产出思考内容时才显示该开关：
+// · 注入渠道：主流网页模型（ChatGPT/Claude/Gemini/Qwen/ChatGLM/Kimi/DeepSeek）普遍提供思考/推理 → 显示；
+// · API / 本地：按模型名判断，明确非推理模型才隐藏（未知则显示，避免误藏）。
+const REASONING_MODEL_RE = /reason|think|r1|qwq|glm-?z|glm-?4\.5|deepseek|qwq|\bo[134]\b|k1|kimi|sonnet-3[.-]7|claude-3[.-]7|gpt-5|gemini-2\.5/i;
+async function updateThinkingToggleVisibility() {
+  const btn = document.getElementById('aiShowThinkingToggle');
+  if (!btn) return;
+  let show = true;
+  try {
+    const mode = await getEffectiveAiMode();
+    if (mode === 'inject') {
+      show = true;
+    } else {
+      const model = String((currentAiConfig && (currentAiConfig.aiModel || currentAiConfig.model)) || '').trim();
+      show = !model || REASONING_MODEL_RE.test(model);
+    }
+  } catch (e) { show = true; }
+  btn.classList.toggle('hidden', !show);
 }
 // LLM 回复音色偏好（'' = 跟随系统语音；仅系统朗读路径生效）
 async function aiSpeakVoicePref() {
@@ -4632,6 +4663,7 @@ async function syncAiBackendUi() {
       hint.classList.add('hidden');
     }
   }
+  updateThinkingToggleVisibility();
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
@@ -5086,7 +5118,7 @@ document.addEventListener('DOMContentLoaded', () => {
       injectAttachFile.value = ''; // 允许重复选择同一文件
     });
   }
-  // 💭 思考显示开关（默认隐藏）
+  // 💭 思考显示开关（默认隐藏；仅当当前 LLM 可能产出思考时显示，S/T 两模式通用）
   const showThinkToggle = document.getElementById('aiShowThinkingToggle');
   if (showThinkToggle) {
     chrome.storage.local.get('aiShowThinking').then((r) => updateAiShowThinkingToggleUi(r.aiShowThinking === true)).catch(() => {});
@@ -5095,6 +5127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       await chrome.storage.local.set({ aiShowThinking: on });
       updateAiShowThinkingToggleUi(on);
     });
+    updateThinkingToggleVisibility();
   }
   // 后台注入进度提示（方案 A：AI 标签页后台打开，不抢当前页面焦点）
   chrome.runtime.onMessage.addListener((msg) => {

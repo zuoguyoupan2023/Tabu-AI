@@ -103,7 +103,6 @@
               <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
               <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="开关：AI 回答后是否自动朗读（与蓝区「LLM 回复朗读」同步，默认开）">🔊 自动朗读</button>
               <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务（MyMemory）翻译输入框内容">🌐 免费翻译</button>
-              <button class="chip" id="aiShowThinkingToggle" data-i18n="aiShowThinkingOff" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭 思考隐藏</button>
               <span id="injectStatus" class="tool-status inline"></span>
             </div>
           </div>
@@ -203,11 +202,12 @@
             </div>
           </div>
 
-          <!-- 底部：关联页面（上下文） / 附件（两模式通用，置最下） -->
+          <!-- 底部：关联页面（上下文） / 思考显示 / 附件（两模式通用，置最下） -->
           <div class="chat-bottom-bar" id="chatBottomBar">
             <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
               <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
             </label>
+            <button class="chip hidden" id="aiShowThinkingToggle" data-i18n="aiShowThinkingOff" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭 思考隐藏</button>
             <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎 附件</button>
             <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf" hidden />
           </div>

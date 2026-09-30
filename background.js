@@ -1539,6 +1539,12 @@ function askInSite(question, adapter, requestId, images) {
           return /(^|\s)(tooltip|popover|invisible)(\s|$)/i.test(cls);
         };
         const walk = (node) => {
+          // 链接标签：折叠空白（避免换行把 [label](url) 拆行导致无法渲染）；纯引用编号只留数字
+          const linkLabel = (n) => {
+            let s = (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim();
+            if (/^[-\s\d]+$/.test(s)) s = s.replace(/[^\d]/g, '');
+            return s;
+          };
           if (node.nodeType === 3) { out += node.nodeValue || ''; return; }
           if (node.nodeType !== 1) return;
           const tag = node.tagName.toLowerCase();
@@ -1546,7 +1552,7 @@ function askInSite(question, adapter, requestId, images) {
           if (isThink(node) || isHidden(node)) return;
           if (tag === 'a') {
             const href = node.getAttribute('href') || '';
-            const label = (node.innerText || node.textContent || '').trim();
+            const label = linkLabel(node);
             if (/^https?:/i.test(href) && label) { out += '[' + label + '](' + href + ')'; return; }
             for (const c of node.childNodes) walk(c);
             return;
@@ -1554,7 +1560,7 @@ function askInSite(question, adapter, requestId, images) {
           // 引用标记（sup / cite / reference）：URL 可能挂在属性而非 <a href>
           if (tag === 'sup' || /cite|reference|footnote/i.test(String(node.className || ''))) {
             const url = node.getAttribute('data-url') || node.getAttribute('data-href') || node.getAttribute('data-link') || node.getAttribute('href') || '';
-            const label = (node.innerText || node.textContent || '').trim();
+            const label = linkLabel(node);
             if (/^https?:/i.test(url) && label) { out += '[' + label + '](' + url + ')'; return; }
           }
           if (tag === 'br') { out += '\n'; return; }
