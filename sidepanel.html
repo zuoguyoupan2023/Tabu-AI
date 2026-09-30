@@ -113,6 +113,7 @@
         <div class="voice-output" id="voiceOutput">
           <div class="voice-output-head">
             <span data-i18n="chatStreamTitle">💬 对话记录</span>
+            <button class="mini-btn" id="voiceSpeakLast" data-i18n="ttsSpeakLastAnswer" data-i18n-title="ttsSpeakLastAnswerTitle" title="朗读最近一条 AI 回答">朗读回答</button>
             <button class="mini-btn" id="voiceCopyLast" data-i18n="voiceCopyLast" data-i18n-title="voiceCopyLastTitle" title="复制最近一条 AI 回答">复制回答</button>
             <button class="mini-btn" id="voiceOutputClear" data-i18n="voiceOutputClear">清空</button>
           </div>
@@ -137,6 +138,7 @@
               <button class="op primary" id="ttsSpeak" data-i18n="ttsSpeakSel" data-i18n-title="ttsSpeakSelTitle" title="朗读当前网页选中的文本">▶ 朗读选中</button>
               <button class="op" id="ttsSpeakFull" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
               <button class="op" id="ttsSpeakInput" data-i18n="ttsSpeakInput" data-i18n-title="ttsSpeakInputTitle" title="朗读上方输入框内容">▶ 朗读输入框</button>
+              <button class="op" id="ttsSpeakLastAnswer" data-i18n="ttsSpeakLastAnswer" data-i18n-title="ttsSpeakLastAnswerTitle" title="朗读最近一条 AI 回答（对话记录）">🔊 朗读回答</button>
             </div>
             <div class="fold-body">
               <div class="voice-filter-row">
@@ -519,6 +521,12 @@
                 <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoiceBlue"></select></label>
               </div>
               <div class="hint" data-i18n="ttsBlueVoiceHint">与红区「🗣 朗读」面板双向同步，两处修改等效。</div>
+              <div class="ai-svc-sep" data-i18n="aiSpeakSectionLabel">🤖 LLM 回复朗读</div>
+              <label class="cfg-row"><input type="checkbox" id="aiSpeakAnswerBlue" style="accent-color:var(--accent);width:auto;"> <span data-i18n="aiSpeakAnswerRow" style="opacity:.85;font-size:11px;">AI 回答后自动朗读（与工作台 🔊 开关同步）</span></label>
+              <label class="cfg-row"><span data-i18n="aiSpeakVoiceLabel">回复音色</span>
+                <select id="aiSpeakVoice" class="row-select" style="flex:1;"><option value="" data-i18n="aiSpeakVoiceFollow">跟随系统语音</option></select>
+              </label>
+              <div class="hint" data-i18n="aiSpeakVoiceHint">仅对系统朗读路径生效；本地/云端引擎使用各自已配置的音色。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceLocalLabel">💻 本地</div>
               <div class="hint" data-i18n="ttsLocalHint">kokoro / qwen3 本地模型走 asr-server /speak；服务地址在「🎙 ASR 识别」卡，模型在「🧩 本地模型管理」安装。</div>
               <div class="ai-svc-sep" data-i18n="cloudTtsLabel">☁️ 云端</div>

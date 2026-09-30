@@ -557,6 +557,14 @@ function mirrorVoiceToBlue(redVoiceSel, redLangSel) {
   blueLang.value = redLangSel.value;
   blueVoice.innerHTML = redVoiceSel.innerHTML;
   blueVoice.value = redVoiceSel.value;
+  // LLM 回复音色选择：同步音色选项（保留已选偏好；首项"跟随系统语音"由 HTML 提供）
+  const prefSel = document.getElementById('aiSpeakVoice');
+  if (prefSel) {
+    const cur = prefSel.value;
+    prefSel.innerHTML = redVoiceSel.innerHTML;
+    prefSel.insertBefore(new Option(I18N.t('aiSpeakVoiceFollow'), ''), prefSel.firstChild);
+    prefSel.value = cur;
+  }
 }
 
 // ===== 思维链（思考内容）处理 =====
@@ -617,8 +625,8 @@ function renderMarkdown(src) {
 
 // 系统 TTS 朗读：优先 Web SpeechSynthesis（全浏览器通用——chrome.tts 在 Edge 不完整，
 // 是"选了音色却不发声"的根因）；SpeechSynthesis 不可用/无音色时回退 chrome.tts。
-async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
-  const voice = document.getElementById('ttsVoice')?.value || '';
+async function speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride) {
+  let voice = voiceOverride || document.getElementById('ttsVoice')?.value || '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
@@ -684,7 +692,7 @@ async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
   }
 }
 
-function doSpeak(text, statusEl, triggerBtn, forceSystem) {
+function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
   if (!text || !text.trim()) {
     showStatus(I18N.t('noTextToSpeak'), 'info');
     if (statusEl) statusEl.textContent = I18N.t('noText');
@@ -708,7 +716,7 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem) {
         if (statusEl) statusEl.textContent = I18N.t('ttsLocalFallback');
       }
     }
-    await speakSystemTtsSafe(text, statusEl, triggerBtn);
+    await speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride);
   });
   showStatus(I18N.t('startSpeaking'), 'success');
   if (statusEl) statusEl.textContent = I18N.t('speakStarting');
@@ -2093,12 +2101,26 @@ async function aiShowThinkingEnabled() {
     return r.aiShowThinking === true; // 默认隐藏
   } catch (e) { return false; }
 }
+// LLM 回复音色偏好（'' = 跟随系统语音；仅系统朗读路径生效）
+async function aiSpeakVoicePref() {
+  try {
+    const r = await chrome.storage.local.get('aiSpeakVoice');
+    return r.aiSpeakVoice || '';
+  } catch (e) { return ''; }
+}
 function maybeSpeakAnswer(text) {
   if (!text || !String(text).trim()) return;
-  aiSpeakAnswerEnabled().then((on) => {
-    if (!on) return;
-    doSpeak(String(text), document.getElementById('injectStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
+  Promise.all([aiSpeakAnswerEnabled(), aiSpeakVoicePref()]).then(([on, pref]) => {
+    if (!on) { logDebug('tts', '自动朗读已关闭（工作台 🔊 开关或蓝区「LLM 回复朗读」）'); return; }
+    logDebug('tts', '自动朗读 LLM 回答（' + String(text).length + ' 字）');
+    doSpeak(String(text), document.getElementById('injectStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref);
   }).catch(() => {});
+}
+// 朗读最近一条 AI 回答（对话流头部 / 红区朗读面板按钮共用）
+async function speakLastAnswer() {
+  if (!lastAnswerText || !lastAnswerText.trim()) { showStatus(I18N.t('noTextToSpeak'), 'info'); return; }
+  const pref = await aiSpeakVoicePref();
+  doSpeak(lastAnswerText, document.getElementById('injectStatus'), null, false, pref);
 }
 function updateAiSpeakToggleUi(on) {
   const btn = document.getElementById('aiSpeakToggle');
@@ -4874,6 +4896,26 @@ document.addEventListener('DOMContentLoaded', () => {
       showStatus(I18N.t('unknownError'), true);
     }
   });
+  // 朗读最近一条 AI 回答（对话流头部）
+  const speakLastBtn = document.getElementById('voiceSpeakLast');
+  if (speakLastBtn) speakLastBtn.addEventListener('click', speakLastAnswer);
+  // 红区朗读面板：朗读最近回答
+  const speakLastRedBtn = document.getElementById('ttsSpeakLastAnswer');
+  if (speakLastRedBtn) speakLastRedBtn.addEventListener('click', speakLastAnswer);
+  // 蓝区「LLM 回复朗读」：自动朗读开关（与工作台 🔊 双向同步）+ 回复音色
+  const speakAnswerBlue = document.getElementById('aiSpeakAnswerBlue');
+  if (speakAnswerBlue) {
+    aiSpeakAnswerEnabled().then((on) => { speakAnswerBlue.checked = on; }).catch(() => {});
+    speakAnswerBlue.addEventListener('change', async () => {
+      await chrome.storage.local.set({ aiSpeakAnswer: !!speakAnswerBlue.checked });
+      updateAiSpeakToggleUi(speakAnswerBlue.checked);
+    });
+  }
+  const aiSpeakVoiceSel = document.getElementById('aiSpeakVoice');
+  if (aiSpeakVoiceSel) {
+    aiSpeakVoicePref().then((v) => { aiSpeakVoiceSel.value = v; }).catch(() => {});
+    aiSpeakVoiceSel.addEventListener('change', () => chrome.storage.local.set({ aiSpeakVoice: aiSpeakVoiceSel.value }).catch(() => {}));
+  }
   if (voiceOutputClearBtn) voiceOutputClearBtn.addEventListener('click', voiceOutputClear);
   loadVoiceOutputSetting();
 
