@@ -3329,6 +3329,9 @@ function updateChatBodies() {
   if (textBody) textBody.classList.toggle('hidden', !showText);
   const toggle = document.getElementById('chatInputToggle');
   if (toggle) toggle.classList.toggle('on', chatInputExpanded);
+  // 「语音填入」只在文本模式有意义（S 模式已有圆球）；附件两种模式都保留
+  const voiceFill = document.getElementById('injectVoice');
+  if (voiceFill) voiceFill.classList.toggle('hidden', chatMode === 'voice');
 }
 
 function setChatMode(mode) {
