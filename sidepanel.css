@@ -729,6 +729,13 @@ footer a { color: #fff; text-decoration: none; }
 .chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
 .chat-main-title { font-size: 13px; font-weight: 700; }
 .chat-main-head .cap-badges { margin-left: 2px; }
+/* 新对话按钮（主界面常显） */
+.chat-new-btn {
+  width: 30px; height: 30px; border-radius: 9px; padding: 0; flex: none;
+  background: var(--glass-strong); color: #fff; font-size: 15px; font-weight: 800; line-height: 1;
+  transition: background .2s;
+}
+.chat-new-btn:hover { background: rgba(255,255,255,.3); }
 /* 「关联页面」开关 */
 .chat-ctx-toggle {
   margin-left: auto; display: inline-flex; align-items: center; gap: 4px;

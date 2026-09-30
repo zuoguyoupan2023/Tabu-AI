@@ -3267,9 +3267,17 @@ function debugLogClear() {
   if (body) body.innerHTML = '<div class="debug-log-empty">—</div>';
 }
 
+// 语音状态行：非错误提示显示数秒后自动隐藏（避免 UI 一直堆着一行字）
+let vcStatusHideTimer = null;
 function setVoiceCircleStatus(msg, isError) {
   const el = document.getElementById('voiceCircleStatus');
-  if (el) { el.textContent = msg; el.classList.toggle('error', !!isError); }
+  if (!el) return;
+  if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
+  el.classList.toggle('error', !!isError);
+  clearTimeout(vcStatusHideTimer);
+  if (msg && !isError) {
+    vcStatusHideTimer = setTimeout(() => { el.classList.add('hidden'); }, 5000);
+  }
 }
 
 // 预热 AudioContext：在用户点击手势内创建并 resume，避免首次朗读因自动播放策略静默（"没有朗读"）
@@ -4588,6 +4596,8 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => setVoiceCircleMode(b.dataset.vcmode));
   });
   loadVoiceCircleMode();
+  // 初始提示（"点击说话…"）显示几秒后自动隐藏
+  vcStatusHideTimer = setTimeout(() => { document.getElementById('voiceCircleStatus')?.classList.add('hidden'); }, 5000);
   // ===== 主对话面板：语音/文本模式切换 + i 设置 =====
   const chatModeSwitch = document.getElementById('chatModeSwitch');
   if (chatModeSwitch) chatModeSwitch.addEventListener('click', () => setChatMode(chatMode === 'voice' ? 'text' : 'voice'));

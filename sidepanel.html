@@ -55,6 +55,7 @@
           <div class="chat-main-head">
             <span class="chat-main-title" data-i18n="chatMainTitle">💬 对话</span>
             <span id="injectCapBadges" class="cap-badges"></span>
+            <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
             <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
               <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
             </label>
@@ -129,7 +130,6 @@
                 <option value="kimi" data-i18n="aiSiteKimi">Kimi</option>
                 <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
               </select>
-              <button class="chip" id="injectNewChat" data-i18n="aiNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话" style="flex:none;">➕ 新对话</button>
             </label>
 
             <div class="ai-svc-sep" data-i18n="chatVoiceBehaviorLabel">🎙 语音模式行为</div>
