@@ -724,8 +724,14 @@ footer a { color: #fff; text-decoration: none; }
 .chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
 .chat-main-title { font-size: 13px; font-weight: 700; }
 .chat-main-head .cap-badges { margin-left: 2px; }
+/* 「关联页面」开关 */
+.chat-ctx-toggle {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: rgba(255,255,255,.9); cursor: pointer; white-space: nowrap;
+}
+.chat-ctx-toggle input { accent-color: var(--accent, #fff); width: auto; }
 .chat-mode-switch {
-  margin-left: auto; width: 30px; height: 30px; border-radius: 9px; padding: 0;
+  width: 30px; height: 30px; border-radius: 9px; padding: 0;
   background: #fff; color: var(--red-b); font-size: 14px; font-weight: 800;
   box-shadow: 0 2px 8px rgba(0,0,0,.2); transition: transform .15s, box-shadow .15s;
 }
@@ -753,3 +759,15 @@ footer a { color: #fff; text-decoration: none; }
 .chat-behavior-row { display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
 .chat-behavior-row label { display: flex; align-items: center; gap: 6px; opacity: .9; }
 .chat-behavior-row input[type="radio"] { accent-color: #fff; }
+
+/* S 模式：文本输入折叠开关 */
+.chat-input-toggle { flex: none; align-self: center; min-width: 0; font-size: 11px; padding: 5px 12px; margin-top: 2px; }
+.chat-input-toggle.on { background: rgba(255,255,255,.28); }
+
+/* 选区操作条（仅页面有选中时出现，置最下） */
+.selection-bar { margin-top: 8px; padding: 8px 9px; border-radius: 8px; background: rgba(0,0,0,.18); border: 1px solid var(--line); }
+.sel-row { display: flex; gap: 6px; }
+.sel-row .op { flex: 1; min-width: 0; padding: 9px 4px; font-size: 12px; }
+.sel-ai-menu { margin-top: 7px; padding-top: 7px; border-top: 1px dashed var(--line); }
+.sel-ai-menu .lang-row { margin-bottom: 6px; }
+#selAiBtn.active { background: rgba(255,255,255,.32); }

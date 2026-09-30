@@ -55,6 +55,9 @@
           <div class="chat-main-head">
             <span class="chat-main-title" data-i18n="chatMainTitle">💬 对话</span>
             <span id="injectCapBadges" class="cap-badges"></span>
+            <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
+              <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
+            </label>
             <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
@@ -76,17 +79,15 @@
             </div>
           </div>
 
-          <!-- 页面素材（V/T 两模式通用）：选中/全文/语音填入/附件，发送时并入 prompt -->
+          <!-- 页面素材：语音填入 / 附件（选中/全文已由「关联页面」与选区条取代） -->
           <div id="materialBar" class="ops">
             <div id="injectMaterials" class="material-capsules hidden" style="flex-basis:100%;"></div>
-            <button class="chip" id="injectCaptureSel" data-i18n="aiCaptureSel" data-i18n-title="aiCaptureSelTitle" title="把当前网页选中文本添加为素材">📋 选中文本</button>
-            <button class="chip" id="injectCaptureFull" data-i18n="aiCaptureFull" data-i18n-title="aiCaptureFullTitle" title="把当前网页正文添加为素材">📄 全文</button>
             <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
             <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文本文件（并入素材）">📎 附件</button>
             <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log" hidden />
           </div>
 
-          <!-- ▸ 语音模式（默认）：圆球「识别 → LLM → 输出并朗读」 -->
+          <!-- ▸ 语音模式（默认）：圆球「识别 → LLM → 输出并朗读」+ 可折叠文本输入 -->
           <div class="chat-mode-body" id="chatVoiceBody">
             <button class="voice-circle" id="voiceCircleBtn" data-i18n-title="voiceCircleTitle" title="点击说话：识别 → LLM → 输出并朗读">
               <span class="voice-circle-ico">🎤</span>
@@ -96,9 +97,10 @@
               <button class="vc-mode active" data-vcmode="manual" data-i18n="voiceModeManual">点击停止</button>
               <button class="vc-mode" data-vcmode="vad" data-i18n="voiceModeVad">说话自动停</button>
             </div>
+            <button class="chip chat-input-toggle" id="chatInputToggle" data-i18n="chatTextInput" data-i18n-title="chatTextInputTitle" title="展开/收起文本输入框">⌨️ 文本输入</button>
           </div>
 
-          <!-- ▸ 文本模式：输入 + 发送 -->
+          <!-- ▸ 文本模式：输入 + 发送（S 模式展开文本输入时也显示） -->
           <div class="chat-mode-body hidden" id="chatTextBody">
             <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
             <div class="ops">
@@ -117,10 +119,6 @@
               <button type="button" class="ai-backend active" id="aiBackendLocal" data-i18n="aiBackendLocal">💻 本地版</button>
               <button type="button" class="ai-backend" id="aiBackendInject" data-i18n="aiBackendInject">🌐 浏览器版</button>
               <button type="button" class="ai-backend" id="aiBackendApi" data-i18n="aiBackendApi">🔑 API 版</button>
-            </div>
-            <div class="ai-backend-row ai-backend-special">
-              <button type="button" class="ai-backend special" id="aiBackendTrans" data-i18n="aiBackendTrans">🌐 免费翻译</button>
-              <span class="ai-special-note" data-i18n="aiSpecialNote">特殊功能（非 LLM 渠道）</span>
             </div>
             <div id="aiModeHint" class="ai-mode-hint hidden"></div>
 
@@ -169,29 +167,47 @@
               <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="chatTtsRate" min="0.1" max="10" step="0.1" value="1" /><b id="chatTtsRateLabel">1.0</b></label>
             </div>
             <div class="hint" data-i18n="chatQuickHint">完整识别/朗读配置（密钥、音色、语速）在蓝区「🎙 识别 / 🗣 TTS」；此处为快捷选择。</div>
+          </div>
 
-            <details class="fold">
-              <summary data-i18n="aiQuickTpl">⚡ 快捷模板</summary>
-              <div class="fold-body">
-                <div class="ops">
-                  <button class="chip" data-tpl="translate" data-i18n="aiTplTranslate">翻译</button>
-                  <button class="chip" data-tpl="summarize" data-i18n="aiTplSummarize">总结</button>
-                  <button class="chip" data-tpl="explain" data-i18n="aiTplExplain">解释</button>
-                  <button class="chip" data-tpl="polish" data-i18n="aiTplPolish">润色</button>
-                </div>
-                <div class="ops ai-site-row">
-                  <input type="text" id="injectCustomTpl" class="custom-tpl" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
-                </div>
+          <!-- 选区操作条（仅当前页有选中文本时出现，置最下）：朗读 / AI处理 / 添加选中到上下文 -->
+          <div class="selection-bar hidden" id="selectionBar">
+            <div class="sel-row">
+              <button class="op" id="selRead" data-i18n="selRead" data-i18n-title="selReadTitle" title="朗读网页中选中的文本">🗣 朗读</button>
+              <button class="op" id="selAiBtn" data-i18n="selAi" data-i18n-title="selAiTitle" title="对选中的文本做翻译/总结/润色/解释">🤖 AI处理</button>
+              <button class="op" id="selAddCtx" data-i18n="selAddCtx" data-i18n-title="selAddCtxTitle" title="把选中的文本加入对话上下文">➕ 加入上下文</button>
+            </div>
+            <div class="sel-ai-menu hidden" id="selAiMenu">
+              <div class="lang-row">
+                <label><span data-i18n="transSourceLabel">源语言</span>
+                  <select id="selSrcLang">
+                    <option value="auto" data-i18n="selLangAuto">自动</option>
+                    <option value="en" data-i18n="langEn">英语</option><option value="zh-CN" data-i18n="langZhCN">中文(简体)</option><option value="zh-TW" data-i18n="langZhTW">中文(繁体)</option>
+                    <option value="ja" data-i18n="langJa">日语</option><option value="ko" data-i18n="langKo">韩语</option><option value="fr" data-i18n="langFr">法语</option>
+                    <option value="de" data-i18n="langDe">德语</option><option value="es" data-i18n="langEs">西班牙语</option><option value="ru" data-i18n="langRu">俄语</option>
+                  </select>
+                </label>
+                <label><span data-i18n="transTargetLabel">目标语言</span>
+                  <select id="selTgtLang">
+                    <option value="zh-CN" data-i18n="langZhCN">中文(简体)</option><option value="zh-TW" data-i18n="langZhTW">中文(繁体)</option><option value="en" data-i18n="langEn">英语</option>
+                    <option value="ja" data-i18n="langJa">日语</option><option value="ko" data-i18n="langKo">韩语</option><option value="fr" data-i18n="langFr">法语</option>
+                    <option value="de" data-i18n="langDe">德语</option><option value="es" data-i18n="langEs">西班牙语</option><option value="ru" data-i18n="langRu">俄语</option>
+                  </select>
+                </label>
               </div>
-            </details>
+              <div class="ops">
+                <button class="chip" data-selproc="translate" data-i18n="aiTplTranslate">翻译</button>
+                <button class="chip" data-selproc="summarize" data-i18n="aiTplSummarize">总结</button>
+                <button class="chip" data-selproc="polish" data-i18n="aiTplPolish">润色</button>
+                <button class="chip" data-selproc="explain" data-i18n="aiTplExplain">解释</button>
+              </div>
+            </div>
           </div>
         </div><!-- /chatMain -->
 
-        <!-- ③ 三个并列标签：朗读 / AI / 语音识别（默认都不选中，选中才展开内容） -->
+        <!-- ③ 两个并列标签：朗读页面 / 转写（默认都不选中，选中才展开内容） -->
         <div class="tool-tabs">
-          <button class="tool-tab" data-tool="tts" data-i18n="tabTts">🗣 朗读</button>
-          <button class="tool-tab" data-tool="ai" data-i18n="tabAi">🚀 AI</button>
-          <button class="tool-tab" data-tool="asr" data-i18n="tabAsr">🎙 语音识别</button>
+          <button class="tool-tab" data-tool="tts" data-i18n="tabTts">🗣 朗读页面</button>
+          <button class="tool-tab" data-tool="asr" data-i18n="tabAsr">🎙 转写</button>
         </div>
 
         <!-- 朗读（默认折叠，点击「朗读」标签展开） -->
@@ -266,58 +282,6 @@
           </div>
           <div id="asrStatus" class="tool-status" data-i18n="asrStatusIdle">选择上方后端，点击「开始录音」，说话后停止即可识别</div>
           <div id="asrBrowserHint" class="tool-status hidden"></div>
-        </div>
-
-        <!-- AI（渠道切换已移至主对话面板 i 设置；此处保留免费翻译 + 会话历史） -->
-        <div class="tool-panel hidden" id="panel-ai">
-          <!-- 免费翻译模式：仅翻译，无 AI 功能；服务由 MyMemory 免费提供（特殊功能） -->
-          <div id="transMode" class="hidden">
-            <div class="ai-mode-hint trans-hint" data-i18n="transServiceHint">🌐 免费翻译 · 由 MyMemory 免费提供</div>
-            <div class="lang-row">
-              <label><span data-i18n="transSourceLabel">源语言</span>
-                <select id="translateSource">
-                  <option value="en" data-i18n="langEn">英语</option><option value="zh-CN" data-i18n="langZhCN">中文(简体)</option><option value="zh-TW" data-i18n="langZhTW">中文(繁体)</option>
-                  <option value="ja" data-i18n="langJa">日语</option><option value="ko" data-i18n="langKo">韩语</option><option value="fr" data-i18n="langFr">法语</option>
-                  <option value="de" data-i18n="langDe">德语</option><option value="es" data-i18n="langEs">西班牙语</option><option value="ru" data-i18n="langRu">俄语</option>
-                  <option value="ar" data-i18n="langAr">阿拉伯语</option><option value="pt" data-i18n="langPt">葡萄牙语</option><option value="it" data-i18n="langIt">意大利语</option>
-                </select>
-              </label>
-              <label><span data-i18n="transTargetLabel">目标语言</span>
-                <select id="translateTarget">
-                  <option value="zh-CN" data-i18n="langZhCN">中文(简体)</option><option value="zh-TW" data-i18n="langZhTW">中文(繁体)</option><option value="en" data-i18n="langEn">英语</option>
-                  <option value="ja" data-i18n="langJa">日语</option><option value="ko" data-i18n="langKo">韩语</option><option value="fr" data-i18n="langFr">法语</option>
-                  <option value="de" data-i18n="langDe">德语</option><option value="es" data-i18n="langEs">西班牙语</option><option value="ru" data-i18n="langRu">俄语</option>
-                  <option value="ar" data-i18n="langAr">阿拉伯语</option><option value="pt" data-i18n="langPt">葡萄牙语</option><option value="it" data-i18n="langIt">意大利语</option>
-                </select>
-              </label>
-            </div>
-            <textarea id="translateInput" class="input" data-i18n-placeholder="transPlaceholder" placeholder="输入文本…"></textarea>
-            <div class="ops">
-              <button class="op primary" id="translateSelected" data-i18n="transSel" data-i18n-title="transSelTitle" title="翻译当前网页选中的文本">🌐 翻译选中</button>
-              <button class="op" id="translateFull" data-i18n="transFull" data-i18n-title="transFullTitle" title="翻译当前网页正文">🌐 翻译全文</button>
-              <button class="op" id="translateDo" data-i18n="transInput" data-i18n-title="transInputTitle" title="翻译上方输入框内容">🌐 翻译输入框</button>
-            </div>
-            <div class="result-wrap">
-              <div class="result-tools">
-                <button id="copyTranslateResult" class="copy-btn" data-i18n="transCopy" style="display:none;">复制</button>
-                <button id="translateClear" class="copy-btn" data-i18n="transClear">清空</button>
-              </div>
-              <div id="translateResult" class="tool-result"></div>
-            </div>
-            <div id="translateStatus" class="tool-status"></div>
-          </div>
-
-          <!-- AI 工作台输入已上移主界面（005 P0.5）；此处保留会话历史等管理功能 -->
-          <div id="aiMain" class="hidden">
-            <p class="hint" data-i18n="aiWorkbenchHint">💡 对话输入已上移至主界面工作台（支持 语音/文本/素材/一键动作）。此处保留会话历史。</p>
-            <details class="fold">
-              <summary data-i18n="aiHistorySummary">📜 会话历史</summary>
-              <div class="fold-body">
-                <div class="hist-head"><span data-i18n="aiHistoryRecent">最近记录</span><button id="injectClearHistory" class="mini-btn" data-i18n="aiClearHistory">清空</button></div>
-                <div id="injectHistory"></div>
-              </div>
-            </details>
-          </div><!-- /aiMain -->
         </div>
 
         </div><!-- /upper-section -->
@@ -687,6 +651,19 @@
                 <span id="modelManagerStatus" class="ai-test-status"></span>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-title" data-i18n="secAiHistory">🚀 AI 会话历史</div>
+          <div class="card">
+            <div class="hist-head"><span data-i18n="aiHistoryRecent">最近记录</span><button id="injectClearHistory" class="mini-btn" data-i18n="aiClearHistory">清空</button></div>
+            <div id="injectHistory"></div>
+          </div>
+          <div class="card">
+            <div class="card-title" data-i18n="aiCustomTplTitle">⚡ 自定义模板</div>
+            <input type="text" id="injectCustomTpl" class="row-select" style="width:100%;" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
+            <div class="hint" data-i18n="aiCustomTplHint">填写后，主界面「🚀 发送」会自动套用该模板；{text} 替换为输入框+素材内容。</div>
           </div>
         </section>
 
