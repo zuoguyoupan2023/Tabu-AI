@@ -181,7 +181,7 @@ function switchTool(toolName, force) {
     const panel = document.getElementById(`panel-${name}`);
     if (panel) panel.classList.toggle('hidden', name !== toolName || !show);
   });
-  if (show && toolName === 'ai') { renderInjectHistory(); loadChatMicDevices(); }
+  if (show && toolName === 'ai') { renderInjectHistory(); }
   if (show && toolName === 'asr') { syncAsrBackendUi(); loadAsrDevices(); }
 }
 
@@ -1885,7 +1885,6 @@ async function toggleInjectVoice() {
   // 单一音频通道：先停掉其它面板的录音/识别
   if (asrRecording) stopAsrRecording();
   if (vbRecording) stopVoiceCircleRecording();
-  if (chatRecording) stopChatRecording();
   const hint = await browserAsrHint();
   if (hint.level === 'unsupported' || hint.level === 'block') { showStatus(hint.msg, true); return; }
   const input = document.getElementById('injectInput');
@@ -3232,15 +3231,6 @@ let asrStream = null;
 let asrChunks = [];
 let asrRecording = false;
 
-// ---- 对话面板（Chat）：独立录音状态（与转写面板隔离） ----
-let chatRecorder = null;
-let chatStream = null;
-let chatChunks = [];
-let chatRecording = false;
-let chatHasAudio = false;   // 本次已录音（发送时走 /voice-chat）
-let chatAudioPcm = null;    // 录音 16k Float32 PCM（发送时直接封 WAV）
-let chatLastAnswer = '';    // 最近一次 LLM 回答（朗读/复制用）
-
 async function toggleAsrRecord() {
   if (asrRecording) { stopAsrRecording(); return; }
   if (currentAsrBackend === 'browser') { await toggleBrowserAsrRecord(); return; }
@@ -3280,9 +3270,8 @@ async function toggleAsrRecord() {
 
 // 转写面板 browser 后端：Web Speech API 自管麦克风，边说边出字，说完自动出最终结果
 async function toggleBrowserAsrRecord() {
-  // 单一音频通道：若圆球/对话面板正在 MediaRecorder 录音，先停掉
+  // 单一音频通道：若圆球正在 MediaRecorder 录音，先停掉
   if (vbRecording) stopVoiceCircleRecording();
-  if (chatRecording) stopChatRecording();
   const hint = await browserAsrHint();
   if (hint.level === 'unsupported' || hint.level === 'block') {
     // 直接拦下：检测到必然失败（Chrome + Google 不可达），不让用户白试受挫
@@ -3464,6 +3453,9 @@ function setVcUiMode(mode) {
   });
   const wb = document.getElementById('chatWorkbench');
   if (wb) wb.classList.toggle('hidden', vcUIMode !== 'text');
+  // 文本模式隐藏大圆球与圆球停止模式（保留「语音/文本」切换，便于切回）
+  const voiceWb = document.querySelector('.voice-workbench');
+  if (voiceWb) voiceWb.classList.toggle('vc-text', vcUIMode === 'text');
 }
 async function loadVcUiMode() {
   try {
@@ -3527,8 +3519,6 @@ async function toggleVoiceCircle() {
   }
   if (vbRecording) { stopVoiceCircleRecording(); return; }
   if (currentAsrBackend === 'browser') { await toggleVoiceCircleBrowser(); return; }
-  // 单一音频通道：若对话面板正在录音，先停旧再起新的
-  if (chatRecording) stopChatRecording();
   warmAudioContext();
   setVoiceCircleStatus('🎙 ' + I18N.t('asrStarting'));
   try {
@@ -3668,7 +3658,6 @@ async function toggleVoiceCircleBrowser() {
     setVoiceCircleStatus(hint.msg, true);
     return;
   }
-  if (chatRecording) stopChatRecording();
   vbRecording = true;
   const btn = document.getElementById('voiceCircleBtn');
   if (btn) btn.classList.add('recording');
@@ -3764,273 +3753,22 @@ function voiceOutputClear() {
   body.innerHTML = '<div class="voice-output-empty" id="voiceOutputEmpty">' + escapeHtml(I18N.t('voiceOutputEmpty')) + '</div>';
 }
 
-// 输出栏 显示/不显示
-function toggleVoiceOutput() {
-  const show = document.getElementById('voiceOutputShow');
+// 对话记录：折叠/展开（点击标题行；折叠状态持久化到 voiceOutputShow）
+function toggleVoiceOutput(forceCollapsed) {
   const out = document.getElementById('voiceOutput');
-  if (!show || !out) return;
-  const visible = !!show.checked;
-  out.classList.toggle('hidden', !visible);
-  chrome.storage.local.set({ voiceOutputShow: visible }).catch(() => {});
+  if (!out) return;
+  const collapsed = (typeof forceCollapsed === 'boolean') ? forceCollapsed : !out.classList.contains('collapsed');
+  out.classList.toggle('collapsed', collapsed);
+  chrome.storage.local.set({ voiceOutputShow: !collapsed }).catch(() => {});
 }
 
 async function loadVoiceOutputSetting() {
-  const show = document.getElementById('voiceOutputShow');
   const out = document.getElementById('voiceOutput');
-  if (!show || !out) return;
+  if (!out) return;
   try {
     const r = await chrome.storage.local.get('voiceOutputShow');
-    const visible = r.voiceOutputShow !== false;
-    show.checked = visible;
-    out.classList.toggle('hidden', !visible);
+    out.classList.toggle('collapsed', r.voiceOutputShow === false);
   } catch (e) {}
-}
-
-// ========== 对话面板（Chat）：本地 LLM 文本/语音对话，验证 /chat 与 /voice-chat ==========
-function setChatStatus(msg, isError) {
-  const el = document.getElementById('chatStatus');
-  if (el) { el.textContent = msg; el.classList.toggle('error', !!isError); }
-}
-
-// 填充麦克风设备下拉（对话面板）
-async function loadChatMicDevices() {
-  const sel = document.getElementById('chatMicDevice');
-  if (!sel) return;
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const mics = devices.filter(d => d.kind === 'audioinput');
-    const cur = currentVoiceConfig.asrMicDeviceId;
-    sel.innerHTML = '';
-    if (!mics.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = '默认麦克风';
-      sel.appendChild(opt);
-    } else {
-      mics.forEach((d, i) => {
-        const opt = document.createElement('option');
-        opt.value = d.deviceId;
-        opt.textContent = d.label || ('麦克风 ' + (i + 1));
-        sel.appendChild(opt);
-      });
-      if (mics.some(d => d.deviceId === cur)) sel.value = cur;
-    }
-  } catch (e) { /* 未授权时 deviceId 为空，保留默认 */ }
-}
-
-function updateChatRecordUi() {
-  const btn = document.getElementById('chatRecord');
-  if (!btn) return;
-  btn.textContent = chatRecording ? I18N.t('chatRecordStop') : I18N.t('chatRecord');
-  btn.classList.toggle('recording', chatRecording);
-}
-
-function stopChatRecording() {
-  if (chatRecorder && chatRecorder.state !== 'inactive') chatRecorder.stop();
-}
-
-async function toggleChatRecord() {
-  if (chatRecording) { stopChatRecording(); return; }
-  // 单一音频通道：若顶部圆形工作台正在录音，先停旧再起新的
-  if (vbRecording) {
-    vbSuppress = true;
-    stopVoiceCircleRecording(); // 兼容 MediaRecorder 与 browser 两种圆球会话
-  }
-  warmAudioContext();
-  setChatStatus('🎙 ' + I18N.t('asrStarting'));
-  try {
-    // ⚠️ 与转写面板同策略：关闭音频处理（部分 USB 麦会被压成静音），支持指定设备
-    const audioConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-    if (currentVoiceConfig.asrMicDeviceId) audioConstraints.deviceId = { exact: currentVoiceConfig.asrMicDeviceId };
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-    chatStream = stream;
-    chatChunks = [];
-    let mime = '';
-    if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) mime = 'audio/webm;codecs=opus';
-    else if (MediaRecorder.isTypeSupported('audio/webm')) mime = 'audio/webm';
-    chatRecorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    chatRecorder.ondataavailable = (e) => { if (e.data && e.data.size) chatChunks.push(e.data); };
-    chatRecorder.onstop = onChatRecordingDone;
-    chatRecorder.start();
-    chatRecording = true;
-    updateChatRecordUi();
-    setChatStatus('🎙 ' + I18N.t('asrPreparing'));
-    setTimeout(() => { if (chatRecording) setChatStatus(I18N.t('asrRecording')); }, 600);
-  } catch (e) {
-    const name = e && (e.name || e.message);
-    if (name && /NotAllowed|PermissionDismissed|SecurityError/.test(name)) {
-      // MV3 侧边栏无法弹授权弹窗：引导去可见授权页授权一次（与转写面板共享授权）
-      setChatStatus(I18N.t('asrMicPermNeeded'), true);
-      sendMessage('openMicPermission').catch(() => {});
-    } else {
-      setChatStatus(I18N.t('asrMicrophoneDenied'), true);
-    }
-  }
-}
-
-async function onChatRecordingDone() {
-  const recorder = chatRecorder;
-  chatRecorder = null;
-  chatRecording = false;
-  updateChatRecordUi();
-  if (chatStream) { chatStream.getTracks().forEach(t => t.stop()); chatStream = null; }
-  const type = (recorder && recorder.mimeType) || 'audio/webm';
-  const blob = new Blob(chatChunks, { type });
-  chatChunks = [];
-  try {
-    const buf = await blob.arrayBuffer();
-    const pcm16 = await decodeAndResample(buf, 16000);
-    if (pcm16.length < 4800) { setChatStatus(I18N.t('asrAudioTooShort'), true); return; }
-    // 自动增益 + 静音诊断（同转写面板）
-    let peak = 0;
-    for (let i = 0; i < pcm16.length; i++) peak = Math.max(peak, Math.abs(pcm16[i]));
-    if (peak > 0.01 && peak < 0.5) {
-      const gain = 0.8 / peak;
-      for (let i = 0; i < pcm16.length; i++) pcm16[i] = Math.max(-1, Math.min(1, pcm16[i] * gain));
-    }
-    let sum = 0;
-    for (let i = 0; i < pcm16.length; i++) sum += pcm16[i] * pcm16[i];
-    const rms = Math.sqrt(sum / pcm16.length);
-    if (rms < 0.01) { setChatStatus(I18N.t('asrSilent', rms.toFixed(4)), true); return; }
-    setChatStatus('⏳ ' + I18N.t('asrTesting'));
-    const text = await asrViaLocal(pcm16); // 复用本地识别（SenseVoice 中文优先）
-    chatHasAudio = true;
-    chatAudioPcm = pcm16;
-    const input = document.getElementById('chatInput');
-    if (input) input.value = text || '';
-    setChatStatus(text ? '✅ ' + I18N.t('chatRecognized') + '：' + text + '（' + I18N.t('chatSend') + '）' : I18N.t('asrNoAudioError'));
-  } catch (e) {
-    setChatStatus(I18N.t('asrError', (e && e.message) || I18N.t('asrNoAudioError')), true);
-  }
-}
-
-// 渲染识别文本 + LLM 回答（回答走 Markdown 渲染；思维链标题行自动灰色）
-function renderChatResult(recognized, answer) {
-  const box = document.getElementById('chatResult');
-  if (box) {
-    box.classList.remove('hidden');
-    let html = '';
-    if (recognized) html += '<div class="chat-msg chat-user"><b>' + I18N.t('chatRecognized') + '</b> ' + escapeHtml(recognized) + '</div>';
-    if (answer) html += '<div class="chat-msg chat-bot"><b>' + I18N.t('chatAnswer') + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
-    box.innerHTML = html;
-  }
-  const speakBtn = document.getElementById('chatSpeakAnswer');
-  if (speakBtn) speakBtn.disabled = !answer;
-}
-
-// 发送：按 AI 渠道问答（api 云端 / local 本地 / inject 站点 / trans）；有录音 → 本地识别 → 问答 → 朗读（跟随引擎）
-async function sendChat() {
-  const input = document.getElementById('chatInput');
-  const text = (input && input.value || '').trim();
-  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
-  const sendBtn = document.getElementById('chatSend');
-  if (!text && !chatHasAudio) { setChatStatus(I18N.t('chatNoText'), true); return; }
-  const mode = await resolveEffectiveAiModeForChat(); // local / inject / api / trans（统一来源自动回退）
-  // 本地渠道或录音（识别）需本地服务；api 纯文本不需 asr-server
-  const needLocal = mode === 'local' || chatHasAudio;
-  if (needLocal) {
-    try {
-      const h = await fetch(serverUrl + '/health', { signal: AbortSignal.timeout(3000) });
-      if (!h.ok) throw new Error('health');
-    } catch (e) {
-      setChatStatus(I18N.t('chatServerOffline'), true);
-      return;
-    }
-  }
-  if (sendBtn) sendBtn.disabled = true;
-  const wasAudio = chatHasAudio;
-  const audioPcm = chatAudioPcm;
-  chatHasAudio = false;
-  chatAudioPcm = null;
-  try {
-    // ① 录音 → 本地识别（识别文本第一时间显示）
-    let query = text;
-    if (wasAudio) {
-      setChatStatus('⏳ ' + I18N.t('asrTesting'));
-      const recognized = await asrViaLocal(audioPcm);
-      if (!recognized) { setChatStatus(I18N.t('asrNoAudioError'), true); return; }
-      query = recognized;
-      if (input) input.value = recognized;
-      renderChatResult(recognized, null);
-    }
-    // ② LLM 按渠道问答（复用圆球 voiceChatAskText：api→askApiStream，local→/chat，inject→站点）
-    setChatStatus('💭 ' + I18N.t('voiceCircleThinking'));
-    const answer = await voiceChatAskText(query, mode);
-    chatLastAnswer = answer || '';
-    // ③ 输出 / 朗读
-    if (mode === 'inject') {
-      renderChatResult(wasAudio ? query : '', '');
-      setChatStatus('✅ ' + I18N.t('voiceSentToSite'));
-    } else if (answer) {
-      renderChatResult(wasAudio ? query : '', answer);
-      setChatStatus('✅ ' + I18N.t('chatAnswer'));
-      if (wasAudio) doSpeak(answer, voiceField('chatStatus'), null, false); // 朗读跟随朗读引擎
-    } else {
-      renderChatResult(wasAudio ? query : '', '');
-      setChatStatus('✅ ' + I18N.t('chatAnswer'));
-    }
-  } catch (e) {
-    setChatStatus(I18N.t('chatError') + ((e && e.message) || I18N.t('asrNoAudioError')), true);
-  } finally {
-    if (sendBtn) sendBtn.disabled = false;
-  }
-}
-
-// 朗读最近一次回答（走本地 /speak；qwen3/cloud 不可达时自动回退 kokoro）
-function chatSpeakFetch(serverUrl, engine, text) {
-  let body;
-  if (engine === 'qwen3') body = { text, voice: currentVoiceConfig.ttsLocalVoice || 'Vivian', language: 'Auto' };
-  else if (engine === 'cloud') body = { text, cloud: { baseUrl: currentVoiceConfig.cloudTtsBase, apiKey: currentVoiceConfig.cloudTtsKey, model: currentVoiceConfig.cloudTtsModel, voice: currentVoiceConfig.cloudTtsVoice } };
-  else body = { text, sid: Number(currentVoiceConfig.ttsLocalSid) || 18, speed: 1 };
-  return fetch(serverUrl + '/speak?engine=' + engine, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60000)
-  });
-}
-
-async function playSpeakResponse(res) {
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  await playSpeakStream(res, 1, 1);
-}
-
-async function chatSpeakAnswer() {
-  if (!chatLastAnswer) return;
-  const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
-  let ttsEngine = currentVoiceConfig.ttsEngine;
-  if (!SPEAK_ENGINES.includes(ttsEngine)) ttsEngine = 'kokoro'; // system 等 → 兜底 kokoro（朗读最近回答走 /speak）
-  try {
-    await playSpeakResponse(await chatSpeakFetch(serverUrl, ttsEngine, chatLastAnswer));
-  } catch (e) {
-    if (ttsEngine !== 'kokoro') {
-      try {
-        await playSpeakResponse(await chatSpeakFetch(serverUrl, 'kokoro', chatLastAnswer));
-        return;
-      } catch (e2) { /* 回退也失败 → 走下方报错 */ }
-    }
-    setChatStatus(I18N.t('chatError') + ((e && e.message) || ''), true);
-  }
-}
-
-function chatCopyAnswer() {
-  if (!chatLastAnswer) return;
-  navigator.clipboard.writeText(chatLastAnswer)
-    .then(() => setChatStatus('✅ 已复制回答'))
-    .catch(() => setChatStatus(I18N.t('chatError'), true));
-}
-
-function chatClear() {
-  const input = document.getElementById('chatInput');
-  if (input) input.value = '';
-  chatHasAudio = false;
-  chatAudioPcm = null;
-  chatLastAnswer = '';
-  const box = document.getElementById('chatResult');
-  if (box) { box.classList.add('hidden'); box.innerHTML = ''; }
-  const speakBtn = document.getElementById('chatSpeakAnswer');
-  if (speakBtn) speakBtn.disabled = true;
-  setChatStatus(I18N.t('chatStatusIdle'));
 }
 
 async function runAsr(pcm16) {
@@ -4260,10 +3998,10 @@ async function setAiMode(mode) {
 }
 
 // 同步渠道切换 UI + 提示 + 站点下拉置灰：
-//   local：显示「本地版」对话（chatMain），AI 主体与翻译隐藏
+//   local：显示「会话历史」（对话输入已在主界面工作台），翻译隐藏
 //   inject：站点下拉可用，提示显示站点名
 //   api：站点下拉置灰（API 忽略 site）；已配置显示「API 模式 · 模型 @ host」，未配置提示去蓝区设置
-//   trans：免费翻译（特殊功能），AI 主体与本地对话隐藏
+//   trans：免费翻译（特殊功能），AI 主体与历史隐藏
 async function syncAiBackendUi() {
   const mode = await getEffectiveAiMode();
   const localBtn = aiField('aiBackendLocal');
@@ -4275,12 +4013,10 @@ async function syncAiBackendUi() {
   if (injectBtn) injectBtn.classList.toggle('active', mode === 'inject');
   if (apiBtn) apiBtn.classList.toggle('active', mode === 'api');
 
-  const chatMain = aiField('chatMain');
   const transMode = aiField('transMode');
   const aiMain = aiField('aiMain');
-  if (chatMain) chatMain.classList.toggle('hidden', mode !== 'local');
   if (transMode) transMode.classList.toggle('hidden', mode !== 'trans');
-  if (aiMain) aiMain.classList.toggle('hidden', mode === 'local' || mode === 'trans');
+  if (aiMain) aiMain.classList.toggle('hidden', mode === 'trans');
 
   const hint = aiField('aiModeHint');
   const siteRow = document.querySelector('.ai-site-row');
@@ -4306,7 +4042,6 @@ async function syncAiBackendUi() {
       hint.classList.add('hidden');
     }
   }
-  if (mode === 'local') loadChatMicDevices();
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
@@ -4882,8 +4617,8 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', () => setVcUiMode(b.dataset.uimode));
   });
   loadVcUiMode();
-  const voiceOutputShow = document.getElementById('voiceOutputShow');
-  if (voiceOutputShow) voiceOutputShow.addEventListener('change', toggleVoiceOutput);
+  const voiceOutputToggle = document.getElementById('voiceOutputToggle');
+  if (voiceOutputToggle) voiceOutputToggle.addEventListener('click', () => toggleVoiceOutput());
   const voiceOutputClearBtn = document.getElementById('voiceOutputClear');
   // 复制最近一条 AI 回答（统一对话流）
   const copyLastBtn = document.getElementById('voiceCopyLast');
@@ -4922,6 +4657,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== 运行日志 =====
   const debugLogClearBtn = document.getElementById('debugLogClear');
   if (debugLogClearBtn) debugLogClearBtn.addEventListener('click', debugLogClear);
+  // 运行日志：点击标题行折叠/展开（点「清空」不触发）
+  const debugLogHead = document.getElementById('debugLogHead');
+  if (debugLogHead) debugLogHead.addEventListener('click', (e) => {
+    if (e.target.closest('#debugLogClear')) return;
+    document.getElementById('debugLog')?.classList.toggle('collapsed');
+  });
   logDebug('sys', '日志区就绪');
 
   // ===== 蓝区：TTS 朗读 / ASR 识别（拆分保存） =====
@@ -4956,24 +4697,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const asrSendAiBtn = document.getElementById('asrSendAi');
   if (asrSendAiBtn) asrSendAiBtn.addEventListener('click', asrSendToAi);
 
-  // ===== 对话面板（Chat）：本地 LLM 文本/语音对话 =====
-  const chatRecordBtn = document.getElementById('chatRecord');
-  if (chatRecordBtn) chatRecordBtn.addEventListener('click', toggleChatRecord);
-  const chatSendBtn = document.getElementById('chatSend');
-  if (chatSendBtn) chatSendBtn.addEventListener('click', sendChat);
-  const chatClearBtn = document.getElementById('chatClear');
-  if (chatClearBtn) chatClearBtn.addEventListener('click', chatClear);
-  const chatMicPermBtn = document.getElementById('chatMicPerm');
-  if (chatMicPermBtn) chatMicPermBtn.addEventListener('click', openMicPermissionPage);
-  const chatMicDeviceSel = document.getElementById('chatMicDevice');
-  if (chatMicDeviceSel) chatMicDeviceSel.addEventListener('change', () => {
-    currentVoiceConfig.asrMicDeviceId = chatMicDeviceSel.value || '';
-    chrome.storage.local.set({ asrMicDeviceId: chatMicDeviceSel.value || '' });
-  });
-  const chatSpeakBtn = document.getElementById('chatSpeakAnswer');
-  if (chatSpeakBtn) { chatSpeakBtn.disabled = true; chatSpeakBtn.addEventListener('click', chatSpeakAnswer); }
-  const chatCopyBtn = document.getElementById('chatCopyAnswer');
-  if (chatCopyBtn) chatCopyBtn.addEventListener('click', chatCopyAnswer);
   // 后端切换
   const asrBackendMap = { asrBackendBrowser: 'browser', asrBackendAzure: 'azure', asrBackendOpenai: 'openai', asrBackendAliyun: 'aliyun', asrBackendLocal: 'local' };
   Object.entries(asrBackendMap).forEach(([id, backend]) => {

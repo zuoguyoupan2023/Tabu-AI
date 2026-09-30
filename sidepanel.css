@@ -593,21 +593,27 @@ input, select, textarea { font-family: var(--font); }
 .ai-backend.active { background: rgba(52,211,153,.28); color: #fff; box-shadow: inset 0 0 0 1px var(--line); }
 
 /* ===== 顶部圆形语音工作台（一键：识别 → LLM → 输出并朗读） ===== */
-.voice-workbench { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 0 4px; }
+.voice-workbench { display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 2px 0 2px; }
 .voice-circle {
-  width: 88px; height: 88px; border-radius: 50%;
+  width: 76px; height: 76px; border-radius: 50%;
   background: #fff; color: #1a2332; border: none; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 6px 18px rgba(0,0,0,.28); transition: transform .15s, box-shadow .15s, background .2s;
   flex: none;
 }
 .voice-circle:hover { transform: translateY(-2px); box-shadow: 0 9px 22px rgba(0,0,0,.34); }
-.voice-circle .voice-circle-ico { font-size: 34px; line-height: 1; }
+.voice-circle .voice-circle-ico { font-size: 30px; line-height: 1; }
 .voice-circle.recording { background: #ef4444; color: #fff; animation: voiceCirclePulse 1s ease-in-out infinite; }
 @keyframes voiceCirclePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); } 50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
 .voice-circle-status { font-size: 11px; opacity: .85; text-align: center; min-height: 15px; }
 .voice-circle-status.error { color: #f87171; }
 .voice-circle-mode { display: flex; gap: 4px; }
+/* 顶部控制 chips 合并一行（点击停止 / 说话自动停 / 语音 / 文本），降低红区密度 */
+.voice-wb-controls { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; }
+/* 文本模式：隐藏大圆球、状态文字与圆球停止模式，仅留「语音/文本」切换 */
+.voice-workbench.vc-text .voice-circle,
+.voice-workbench.vc-text .voice-circle-status,
+.voice-workbench.vc-text #voiceCircleMode { display: none; }
 .vc-mode {
   background: var(--glass); color: rgba(255,255,255,.7); font-size: 10px; font-weight: 600;
   padding: 3px 10px; border-radius: 999px; cursor: pointer; transition: background .2s, color .2s;
@@ -615,10 +621,17 @@ input, select, textarea { font-family: var(--font); }
 .vc-mode:hover { background: var(--glass-strong); }
 .vc-mode.active { background: rgba(255,255,255,.28); color: #fff; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
+/* 工作台「快捷模板」折叠段（模板 chips + 自定义模板） */
+.wb-fold { margin-top: 6px; }
+.wb-fold > summary { font-size: 11px; }
 
-/* ===== 红区底部：运行日志（默认展开） ===== */
+/* ===== 红区底部：运行日志（默认折叠，点击标题行展开） ===== */
 .debug-log { background: rgba(0,0,0,.2); border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; overflow: hidden; }
-.debug-log-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }
+.debug-log-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); cursor: pointer; }
+.debug-log-head .dl-title { display: inline-flex; align-items: center; gap: 5px; }
+.debug-log-head .dl-arrow { font-size: 10px; opacity: .6; transition: transform .2s; }
+.debug-log.collapsed .dl-arrow { transform: rotate(-90deg); }
+.debug-log.collapsed .debug-log-body { display: none; }
 .debug-log-body { max-height: 160px; overflow-y: auto; padding: 6px 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; line-height: 1.6; color: rgba(255,255,255,.78); }
 .debug-log-empty { color: rgba(255,255,255,.35); }
 .debug-log-line { word-break: break-all; }
@@ -626,7 +639,12 @@ input, select, textarea { font-family: var(--font); }
 .debug-log-line .dl-scope { font-weight: 700; }
 .debug-log-line.dl-err { color: #f87171; }
 .voice-output { background: var(--glass); border: 1px solid var(--line); border-radius: 8px; margin: 4px 0 6px; overflow: hidden; }
-.voice-output-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }
+.voice-output-head { display: flex; align-items: center; gap: 6px; padding: 7px 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,.14); }
+.voice-output-head .vo-toggle { display: inline-flex; align-items: center; gap: 5px; background: none; border: none; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; }
+.voice-output-head .vo-arrow { font-size: 10px; opacity: .6; transition: transform .2s; }
+.voice-output.collapsed .vo-arrow { transform: rotate(-90deg); }
+.voice-output.collapsed .voice-output-body { display: none; }
+.voice-output-head .vo-actions { display: flex; gap: 4px; margin-left: auto; }
 .voice-output-body { max-height: 150px; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.5; }
 .voice-output-empty { color: rgba(255,255,255,.45); font-size: 11px; }
 .voice-msg { padding: 8px 10px; border-radius: 8px; }
