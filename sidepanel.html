@@ -449,6 +449,13 @@
                 <span id="aiTestStatus" class="ai-test-status"></span>
               </div>
               <div class="hint" data-i18n="aiSvcHint">配置后 AI 提问优先走 API（流式输出 + 多轮会话）；留空则保持页面注入。API Key 仅存本机。</div>
+              <div class="ai-svc-sep" data-i18n="thinkingListLabel">💭 思考模式名单</div>
+              <div class="hint" data-i18n="thinkingListHint">每行一条，逗号分隔：供应商, 模型关键词, on|off。供应商/模型为空=任意；命中 on=有思考（显示开关、保留思考），off=无思考（隐藏开关）；名单外默认按「有思考」处理，避免遗漏或裁切内容。示例：openai, gpt-5, on / ollama, llama3, off</div>
+              <textarea id="thinkingModels" class="input" rows="3" placeholder="openai, gpt-5, on&#10;anthropic, claude, on&#10;ollama, llama3, off"></textarea>
+              <div class="ops">
+                <button class="mini-btn" id="thinkingModelsSave" data-i18n="saveBtn">保存</button>
+                <span id="thinkingModelsStatus" class="ai-test-status"></span>
+              </div>
             </div>
           </div>
           <div class="card hidden" data-captab-panel="tts">

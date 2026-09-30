@@ -2363,24 +2363,81 @@ function updateAiShowThinkingToggleUi(on) {
   btn.textContent = on ? I18N.t('aiShowThinkingOn') : I18N.t('aiShowThinkingOff');
   btn.classList.toggle('on', on);
 }
-// 仅当当前 LLM 可能产出思考内容时才显示该开关：
-// · 注入渠道：主流网页模型（ChatGPT/Claude/Gemini/Qwen/ChatGLM/Kimi/DeepSeek）普遍提供思考/推理 → 显示；
-// · API / 本地：按模型名判断，明确非推理模型才隐藏（未知则显示，避免误藏）。
-const REASONING_MODEL_RE = /reason|think|r1|qwq|glm-?z|glm-?4\.5|deepseek|qwq|\bo[134]\b|k1|kimi|sonnet-3[.-]7|claude-3[.-]7|gpt-5|gemini-2\.5/i;
+// ===== 思考能力判定 + 用户自定义「思考模式名单」=====
+// 内置名单（会随模型迭代更新）：命中「有思考」→ 显示开关并保留思考；
+// 「明确无思考」→ 隐藏开关；名单外/未知 → 兜底按「有思考」处理（获取所有，避免遗漏或裁切）。
+const BUILTIN_THINKING_RE = /(reason|think|r1|qwq|glm-?z|deepseek|gpt-5|(^|[^a-z0-9])o[1-9]([^0-9]|$)|k1|k2|kimi|sonnet-3[.-]7|claude-3[.-]7|claude-(4|opus|sonnet)|gemini-(2\.5|3)|grok-[34]|minimax-m|qwen3|marco-o1|hunyuan-(t1|reason)|ernie-?x1)/i;
+const BUILTIN_NON_THINKING_RE = /(gpt-3\.5|llama|mistral|mixtral|gemma|phi-|qwen2(\.5)?([^0-9]|$)|command-r(?!1)|ernie-(3|4)|doubao-(lite|pro))/i;
+const THINKING_MODELS_KEY = 'thinkingModels';
+
+function parseThinkingModels(text) {
+  const list = [];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const parts = line.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) continue;
+    const isOff = (v) => /^(off|no|false|无|否|关)$/i.test(String(v || '').trim());
+    let provider = '', model = '', think = true;
+    if (parts.length === 1) {
+      model = parts[0];
+    } else if (parts.length === 2) {
+      if (/^(on|off|yes|no|true|false|有|无|是|否|开|关)$/i.test(parts[1])) { model = parts[0]; think = !isOff(parts[1]); }
+      else { provider = parts[0]; model = parts[1]; }
+    } else {
+      provider = parts[0]; model = parts[1]; think = !isOff(parts[2]);
+    }
+    list.push({ provider: provider.toLowerCase(), model: model.toLowerCase(), think });
+  }
+  return list;
+}
+async function getThinkingModels() {
+  try { const r = await chrome.storage.local.get(THINKING_MODELS_KEY); return Array.isArray(r[THINKING_MODELS_KEY]) ? r[THINKING_MODELS_KEY] : []; }
+  catch (e) { return []; }
+}
+// 返回 'on' | 'off'：用户名单优先（最长 model 命中）→ 内置名单 → 兜底 on
+async function resolveThinkingCapability() {
+  let mode = 'inject';
+  try { mode = await getEffectiveAiMode(); } catch (e) {}
+  if (mode === 'inject') return 'on'; // 网页模型普遍提供思考
+  const provider = String((currentAiConfig && currentAiConfig.aiProvider) || '').toLowerCase();
+  const model = String((currentAiConfig && (currentAiConfig.aiModel || currentAiConfig.model)) || '').toLowerCase();
+  const list = await getThinkingModels();
+  let best = null, bestLen = -1;
+  for (const e of list) {
+    const ep = String(e.provider || '').toLowerCase();
+    const em = String(e.model || '').toLowerCase();
+    if (ep && !provider.includes(ep)) continue;
+    if (em && !model.includes(em)) continue;
+    if (!ep && !em) continue;
+    if (em.length > bestLen) { best = e; bestLen = em.length; }
+  }
+  if (best) return best.think === false ? 'off' : 'on';
+  if (!model) return 'on';                       // 未知模型 → 默认有思考（不遗漏）
+  if (BUILTIN_THINKING_RE.test(model)) return 'on';
+  if (BUILTIN_NON_THINKING_RE.test(model)) return 'off';
+  return 'on';                                   // 兜底：默认有思考
+}
 async function updateThinkingToggleVisibility() {
   const btn = document.getElementById('aiShowThinkingToggle');
   if (!btn) return;
-  let show = true;
-  try {
-    const mode = await getEffectiveAiMode();
-    if (mode === 'inject') {
-      show = true;
-    } else {
-      const model = String((currentAiConfig && (currentAiConfig.aiModel || currentAiConfig.model)) || '').trim();
-      show = !model || REASONING_MODEL_RE.test(model);
-    }
-  } catch (e) { show = true; }
-  btn.classList.toggle('hidden', !show);
+  const cap = await resolveThinkingCapability();
+  btn.classList.toggle('hidden', cap === 'off');
+}
+async function loadThinkingModelsUi() {
+  const ta = document.getElementById('thinkingModels');
+  if (!ta) return;
+  const list = await getThinkingModels();
+  ta.value = list.map((e) => [e.provider, e.model, e.think === false ? 'off' : 'on'].filter(Boolean).join(', ')).join('\n');
+}
+async function saveThinkingModels() {
+  const ta = document.getElementById('thinkingModels');
+  const statusEl = document.getElementById('thinkingModelsStatus');
+  if (!ta) return;
+  const list = parseThinkingModels(ta.value);
+  await chrome.storage.local.set({ [THINKING_MODELS_KEY]: list });
+  if (statusEl) statusEl.textContent = I18N.t('thinkingListSaved', String(list.length));
+  updateThinkingToggleVisibility();
 }
 // LLM 回复音色偏好（'' = 跟随系统语音；仅系统朗读路径生效）
 async function aiSpeakVoicePref() {
@@ -5181,6 +5238,10 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== 蓝层：AI 服务（P0-B） =====
   const aiSaveBtn = document.getElementById('aiSaveBtn');
   if (aiSaveBtn) aiSaveBtn.addEventListener('click', saveAiConfig);
+  // 💭 思考模式名单：加载 + 保存
+  const thinkingModelsSave = document.getElementById('thinkingModelsSave');
+  if (thinkingModelsSave) thinkingModelsSave.addEventListener('click', saveThinkingModels);
+  loadThinkingModelsUi();
   const aiTestBtn = document.getElementById('aiTestBtn');
   if (aiTestBtn) aiTestBtn.addEventListener('click', testAiConnection);
   const aiKeyToggle = document.getElementById('aiKeyToggle');
