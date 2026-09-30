@@ -829,7 +829,7 @@ async function loadStreamSpeakPref() {
 function isStreamSpeakEnabled() { return streamSpeakOn === true; }
 function setStreamSpeakPref(on) { streamSpeakOn = !!on; chrome.storage.local.set({ ttsStreamSpeak: !!on }).catch(() => {}); }
 
-let _streamSpeaker = { token: 0, active: false, stopped: true, buffer: '', queue: [], speaking: false, spoke: false, btn: null };
+let _streamSpeaker = { token: 0, active: false, stopped: true, buffer: '', queue: [], speaking: false, spoke: false, btn: null, src: '' };
 function streamSpeakStart(btn) {
   // 打断上一轮朗读，避免新旧句子叠加
   try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
@@ -838,6 +838,7 @@ function streamSpeakStart(btn) {
   const token = _streamSpeaker.token;
   _streamSpeaker.active = true; _streamSpeaker.stopped = false;
   _streamSpeaker.buffer = ''; _streamSpeaker.queue = []; _streamSpeaker.speaking = false; _streamSpeaker.spoke = false;
+  _streamSpeaker.src = ''; // 已喂入的累计原文（用于只喂新增部分，避免重复朗读）
   _streamSpeaker.btn = btn || null;
   if (btn) setSpeakButtonState(btn, true); // 朗读中该消息小喇叭变为「停止」，可点击中断
   warmAudioContext();
@@ -848,9 +849,22 @@ function streamSpeakIsCurrent(token) { return _streamSpeaker.active && !_streamS
 function streamSpeakClearBtn() {
   if (_streamSpeaker.btn) { setSpeakButtonState(_streamSpeaker.btn, false); _streamSpeaker.btn = null; }
 }
-function streamSpeakFeed(token, text) {
-  if (!streamSpeakIsCurrent(token) || !text) return;
-  _streamSpeaker.buffer += text;
+// 入参为"当前累计全文"：与上一次比较，只喂入新增部分（前缀变化时按公共前缀取分叉后的新增），
+// 避免把已朗读过的内容再喂一遍导致"读完后从头再读"。
+function streamSpeakFeed(token, fullText) {
+  if (!streamSpeakIsCurrent(token)) return;
+  const full = String(fullText || '');
+  const prev = _streamSpeaker.src || '';
+  let delta;
+  if (full.startsWith(prev)) delta = full.slice(prev.length);
+  else {
+    let n = 0; const m = Math.min(prev.length, full.length);
+    while (n < m && prev[n] === full[n]) n++;
+    delta = full.slice(n);
+  }
+  _streamSpeaker.src = full;
+  if (!delta) return;
+  _streamSpeaker.buffer += delta;
   const { done, rest } = splitStreamSentences(_streamSpeaker.buffer);
   _streamSpeaker.buffer = rest;
   if (done.length) { _streamSpeaker.queue.push(...done); streamSpeakPump(token); }
@@ -865,7 +879,7 @@ function streamSpeakEnd(token) {
 function streamSpeakStop() {
   if (!_streamSpeaker.active && !_streamSpeaker.queue.length && !_streamSpeaker.speaking) { streamSpeakClearBtn(); return; }
   _streamSpeaker.stopped = true; _streamSpeaker.active = false;
-  _streamSpeaker.buffer = ''; _streamSpeaker.queue = [];
+  _streamSpeaker.buffer = ''; _streamSpeaker.queue = []; _streamSpeaker.src = '';
   streamSpeakClearBtn();
   logDebug('tts', '流式朗读已停止并清空队列');
 }
@@ -2180,7 +2194,7 @@ async function injectRun(prompt, images = [], opts = {}) {
     try {
       const r = await TABU_CAPS.askLocalStream(sendPrompt, {
         signal: controller.signal,
-        onDelta: (t) => { acc += t; setAns(acc); if (streamOn) streamSpeakFeed(spToken, t); }
+        onDelta: (t) => { acc += t; setAns(acc); if (streamOn) streamSpeakFeed(spToken, acc); }
       });
       const answer = (r && r.answer) || acc;
       finalizeStreamBubble(ansEl, answer);
@@ -2226,7 +2240,6 @@ async function injectRun(prompt, images = [], opts = {}) {
   const autoOn = await aiSpeakAnswerEnabled();
   const streamOn = autoOn && isStreamSpeakEnabled();
   const spToken = streamOn ? streamSpeakStart(injectAnsEl && injectAnsEl.querySelector('.msg-speak')) : 0;
-  let lastSnap = '';
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
   execute({
@@ -2236,7 +2249,7 @@ async function injectRun(prompt, images = [], opts = {}) {
       onDelta: (t) => {
         const snap = String(t || '');
         injectAcc = snap; setInjectAns(snap);
-        if (streamOn) { const inc = snap.startsWith(lastSnap) ? snap.slice(lastSnap.length) : snap; lastSnap = snap; streamSpeakFeed(spToken, inc); }
+        if (streamOn) streamSpeakFeed(spToken, snap); // 传累计全文，模块内部只喂新增
       }
     }
   })
@@ -2325,7 +2338,7 @@ async function injectRunApi(sendText, displayText) {
         contentStarted = true;
         acc += t;
         setAns(acc);
-        if (streamOn) streamSpeakFeed(spToken, t);
+        if (streamOn) streamSpeakFeed(spToken, acc);
       },
       // 思考增量：思考型模型先吐思考再吐正文；灰色气泡实时显示末尾一段
       onReasoning: (t) => {
@@ -2487,6 +2500,7 @@ function updateAiSpeakToggleUi(on) {
 
 // 合并后的发送：输入框文本 + 素材胶囊合成；填写了自定义模板（injectCustomTpl）就套用模板
 function injectSend() {
+  if (injectBusy) { showStatus(I18N.t('injectBusy'), 'info'); return; }
   const tplInput = document.getElementById('injectCustomTpl');
   const tpl = (tplInput && tplInput.value || '').trim();
   const parts = injectComposeParts();
@@ -2494,8 +2508,10 @@ function injectSend() {
     if (!parts.text) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
     injectRun(TABU_CAPS.PROCESSORS.custom.apply(parts.text, tpl), parts.images);
   } else {
+    if (!parts.text && !parts.images.length) { showStatus(I18N.t('enterTextToSend'), 'info'); return; }
     injectRun(parts.text, parts.images);
   }
+  injectSetInput(''); // 已发出：清空输入框，避免文本残留
 }
 
 function injectStop() {
@@ -4122,7 +4138,7 @@ async function runVoiceCirclePipeline(text) {
       let reasoningAcc = '';
       const llmOut = await voiceChatAskText(questionCtx, mode, {
         images: parts.images,
-        onDelta: (t) => { streamAcc += t; setAns(streamAcc); if (streamOn) streamSpeakFeed(spToken, t); },
+        onDelta: (t) => { streamAcc += t; setAns(streamAcc); if (streamOn) streamSpeakFeed(spToken, streamAcc); },
         onReasoning: (t) => {
           reasoningAcc += t;
           setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
