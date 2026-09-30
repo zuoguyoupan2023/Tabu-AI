@@ -371,7 +371,7 @@ async function translateText(text, opts = {}) {
 // 发送到 AI：注入 askInSite（后台）并返回 { ok, text, error }
 async function sendToAI(site, prompt, images) {
   const r = await sendMessage('injectAsk', { site: site || 'chatgpt', prompt, images: images || [] });
-  if (r && r.answer) return { ok: true, text: r.answer };
+  if (r && r.answer) return { ok: true, text: r.answer, thinking: r.thinking || '' };
   return { ok: false, text: '', error: (r && r.error) || I18N.t('unknownError') };
 }
 

@@ -707,8 +707,8 @@ footer a { color: #fff; text-decoration: none; }
 .material-chip .mremove:hover { color: #d33; }
 #injectVoice.recording { background: #ffe8e8; color: #d33; }
 
-/* 工作台 🔊 朗读回答开关 */
-#aiSpeakToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
+/* 工作台 🔊 朗读回答 / 💭 思考显示 开关 */
+#aiSpeakToggle.on, #aiShowThinkingToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
 
 /* 统一对话流：API 流式气泡实时文本 */
 .stream-text { white-space: pre-wrap; word-break: break-word; }

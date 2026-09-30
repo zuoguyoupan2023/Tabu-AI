@@ -1845,7 +1845,8 @@ async function injectRun(prompt, images = []) {
     if (statusEl) statusEl.textContent = I18N.t('sending');
     renderVoiceOutput(prompt, null, null, I18N.t('chatYou'));
     try {
-      const answer = await voiceChatAskText(prompt, 'local');
+      const llmOut = await voiceChatAskText(prompt, 'local');
+      const answer = llmOut && llmOut.answer;
       renderVoiceOutput(null, answer);
       if (statusEl) statusEl.textContent = I18N.t('injectDone');
       maybeSpeakAnswer(answer);
@@ -1878,9 +1879,11 @@ async function injectRun(prompt, images = []) {
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
   execute({ action: 'inject', text: prompt, options: { site: injectSite(), images } })
-    .then((out) => {
+    .then(async (out) => {
       if (out.ok) {
-        renderVoiceOutput(null, out.result.text);
+        const think = (out.result && out.result.thinking) || '';
+        const showThink = await aiShowThinkingEnabled();
+        renderVoiceOutput(null, out.result.text, (showThink && think) || null);
         if (statusEl) statusEl.textContent = I18N.t('injectDone');
         showStatus(I18N.t('injectSuccess'), 'success');
         maybeSpeakAnswer(out.result.text);
@@ -1910,8 +1913,9 @@ async function injectRunApi(prompt) {
   if (stopBtn) stopBtn.style.display = 'inline-block';
   if (statusEl) statusEl.textContent = I18N.t('sending');
   renderVoiceOutput(prompt, null, null, I18N.t('chatYou'));
-  // 流式气泡：思考（灰）+ 回答（逐字），完成后正文 Markdown 化
-  const thinkEl = appendStreamBubble('voice-think');
+  // 流式气泡：思考（灰，受 💭 开关控制）+ 回答（逐字），完成后正文 Markdown 化
+  const showThink = await aiShowThinkingEnabled();
+  const thinkEl = showThink ? appendStreamBubble('voice-think') : null;
   const ansEl = appendStreamBubble('voice-bot');
   const setThink = (t) => { const s = thinkEl && thinkEl.querySelector('.stream-text'); if (s) s.textContent = t.slice(-600); };
   const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
@@ -1979,6 +1983,13 @@ async function aiSpeakAnswerEnabled() {
     const r = await chrome.storage.local.get('aiSpeakAnswer');
     return r.aiSpeakAnswer !== false; // 默认开
   } catch (e) { return true; }
+}
+// 💭 思考显示开关（默认隐藏）：控制思考内容是否显示在对话流（与"朗读是否含思考"是两个独立设置）
+async function aiShowThinkingEnabled() {
+  try {
+    const r = await chrome.storage.local.get('aiShowThinking');
+    return r.aiShowThinking === true; // 默认隐藏
+  } catch (e) { return false; }
 }
 function maybeSpeakAnswer(text) {
   if (!text || !String(text).trim()) return;
@@ -3477,22 +3488,26 @@ async function runVoiceCirclePipeline(text) {
       const mode = await getEffectiveAiMode();
       const tLlm0 = performance.now();
       let reasoningAcc = '';
-      const answer = await voiceChatAskText(question, mode, {
+      const llmOut = await voiceChatAskText(question, mode, {
         images: parts.images,
       onReasoning: (t) => {
         reasoningAcc += t;
         setVoiceCircleStatus('💭 ' + t.slice(-80)); // 思考增量实时显示在状态行（灰色块最终进输出栏）
       }
     });
+    const answer = llmOut && llmOut.answer;
+    const pageThinking = (llmOut && llmOut.thinking) || '';
+    const thinkingAll = reasoningAcc.trim() || pageThinking; // API 思考回调 / 站点提取的思考块
+    const showThink = await aiShowThinkingEnabled();
     const tLlm = performance.now() - tLlm0;
-    renderVoiceOutput(null, answer, reasoningAcc.trim() || null);
+    renderVoiceOutput(null, answer, (showThink && thinkingAll) || null);
     logDebug('voice#' + round, 'LLM ' + tLlm.toFixed(0) + 'ms（渠道 ' + mode + '）→ ' + (answer ? String(answer).slice(0, 80) : '(无/在站点)'));
 
     // ③ 朗读（文本输出 → 发起朗读的间隔；首帧延迟见 [tts] 日志）
     // 思考内容默认不朗读；设置「朗读包含思考内容」开启时先读思考再读正文。
     // inject 渠道的回答现在也会回传 → 有答案就朗读；无答案才落到底部提示
     if (answer) {
-      const reasoning = reasoningAcc.trim();
+      const reasoning = thinkingAll;
       const spoken = (currentVoiceConfig.ttsReadThinking && reasoning) ? reasoning + '\n\n' + answer : answer;
       const tSpk0 = performance.now();
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
@@ -3554,13 +3569,16 @@ async function voiceChatAskText(text, mode, opts = {}) {
       onDelta: (t) => { acc += t; },
       onReasoning: (t) => { if (opts.onReasoning) opts.onReasoning(t); }
     });
-    return acc;
+    return { answer: acc, thinking: '' };
   }
   if (mode === 'inject') {
     const out = await execute({ action: 'inject', text, options: { site: injectSite(), images: opts.images || [] } });
     if (!out.ok) throw new Error(out.result ? (out.result.error || out.error) : (out.error || I18N.t('unknownError')));
-    // 站点回复的答案带回语音管线显示/朗读（旧版丢弃只提示"已发送"，用户在插件里看不到内容）
-    return (out.result && out.result.text) || null;
+    // 站点回复的答案 + 思考（分离结构）带回语音管线显示/朗读
+    return {
+      answer: (out.result && out.result.text) || null,
+      thinking: (out.result && out.result.thinking) || ''
+    };
   }
   // local
   const serverUrl = (currentVoiceConfig.voiceLocalServer || 'http://127.0.0.1:9528').replace(/\/+$/, '');
@@ -3570,7 +3588,7 @@ async function voiceChatAskText(text, mode, opts = {}) {
   });
   if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'HTTP ' + res.status); }
   const data = await res.json();
-  return data.text || '';
+  return { answer: data.text || '', thinking: '' };
 }
 
 // 统一对话流渲染（006 方案二）：语音/文本/本地/API 的问答都追加到同一容器。
@@ -4665,6 +4683,16 @@ document.addEventListener('DOMContentLoaded', () => {
     injectAttachFile.addEventListener('change', () => {
       injectAttachPick(injectAttachFile.files);
       injectAttachFile.value = ''; // 允许重复选择同一文件
+    });
+  }
+  // 💭 思考显示开关（默认隐藏）
+  const showThinkToggle = document.getElementById('aiShowThinkingToggle');
+  if (showThinkToggle) {
+    chrome.storage.local.get('aiShowThinking').then((r) => updateAiShowThinkingToggleUi(r.aiShowThinking === true)).catch(() => {});
+    showThinkToggle.addEventListener('click', async () => {
+      const on = !(await aiShowThinkingEnabled());
+      await chrome.storage.local.set({ aiShowThinking: on });
+      updateAiShowThinkingToggleUi(on);
     });
   }
   // 后台注入进度提示（方案 A：AI 标签页后台打开，不抢当前页面焦点）

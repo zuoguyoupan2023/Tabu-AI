@@ -1108,7 +1108,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {
           injectImmediately: true
         }), 75000, '注入执行超时（页面加载异常）');
         const out = results && results[0] ? results[0].result : null;
-        if (out && out.answer) return { answer: out.answer };
+        if (out && out.answer) return { answer: out.answer, thinking: out.thinking || '' };
         if (out && out.error) lastError = out.error;
       } catch (e) {
         lastError = '注入失败: ' + e.message;
@@ -1454,6 +1454,7 @@ function askInSite(question, adapter, requestId, images) {
     // 兼容两种 DOM 行为：a) 复用同一元素更新 innerText；b) 新增多个元素
     // 结束判定：文本稳定 ≥1.5s 且「停止生成」按钮已消失（思考链与正式回答之间的停顿不会误判）
     let lastText = '';
+    let lastThinking = '';
     let stableSince = 0;
     const stopSelectors = [
       'button[data-testid="stop-button"]', 'button[aria-label*="停止"]',
@@ -1469,34 +1470,46 @@ function askInSite(question, adapter, requestId, images) {
         selectorPool = selectorPool.concat(GENERIC_REPLY_SELECTORS.filter(s => !selectorPool.includes(s)));
       }
       const newElements = list.slice(before.length);
-      // 尽力扣除思维链子块：DeepSeek/Kimi 的折叠思考区、思考摘要等有独立容器时整段去掉，
-      // 避免思考内容混进回答（侧边栏显示/朗读/终端桥接都受益）
-      const pickText = (el) => {
-        let t = (el.innerText || '').trim();
-        if (!t) return '';
+      // 思维链分离（确定性）：思考块无论"答案元素的后代"还是"独立兄弟元素"都被单独识别，
+      // 返回 { text, thinking } 分离结构 —— 解决奇偶轮思考块 DOM 形态不同导致的漏剥
+      const pickParts = (el) => {
+        // 元素自身就是思考块（类名含 think/reason/thought）→ 全部计入 thinking
+        if (/think|reason|thought/i.test(String(el.className || ''))) {
+          return { text: '', thinking: (el.innerText || '').trim() };
+        }
+        const full = (el.innerText || '').trim();
+        if (!full) return { text: '', thinking: '' };
+        // 思考容器是后代：扣除并计入 thinking
         try {
           const thinkEl = el.querySelector('[class*="think" i], [class*="reason" i], [class*="thought" i], details');
           if (thinkEl) {
             const tt = (thinkEl.innerText || '').trim();
-            if (tt && tt.length < t.length) t = t.replace(tt, '').trim();
+            if (tt && tt.length < full.length) return { text: full.replace(tt, '').trim(), thinking: tt };
           }
         } catch (e) {}
-        return t;
+        return { text: full, thinking: '' };
       };
       let text = '';
+      let thinking = '';
       if (newElements.length > 0) {
-        // 情况 b：有新增元素，拼接所有新增元素的文本；过滤与问题原文相同的元素
-        //（通用兜底选择器可能连用户气泡一起匹配到）
-        text = newElements.map(pickText).filter(t => t && t !== question).join('\n');
+        // 情况 b：有新增元素，逐个分离思考/正文；过滤与问题原文相同的元素（通用兜底可能连用户气泡一起匹配）
+        for (const el of newElements) {
+          const p = pickParts(el);
+          if (p.text && p.text !== question) text = text ? text + '\n' + p.text : p.text;
+          if (p.thinking) thinking = thinking ? thinking + '\n' + p.thinking : p.thinking;
+        }
       } else if (list.length > 0) {
-        // 情况 a：元素被复用，读最后一个元素的 innerText
-        text = pickText(list[list.length - 1]);
+        // 情况 a：元素被复用，读最后一个元素
+        const p = pickParts(list[list.length - 1]);
+        text = p.text;
+        thinking = p.thinking;
       }
+      if (thinking) lastThinking = thinking;
       if (!text) return;
       const isNew = list.length > before.length || (text && text !== baselineLast);
       if (!isNew) return;
-      if (text !== lastText) { lastText = text; stableSince = Date.now(); reportDelta(text); return; }
-      if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text });
+      if (text !== lastText) { lastText = text; lastThinking = thinking; stableSince = Date.now(); reportDelta(text); return; }
+      if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text, thinking: lastThinking });
     };
     const beginWait = () => {
       observer = new MutationObserver(check);
@@ -1507,7 +1520,7 @@ function askInSite(question, adapter, requestId, images) {
       setTimeout(trySendLoop, 600 + Math.random() * 800);
       setTimeout(() => {
         clearInterval(pollTimer);
-        if (lastText) finish({ answer: lastText });
+        if (lastText) finish({ answer: lastText, thinking: lastThinking });
         else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；图片: ' + (diag.images || 0) + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
       }, RESOLVE_TIMEOUT);
     };
