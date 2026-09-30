@@ -69,7 +69,6 @@
                 <span class="vo-arrow">▾</span> <span data-i18n="chatStreamTitle">💬 对话记录</span>
               </button>
               <span class="vo-actions">
-                <button class="mini-btn" id="voiceSpeakLast" data-i18n="ttsSpeakLastAnswer" data-i18n-title="ttsSpeakLastAnswerTitle" title="朗读最近一条 AI 回答">朗读回答</button>
                 <button class="mini-btn" id="voiceCopyLast" data-i18n="voiceCopyLast" data-i18n-title="voiceCopyLastTitle" title="复制最近一条 AI 回答">复制回答</button>
                 <button class="mini-btn" id="voiceOutputClear" data-i18n="voiceOutputClear">清空</button>
               </span>
@@ -106,7 +105,7 @@
             <div class="ops">
               <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
               <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
-              <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="AI 回答后自动朗读（与语音工作台同一朗读引擎，默认开）">🔊 朗读回答</button>
+              <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="开关：AI 回答后是否自动朗读（与蓝区「LLM 回复朗读」同步，默认开）">🔊 自动朗读</button>
               <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务（MyMemory）翻译输入框内容">🌐 免费翻译</button>
               <button class="chip" id="aiShowThinkingToggle" data-i18n="aiShowThinkingOff" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭 思考隐藏</button>
               <span id="injectStatus" class="tool-status inline"></span>
@@ -247,15 +246,6 @@
         </div>
 
         </div><!-- /upper-section -->
-
-        <!-- 运行日志（红区底部，默认展开；调试每轮 识别/LLM/朗读 耗时） -->
-        <div class="debug-log" id="debugLog">
-          <div class="debug-log-head">
-            <span data-i18n="debugLogTitle">📋 运行日志</span>
-            <button class="mini-btn" id="debugLogClear" data-i18n="debugLogClear">清空</button>
-          </div>
-          <div id="debugLogBody" class="debug-log-body"><div class="debug-log-empty">—</div></div>
-        </div>
       </div>
 
       <!-- ================= 蓝层 ================= -->
@@ -631,6 +621,16 @@
             <div class="card-title" data-i18n="aiCustomTplTitle">⚡ 自定义模板</div>
             <input type="text" id="injectCustomTpl" class="row-select" style="width:100%;" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
             <div class="hint" data-i18n="aiCustomTplHint">填写后，主界面「🚀 发送」会自动套用该模板；{text} 替换为输入框+素材内容。</div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="debug-log" id="debugLog">
+            <div class="debug-log-head">
+              <span data-i18n="debugLogTitle">📋 运行日志</span>
+              <button class="mini-btn" id="debugLogClear" data-i18n="debugLogClear">清空</button>
+            </div>
+            <div id="debugLogBody" class="debug-log-body"><div class="debug-log-empty">—</div></div>
           </div>
         </section>
 

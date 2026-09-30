@@ -639,6 +639,11 @@ input, select, textarea { font-family: var(--font); }
 .voice-msg b { display: block; margin-bottom: 2px; opacity: .8; font-size: 11px; }
 .voice-user { background: rgba(0,0,0,.16); }
 .voice-bot { background: rgba(52,211,153,.14); }
+/* 每条消息底部的小喇叭：默认淡，hover 变亮，朗读中变红 */
+.voice-msg .msg-actions { margin-top: 4px; display: flex; justify-content: flex-end; }
+.msg-speak { background: none; border: none; cursor: pointer; font-size: 12px; line-height: 1; padding: 0 2px; opacity: .4; transition: opacity .15s, color .15s; }
+.msg-speak:hover { opacity: .95; }
+.msg-speak.speaking { opacity: 1; color: #f87171; }
 
 /* ===== AI 渠道行：LLM 渠道（本地/浏览器/API）+ 免费翻译特殊功能 ===== */
 .ai-backend-special { margin-top: 2px; border-top: 1px dashed var(--line); padding-top: 6px; }

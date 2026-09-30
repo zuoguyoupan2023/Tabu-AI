@@ -944,6 +944,7 @@ function setSpeakButtonState(btn, active) {
   if (!btn) return;
   if (active) {
     if (activeSpeakBtn && activeSpeakBtn !== btn) setSpeakButtonState(activeSpeakBtn, false);
+    if (btn.dataset.origText == null) btn.dataset.origText = btn.textContent;
     btn.dataset.origI18n = btn.dataset.i18n || btn.dataset.origI18n;
     btn.dataset.origTitle = btn.dataset.i18nTitle || btn.dataset.origTitle || '';
     btn.textContent = I18N.t('ttsStop');
@@ -954,6 +955,7 @@ function setSpeakButtonState(btn, active) {
     if (activeSpeakBtn === btn) activeSpeakBtn = null;
     const labelKey = btn.dataset.origI18n || btn.dataset.i18n;
     if (labelKey) btn.textContent = I18N.t(labelKey);
+    else if (btn.dataset.origText != null) btn.textContent = btn.dataset.origText;
     if (btn.dataset.origTitle) btn.title = I18N.t(btn.dataset.origTitle);
     btn.classList.remove('speaking');
   }
@@ -1933,7 +1935,7 @@ async function injectRunApi(sendText, displayText) {
       return;
     }
     const answer = (r && r.answer) || acc;
-    if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div>';
+    if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div>';
     maybeSpeakAnswer(answer);
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
@@ -1986,12 +1988,6 @@ function maybeSpeakAnswer(text) {
     logDebug('tts', '自动朗读 LLM 回答（' + String(text).length + ' 字）');
     doSpeak(String(text), document.getElementById('injectStatus'), null, !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref);
   }).catch(() => {});
-}
-// 朗读最近一条 AI 回答（对话流头部 / 红区朗读面板按钮共用）
-async function speakLastAnswer() {
-  if (!lastAnswerText || !lastAnswerText.trim()) { showStatus(I18N.t('noTextToSpeak'), 'info'); return; }
-  const pref = await aiSpeakVoicePref();
-  doSpeak(lastAnswerText, document.getElementById('injectStatus'), null, false, pref);
 }
 function updateAiSpeakToggleUi(on) {
   const btn = document.getElementById('aiSpeakToggle');
@@ -3720,6 +3716,10 @@ async function voiceChatAskText(text, mode, opts = {}) {
 // recognized = 用户消息；answer = AI 回答（Markdown）；reasoning = 思考（灰）；userLabel = 用户消息标签（默认"识别"）
 // 追加式渲染（insertAdjacentHTML，避免 innerHTML += 重复解析导致的内容丢失）+ 自动滚到底部。
 let lastAnswerText = '';
+// 每条消息底部的小喇叭图标（点击朗读这一条；事件由 #voiceOutputContent 委托处理）
+function msgSpeakBtn() {
+  return '<button class="msg-speak" type="button" data-i18n-title="msgSpeakTitle" title="朗读这条">🔊</button>';
+}
 function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
@@ -3728,10 +3728,10 @@ function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   let html = '';
   const uLabel = userLabel || I18N.t('chatRecognized');
   if (reasoning) html += '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(reasoning) + '</div>';
-  if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '</div>';
+  if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '<div class="msg-actions">' + msgSpeakBtn() + '</div></div>';
   if (answer) {
     lastAnswerText = String(answer);
-    html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div></div>';
+    html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div></div>';
   }
   if (html) body.insertAdjacentHTML('beforeend', html);
   body.scrollTop = body.scrollHeight;
@@ -4674,9 +4674,19 @@ document.addEventListener('DOMContentLoaded', () => {
       showStatus(I18N.t('unknownError'), true);
     }
   });
-  // 朗读最近一条 AI 回答（对话流头部）
-  const speakLastBtn = document.getElementById('voiceSpeakLast');
-  if (speakLastBtn) speakLastBtn.addEventListener('click', speakLastAnswer);
+  // 每条消息的小喇叭：委托点击，朗读该条（提问/回答/思考）
+  const voiceOutputContentEl = document.getElementById('voiceOutputContent');
+  if (voiceOutputContentEl) voiceOutputContentEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.msg-speak');
+    if (!btn) return;
+    const msg = btn.closest('.voice-msg');
+    if (!msg) return;
+    const clone = msg.cloneNode(true);
+    clone.querySelectorAll('b, .msg-actions').forEach((n) => n.remove());
+    const text = (clone.innerText || clone.textContent || '').trim();
+    if (!text) return;
+    doSpeak(text, document.getElementById('injectStatus'), btn);
+  });
   // 蓝区「LLM 回复朗读」：自动朗读开关（与工作台 🔊 双向同步）+ 回复音色
   const speakAnswerBlue = document.getElementById('aiSpeakAnswerBlue');
   if (speakAnswerBlue) {
