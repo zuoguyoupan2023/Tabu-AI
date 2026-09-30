@@ -1333,8 +1333,55 @@ function askInSite(question, adapter, requestId, images) {
     // 只保留"最外层"元素，避免把内层小片段当答案（DeepSeek 曾因此只截到正文最后一段）。
     const topLevel = (els) => els.filter(el => !els.some(o => o !== el && o.contains(el)));
     const topMsgs = () => topLevel(msgs());
+    // DOM → Markdown：把 <a href> 保留为 [文本](url)，让引用数字/参考资料成为可点击超链接；
+    // 跳过思考块、隐藏节点与脚本；块级元素换行、li 加前缀。
+    const domToMarkdown = (root) => {
+      let out = '';
+      const isThink = (n) => /think|reason|thought/i.test(String(n.className || ''));
+      const isHidden = (n) => {
+        if (n.hasAttribute && (n.hasAttribute('hidden') || n.getAttribute('aria-hidden') === 'true')) return true;
+        const cls = String(n.className || '');
+        return /(^|\s)(tooltip|popover|invisible)(\s|$)/i.test(cls);
+      };
+      const walk = (node) => {
+        const linkLabel = (n) => {
+          let s = (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim();
+          if (/^[-\s\d]+$/.test(s)) s = s.replace(/[^\d]/g, '');
+          return s;
+        };
+        if (node.nodeType === 3) { out += node.nodeValue || ''; return; }
+        if (node.nodeType !== 1) return;
+        const tag = node.tagName.toLowerCase();
+        if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'button' || tag === 'noscript') return;
+        if (isThink(node) || isHidden(node)) return;
+        if (tag === 'a') {
+          const href = node.getAttribute('href') || '';
+          const label = linkLabel(node);
+          if (/^https?:/i.test(href) && label) { out += '[' + label + '](' + href + ')'; return; }
+          for (const c of node.childNodes) walk(c);
+          return;
+        }
+        if (tag === 'sup' || /cite|reference|footnote/i.test(String(node.className || ''))) {
+          const url = node.getAttribute('data-url') || node.getAttribute('data-href') || node.getAttribute('data-link') || node.getAttribute('href') || '';
+          const label = linkLabel(node);
+          if (/^https?:/i.test(url) && label) { out += '[' + label + '](' + url + ')'; return; }
+        }
+        if (tag === 'br') { out += '\n'; return; }
+        if (tag === 'code') { const t = (node.innerText || '').trim(); if (t) out += '`' + t + '`'; return; }
+        if (tag === 'strong' || tag === 'b') { out += '**'; for (const c of node.childNodes) walk(c); out += '**'; return; }
+        const isBlock = /^(p|div|li|ul|ol|h[1-6]|tr|table|blockquote|pre|section|article|figure)$/.test(tag);
+        if (isBlock) out += '\n';
+        if (tag === 'li') out += '- ';
+        for (const c of node.childNodes) walk(c);
+        if (isBlock) out += '\n';
+      };
+      walk(root);
+      return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    };
     let before = topMsgs();
     let beforeSet = new Set(before); // 身份基线：避免 index 漂移导致新元素被切掉
+    // 基线 markdown：元素被复用时，用"当前 md 去掉基线 md 前缀"得到本轮新增正文，避免把整段历史当答案
+    let beforeMd = new Map(before.map(el => [el, domToMarkdown(el)]));
     let baselineLast = before.length ? (before[before.length - 1].innerText || '').trim() : '';
     let sentAt = 0;
     let genericFallbackOn = false;
@@ -1490,6 +1537,7 @@ function askInSite(question, adapter, requestId, images) {
         if (nowMsgs.length) {
           before = nowMsgs;
           beforeSet = new Set(before);
+          beforeMd = new Map(before.map(el => [el, domToMarkdown(el)]));
           baselineLast = (before[before.length - 1].innerText || '').trim();
         }
       }
@@ -1527,54 +1575,6 @@ function askInSite(question, adapter, requestId, images) {
       const newElements = list.filter(el => !beforeSet.has(el));
       // 思维链分离（确定性）：思考块无论"答案元素的后代"还是"独立兄弟元素"都被单独识别，
       // 返回 { text, thinking } 分离结构 —— 解决奇偶轮思考块 DOM 形态不同导致的漏剥
-      // DOM → Markdown：把 <a href> 保留为 [文本](url)，让引用数字/参考资料成为可点击超链接；
-      // 跳过思考块、隐藏节点与脚本；块级元素换行、li 加前缀。
-      const domToMarkdown = (root) => {
-        let out = '';
-        const isThink = (n) => /think|reason|thought/i.test(String(n.className || ''));
-        const isHidden = (n) => {
-          if (n.hasAttribute && (n.hasAttribute('hidden') || n.getAttribute('aria-hidden') === 'true')) return true;
-          const cls = String(n.className || '');
-          // 仅跳过典型引用浮层/隐藏标记，避免误伤 Tailwind 的 overflow-hidden 等
-          return /(^|\s)(tooltip|popover|invisible)(\s|$)/i.test(cls);
-        };
-        const walk = (node) => {
-          // 链接标签：折叠空白（避免换行把 [label](url) 拆行导致无法渲染）；纯引用编号只留数字
-          const linkLabel = (n) => {
-            let s = (n.innerText || n.textContent || '').replace(/\s+/g, ' ').trim();
-            if (/^[-\s\d]+$/.test(s)) s = s.replace(/[^\d]/g, '');
-            return s;
-          };
-          if (node.nodeType === 3) { out += node.nodeValue || ''; return; }
-          if (node.nodeType !== 1) return;
-          const tag = node.tagName.toLowerCase();
-          if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'button' || tag === 'noscript') return;
-          if (isThink(node) || isHidden(node)) return;
-          if (tag === 'a') {
-            const href = node.getAttribute('href') || '';
-            const label = linkLabel(node);
-            if (/^https?:/i.test(href) && label) { out += '[' + label + '](' + href + ')'; return; }
-            for (const c of node.childNodes) walk(c);
-            return;
-          }
-          // 引用标记（sup / cite / reference）：URL 可能挂在属性而非 <a href>
-          if (tag === 'sup' || /cite|reference|footnote/i.test(String(node.className || ''))) {
-            const url = node.getAttribute('data-url') || node.getAttribute('data-href') || node.getAttribute('data-link') || node.getAttribute('href') || '';
-            const label = linkLabel(node);
-            if (/^https?:/i.test(url) && label) { out += '[' + label + '](' + url + ')'; return; }
-          }
-          if (tag === 'br') { out += '\n'; return; }
-          if (tag === 'code') { const t = (node.innerText || '').trim(); if (t) out += '`' + t + '`'; return; }
-          if (tag === 'strong' || tag === 'b') { out += '**'; for (const c of node.childNodes) walk(c); out += '**'; return; }
-          const isBlock = /^(p|div|li|ul|ol|h[1-6]|tr|table|blockquote|pre|section|article|figure)$/.test(tag);
-          if (isBlock) out += '\n';
-          if (tag === 'li') out += '- ';
-          for (const c of node.childNodes) walk(c);
-          if (isBlock) out += '\n';
-        };
-        walk(root);
-        return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-      };
       const pickParts = (el) => {
         // 元素自身就是思考块（类名含 think/reason/thought）→ 全部计入 thinking
         if (/think|reason|thought/i.test(String(el.className || ''))) {
@@ -1614,11 +1614,22 @@ function askInSite(question, adapter, requestId, images) {
           if (p.thinking) thinking = thinking ? thinking + '\n' + p.thinking : p.thinking;
         }
       }
-      // 情况 a / 兜底：无新增元素，或新增元素全是思考块 → 读最后一个顶层元素（元素被复用的站点）
+      // 情况 a / 兜底：无新增元素，或新增元素全是思考块 → 扫描所有顶层元素，取"相对基线新增正文"最长者
+      //（元素被复用/内容累积的站点：只取本轮新增，避免把整段历史或旧回答当答案）
       if (!text && list.length > 0) {
-        const p = pickParts(list[list.length - 1]);
-        if (p.text) text = p.text;
-        if (!thinking) thinking = p.thinking;
+        let bestT = '', bestThinking = '';
+        for (const el of list) {
+          const p = pickParts(el);
+          let t = p.text;
+          const base = beforeMd.get(el);
+          if (base) {
+            if (t.startsWith(base)) t = t.slice(base.length).trim();
+            else { const idx = t.indexOf(base); if (idx >= 0) t = t.slice(idx + base.length).trim(); }
+          }
+          if (t && t.length > bestT.length) { bestT = t; bestThinking = p.thinking; }
+        }
+        if (bestT) text = bestT;
+        if (!thinking && bestThinking) thinking = bestThinking;
       }
       if (thinking) lastThinking = thinking;
       if (!text) return;
