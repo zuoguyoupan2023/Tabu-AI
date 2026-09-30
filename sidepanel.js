@@ -593,34 +593,14 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-// 系统 TTS 朗读（音色校验为尽力而为，绝不阻塞朗读）：
-// 1.5s 内拿不到语音列表（部分浏览器 chrome.tts.getVoices 回调可能不触发）→ 直接用当前选择朗读；
-// 只有拿到非空列表且确实找不到所选音色时才降级：当前界面语言第一个可用音色 → 系统默认。
+// 系统 TTS 朗读：直接用朗读面板当前选择的音色（渲染时刻已做过"存储音色失效回退"校验）。
+// ＊这里绝不做任何 await/校验——chrome.tts.getVoices 在部分浏览器可能不回调，任何阻塞都会导致无声。
 async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
-  let voice = document.getElementById('ttsVoice')?.value || '';
+  const voice = document.getElementById('ttsVoice')?.value || '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-  if (voice) {
-    try {
-      const voices = await Promise.race([
-        new Promise((res) => {
-          try { chrome.tts.getVoices((v) => res(v || [])); } catch (e) { res(null); }
-        }),
-        new Promise((res) => setTimeout(() => res(null), 1500))
-      ]);
-      if (voices && voices.length && !voices.some(v => (v.voiceName || '') === voice)) {
-        const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
-        const wantLang = uiZh ? 'zh' : 'en';
-        const cand = voices.filter(v => String(v.lang || '').toLowerCase().startsWith(wantLang) && (v.voiceName || ''));
-        if (cand.length && cand[0].voiceName) {
-          logDebug('tts', '所选音色不在系统列表，降级: ' + voice + ' → ' + cand[0].voiceName, true);
-          voice = cand[0].voiceName;
-        }
-      }
-    } catch (e) {}
-  }
-  logDebug('tts', '系统朗读: voice=' + (voice || '(默认)') + ' · ' + text.length + ' 字');
+  logDebug('tts', '系统朗读: voice=' + (voice || '(系统默认)') + ' · ' + text.length + ' 字');
   try {
     runAction('tts', text, {
       voice, rate, pitch, volume,
@@ -2101,6 +2081,9 @@ function injectStop() {
 }
 
 async function injectNewChat() {
+  // 新对话 = 全新开始：清空输入框与素材胶囊（API 模式同时重置后台会话）
+  injectSetInput('');
+  injectClearMaterials();
   // API 模式：重置会话（新 session 清空多轮上下文），无需操作真实 AI 页面
   if (await getEffectiveAiMode() === 'api') {
     const r = await sendMessage('resetAiSession');
