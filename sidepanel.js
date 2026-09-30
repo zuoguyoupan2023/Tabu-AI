@@ -623,6 +623,39 @@ function stripMarkdownForTts(text) {
     .replace(/^#{1,4}\s+/gm, '');
 }
 
+// 朗读用：把链接"人话化"，避免逐字母读出 https://…
+// · 带文字标签的 Markdown 链接 → 读标签文字（如 [百度百科](url) → 百度百科）
+// · 编号/裸链接 → 读「这是一个 <域名主体> 的网址」/「a <domain> website」
+function ttsDomainWord(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./i, '');
+    const parts = host.split('.').filter(Boolean);
+    if (!parts.length) return '';
+    let idx = parts.length >= 2 ? parts.length - 2 : 0;
+    // co.uk / com.cn 之类：主体是 "co"/"com" 时往前再取一个
+    if (/^(co|com|net|org|gov|edu)$/i.test(parts[idx]) && parts.length >= 3) idx = parts.length - 3;
+    return parts[idx] || '';
+  } catch (e) { return ''; }
+}
+function ttsUrlPhrase(url, uiZh) {
+  const w = ttsDomainWord(url);
+  if (uiZh) return w ? ('这是一个 ' + w + ' 的网址') : '这是一个网址';
+  return w ? ('a ' + w + ' website') : 'a website';
+}
+function humanizeUrlsForTts(text) {
+  const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+  let s = String(text || '');
+  // Markdown 链接：有意义的文字标签直接读标签；编号/短标签读域名短语
+  s = s.replace(/\[([^\]]*)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/g, (m, label, url) => {
+    const l = String(label || '').replace(/\s+/g, ' ').trim();
+    if (l && l.length > 1 && !/^[-\s\d]+$/.test(l)) return l;
+    return ttsUrlPhrase(url, uiZh);
+  });
+  // 裸 URL
+  s = s.replace(/https?:\/\/[^\s<>()"']+/g, (url) => ttsUrlPhrase(url, uiZh));
+  return s;
+}
+
 // ===== Markdown 轻量渲染（无依赖）=====
 // 支持：代码块 ```、行内代码 `x`、标题 #~####、粗体 **x**、斜体 *x*、无序/有序列表、段落换行。
 // 思考标题行渲染为灰色（.md-think）；所有内容先 escapeHtml 再转换，安全。
@@ -744,8 +777,8 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
   }
   // 思考内容默认不朗读：剥掉思维链（站点提取残留的思维块/标题行）；设置开启时保留
   if (!currentVoiceConfig.ttsReadThinking) text = stripThinkingForTts(text);
-  // Markdown 标记（含引用链接）不朗读：只读链接文字，不读 URL
-  text = stripMarkdownForTts(text);
+  // 链接人话化（避免逐字母读 URL）+ 去掉其余 Markdown 标记
+  text = stripMarkdownForTts(humanizeUrlsForTts(text));
   if (!text || !text.trim()) { showStatus(I18N.t('noTextToSpeak'), 'info'); if (statusEl) statusEl.textContent = I18N.t('noText'); return; }
   // 朗读轮次：同一回答只朗读一次（008 §4）
   const round = ++speakRoundSeq;
@@ -893,7 +926,8 @@ async function streamSpeakPump(token) {
   if (streamSpeakIsCurrent(token)) streamSpeakPump(token);
 }
 async function streamSpeakOne(sentence, token) {
-  const text = String(sentence || '').trim();
+  // 分句朗读前同样做"链接人话化"+"去 Markdown"，避免逐字母读 https://…
+  const text = stripMarkdownForTts(humanizeUrlsForTts(String(sentence || ''))).trim();
   if (!text || !streamSpeakIsCurrent(token)) return;
   let engine = await resolveEffectiveTtsEngine();
   if (currentVoiceConfig.voiceCircleForceSystem) engine = 'system';
