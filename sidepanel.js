@@ -442,10 +442,20 @@ async function populateVoices() {
   const langFilter = document.getElementById('ttsLangFilter');
   if (!select || !langFilter) return;
   try {
-    const voices = await new Promise((resolve) => {
-      chrome.tts.getVoices((voices) => resolve(voices));
-    });
-    allVoices = voices || [];
+    // 音色来源：优先 Web SpeechSynthesis（全浏览器通用，Edge 也支持；chrome.tts 在 Edge 不完整），
+    // 为空时回退 chrome.tts.getVoices
+    let voices = [];
+    try {
+      if (window.speechSynthesis) {
+        voices = (speechSynthesis.getVoices() || []).map(v => ({ voiceName: v.name, lang: v.lang }));
+      }
+    } catch (e) {}
+    if (!voices.length) {
+      voices = await new Promise((resolve) => {
+        try { chrome.tts.getVoices((v) => resolve(v || [])); } catch (e) { resolve([]); }
+      });
+    }
+    allVoices = voices;
     // 语言筛选下拉：显示可读名称（随界面语言中/英切换），value 仍为 BCP-47 代码；Google 语音不参与
     const langSet = new Set();
     for (const v of usableVoices()) {
@@ -605,19 +615,57 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-// 系统 TTS 朗读：直接用朗读面板当前选择的音色（渲染时刻已做过"存储音色失效回退"校验）。
-// ＊这里绝不做任何 await/校验——chrome.tts.getVoices 在部分浏览器可能不回调，任何阻塞都会导致无声。
+// 系统 TTS 朗读：优先 Web SpeechSynthesis（全浏览器通用——chrome.tts 在 Edge 不完整，
+// 是"选了音色却不发声"的根因）；SpeechSynthesis 不可用/无音色时回退 chrome.tts。
 async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
   const voice = document.getElementById('ttsVoice')?.value || '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-  logDebug('tts', '系统朗读: voice=' + (voice || '(系统默认)') + ' · ' + text.length + ' 字');
+  const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+  const wantLang = uiZh ? 'zh' : 'en';
+
+  // ① SpeechSynthesis 路径
+  try {
+    if (window.speechSynthesis) {
+      const voices = speechSynthesis.getVoices() || [];
+      // 选中的音色名 → 语音对象；找不到 → 当前界面语言的第一个音色 → 系统默认
+      let v = voice ? voices.find(x => x.name === voice) : null;
+      if (!v) v = voices.find(x => String(x.lang || '').toLowerCase().startsWith(wantLang)) || null;
+      if (voices.length && (v || voice)) {
+        logDebug('tts', '系统朗读(SpeechSynthesis): voice=' + (v ? v.name : '(默认)') + ' · ' + text.length + ' 字');
+        const u = new SpeechSynthesisUtterance(text);
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = uiZh ? 'zh-CN' : 'en-US'; }
+        u.rate = Math.max(0.1, Math.min(10, rate));
+        u.pitch = Math.max(0, Math.min(2, pitch));
+        u.volume = Math.max(0, Math.min(1, volume));
+        u.onstart = () => {
+          setSpeakButtonState(triggerBtn, true);
+          if (statusEl) statusEl.textContent = I18N.t('speaking');
+        };
+        u.onend = () => {
+          setSpeakButtonState(triggerBtn, false);
+          if (statusEl) statusEl.textContent = I18N.t('speakDone');
+        };
+        u.onerror = (ev) => {
+          setSpeakButtonState(triggerBtn, false);
+          if (statusEl) statusEl.textContent = I18N.t('speakError') + (ev.error || I18N.t('unknown'));
+        };
+        speechSynthesis.cancel();
+        speechSynthesis.speak(u);
+        return;
+      }
+    }
+  } catch (e) {
+    logDebug('tts', 'SpeechSynthesis 失败，回退 chrome.tts：' + ((e && e.message) || ''), true);
+  }
+
+  // ② chrome.tts 兜底（Chrome 桌面端可用；Edge 可能无声）
+  logDebug('tts', '系统朗读(chrome.tts 兜底): voice=' + (voice || '(默认)') + ' · ' + text.length + ' 字');
   try {
     runAction('tts', text, {
       voice, rate, pitch, volume,
       onEvent: (event) => {
-        // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
         if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
         else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
         if (statusEl) {
@@ -894,6 +942,8 @@ function setSpeakButtonState(btn, active) {
 }
 
 function stopSpeaking() {
+  // Web SpeechSynthesis 朗读停止（系统 TTS 优先路径）
+  try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
   // 本地 TTS 朗读中：abort 请求 + 停当前音频源
   if (localTtsActive) {
     if (localTtsAbort) localTtsAbort.abort();
@@ -2781,6 +2831,11 @@ function syncTtsEngineUi() {
   const localRow = document.getElementById('ttsLocalVoiceRow');
   if (sysRow) sysRow.classList.toggle('hidden', !isSys);
   if (localRow) localRow.classList.toggle('hidden', !isLocal);
+  // 蓝区 TTS 卡同步显隐（系统音色行 / 本地音色行）
+  const sysRowBlue = document.getElementById('ttsSysVoiceRowBlue');
+  const localRowBlue = document.getElementById('ttsLocalVoiceRowBlue');
+  if (sysRowBlue) sysRowBlue.classList.toggle('hidden', !isSys);
+  if (localRowBlue) localRowBlue.classList.toggle('hidden', !isLocal);
   if (['cloud', 'azure', 'cosyvoice'].includes(engine)) {
     // 云端引擎（含独立协议）：隐藏系统/本地音色行，云端音色由各渠道自己的配置区设定
     if (sysRow) sysRow.classList.add('hidden');
@@ -4476,7 +4531,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (red) { red.value = blueVoice.value; red.dispatchEvent(new Event('change')); }
   });
   // OS TTS 引擎常懒加载语音：等 voiceschanged 再补一次列表（首次可能返回空）
-  if (chrome.tts && chrome.tts.onVoicesChanged) {
+  if (window.speechSynthesis && speechSynthesis.addEventListener) {
+    speechSynthesis.addEventListener('voiceschanged', () => { populateVoices(); });
+  } else if (chrome.tts && chrome.tts.onVoicesChanged) {
     chrome.tts.onVoicesChanged.addListener(() => { if (allVoices.length === 0) populateVoices(); });
   }
   // 滑块标签 + 持久化（语速/语调/音量）

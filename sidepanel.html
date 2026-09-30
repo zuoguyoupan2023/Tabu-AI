@@ -508,13 +508,13 @@
                   <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
                 </select>
               </label>
-              <label class="cfg-row"><span data-i18n="ttsLocalVoiceLabel">音色</span>
+              <label class="cfg-row" id="ttsLocalVoiceRowBlue"><span data-i18n="ttsLocalVoiceLabel">音色</span>
                 <select id="ttsLocalVoiceBlue"></select>
               </label>
               <div class="hint" data-i18n="ttsEngineHint">系统语音 = chrome.tts 即时；本地 = 走本地服务 /speak；云端 = 走云端语音服务（Base URL / Key / 模型 / 音色见下方）。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceSystemLabel">🔊 系统语音</div>
               <div class="hint" data-i18n="ttsSystemHint">chrome.tts 系统朗读，即时零配置，无需本地服务。</div>
-              <div class="voice-filter-row" style="padding:0 4px;">
+              <div class="voice-filter-row" id="ttsSysVoiceRowBlue" style="padding:0 4px;">
                 <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilterBlue"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
                 <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoiceBlue"></select></label>
               </div>
