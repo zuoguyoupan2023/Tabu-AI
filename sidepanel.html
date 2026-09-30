@@ -63,11 +63,11 @@
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
 
-          <!-- 对话记录（统一回答流：语音/文本/本地/API 都追加到这里） -->
-          <div class="voice-output" id="voiceOutput">
+          <!-- 当前对话（统一回答流：语音/文本/本地/API 都追加到这里；无内容时整体隐藏） -->
+          <div class="voice-output hidden" id="voiceOutput">
             <div class="voice-output-head">
-              <button class="vo-toggle" id="voiceOutputToggle" data-i18n-title="voiceOutputToggleTitle" title="收起/展开输出区">
-                <span class="vo-arrow">▾</span> <span data-i18n="chatStreamTitle">💬 对话记录</span>
+              <button class="vo-toggle" id="voiceOutputToggle" data-i18n-title="voiceOutputToggleTitle" title="收起/展开当前对话">
+                <span class="vo-arrow">▾</span> <span data-i18n="chatStreamTitle">💬 当前对话</span>
               </button>
               <span class="vo-actions">
                 <button class="mini-btn" id="voiceCopyLast" data-i18n="voiceCopyLast" data-i18n-title="voiceCopyLastTitle" title="复制最近一条 AI 回答">复制回答</button>

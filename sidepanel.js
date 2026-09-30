@@ -939,23 +939,27 @@ async function speakFullPage(triggerBtn) {
 
 let activeSpeakBtn = null;   // 当前显示为「停止」的朗读按钮（三个朗读按钮之一）
 
-// 让某个朗读按钮进入/退出「停止」态：朗读中该按钮显示「⏹ 停止」并变红，点击即停止
+// 让某个朗读按钮进入/退出「朗读中」态：文本按钮显示「⏹ 停止」，图标按钮只加 .speaking 高亮
 function setSpeakButtonState(btn, active) {
   if (!btn) return;
   if (active) {
     if (activeSpeakBtn && activeSpeakBtn !== btn) setSpeakButtonState(activeSpeakBtn, false);
-    if (btn.dataset.origText == null) btn.dataset.origText = btn.textContent;
-    btn.dataset.origI18n = btn.dataset.i18n || btn.dataset.origI18n;
+    if (btn.dataset.origHtml == null) btn.dataset.origHtml = btn.innerHTML;
     btn.dataset.origTitle = btn.dataset.i18nTitle || btn.dataset.origTitle || '';
-    btn.textContent = I18N.t('ttsStop');
-    if (btn.dataset.origTitle) btn.title = I18N.t('ttsStop');
+    const isIcon = !!btn.querySelector('svg');
+    if (!isIcon) {
+      btn.dataset.origI18n = btn.dataset.i18n || btn.dataset.origI18n;
+      btn.textContent = I18N.t('ttsStop');
+      if (btn.dataset.origTitle) btn.title = I18N.t('ttsStop');
+    }
     btn.classList.add('speaking');
     activeSpeakBtn = btn;
   } else {
     if (activeSpeakBtn === btn) activeSpeakBtn = null;
-    const labelKey = btn.dataset.origI18n || btn.dataset.i18n;
-    if (labelKey) btn.textContent = I18N.t(labelKey);
-    else if (btn.dataset.origText != null) btn.textContent = btn.dataset.origText;
+    if (btn.dataset.origHtml != null) {
+      btn.innerHTML = btn.dataset.origHtml; // 还原原始内容（含 SVG 图标）
+      delete btn.dataset.origHtml;
+    }
     if (btn.dataset.origTitle) btn.title = I18N.t(btn.dataset.origTitle);
     btn.classList.remove('speaking');
   }
@@ -3339,6 +3343,9 @@ function setChatMode(mode) {
     btn.title = I18N.t(key);
   }
   updateChatBodies();
+  // 当前对话：T 默认展开、S 默认折叠（无记录时整体隐藏）
+  voiceOutputCollapsed = (chatMode === 'voice');
+  renderVoiceOutputState();
 }
 async function loadChatMode() {
   try {
@@ -3724,9 +3731,13 @@ async function voiceChatAskText(text, mode, opts = {}) {
 // recognized = 用户消息；answer = AI 回答（Markdown）；reasoning = 思考（灰）；userLabel = 用户消息标签（默认"识别"）
 // 追加式渲染（insertAdjacentHTML，避免 innerHTML += 重复解析导致的内容丢失）+ 自动滚到底部。
 let lastAnswerText = '';
-// 每条消息底部的小喇叭图标（点击朗读这一条；事件由 #voiceOutputContent 委托处理）
+// 每条消息底部的小喇叭图标（简洁 SVG，非 emoji；点击朗读这一条；朗读中显示停止方块）
 function msgSpeakBtn() {
-  return '<button class="msg-speak" type="button" data-i18n-title="msgSpeakTitle" title="朗读这条">🔊</button>';
+  return '<button class="msg-speak" type="button" data-i18n-title="msgSpeakTitle" title="朗读这条" aria-label="朗读">'
+    + '<svg class="ic-speak" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M11 5 6 9H2v6h4l5 4V5z"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>'
+    + '<svg class="ic-stop" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>'
+    + '</button>';
 }
 function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   const body = document.getElementById('voiceOutputContent');
@@ -3743,6 +3754,7 @@ function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   }
   if (html) body.insertAdjacentHTML('beforeend', html);
   body.scrollTop = body.scrollHeight;
+  renderVoiceOutputState();
 }
 
 // 流式气泡（API 渠道逐字渲染用）：返回 { set(text), finish(markdown) }
@@ -3756,6 +3768,7 @@ function appendStreamBubble(kind) {
   el.innerHTML = '<b>' + escapeHtml(kind === 'voice-think' ? I18N.t('chatThinking') : I18N.t('chatAnswer')) + '</b><span class="stream-text"></span>';
   body.appendChild(el);
   body.scrollTop = body.scrollHeight;
+  renderVoiceOutputState();
   return el;
 }
 
@@ -3763,24 +3776,26 @@ function voiceOutputClear() {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
   body.innerHTML = '<div class="voice-output-empty" id="voiceOutputEmpty">' + escapeHtml(I18N.t('voiceOutputEmpty')) + '</div>';
+  renderVoiceOutputState();
 }
 
-// 对话记录：折叠/展开（点击标题行；折叠状态持久化到 voiceOutputShow）
-function toggleVoiceOutput(forceCollapsed) {
-  const out = document.getElementById('voiceOutput');
-  if (!out) return;
-  const collapsed = (typeof forceCollapsed === 'boolean') ? forceCollapsed : !out.classList.contains('collapsed');
-  out.classList.toggle('collapsed', collapsed);
-  chrome.storage.local.set({ voiceOutputShow: !collapsed }).catch(() => {});
+// 当前对话：无记录时整体隐藏；有记录时可展开/折叠（折叠只留标题行）
+// 默认：T 模式展开、S 模式折叠
+let voiceOutputCollapsed = (chatMode === 'voice');
+function voiceHasRecords() {
+  const body = document.getElementById('voiceOutputContent');
+  return !!(body && body.querySelector('.voice-msg'));
 }
-
-async function loadVoiceOutputSetting() {
+function renderVoiceOutputState() {
   const out = document.getElementById('voiceOutput');
   if (!out) return;
-  try {
-    const r = await chrome.storage.local.get('voiceOutputShow');
-    out.classList.toggle('collapsed', r.voiceOutputShow === false);
-  } catch (e) {}
+  const has = voiceHasRecords();
+  out.classList.toggle('hidden', !has);
+  out.classList.toggle('collapsed', has && !!voiceOutputCollapsed);
+}
+function toggleVoiceOutput() {
+  voiceOutputCollapsed = !voiceOutputCollapsed;
+  renderVoiceOutputState();
 }
 
 async function runAsr(pcm16) {
@@ -4684,11 +4699,12 @@ document.addEventListener('DOMContentLoaded', () => {
       showStatus(I18N.t('unknownError'), true);
     }
   });
-  // 每条消息的小喇叭：委托点击，朗读该条（提问/回答/思考）
+  // 每条消息的小喇叭：委托点击，朗读该条（提问/回答）；朗读中再点同一条 = 停止
   const voiceOutputContentEl = document.getElementById('voiceOutputContent');
   if (voiceOutputContentEl) voiceOutputContentEl.addEventListener('click', (e) => {
     const btn = e.target.closest('.msg-speak');
     if (!btn) return;
+    if (activeSpeakBtn === btn) { stopSpeaking(); return; }
     const msg = btn.closest('.voice-msg');
     if (!msg) return;
     const clone = msg.cloneNode(true);
@@ -4712,7 +4728,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aiSpeakVoiceSel.addEventListener('change', () => chrome.storage.local.set({ aiSpeakVoice: aiSpeakVoiceSel.value }).catch(() => {}));
   }
   if (voiceOutputClearBtn) voiceOutputClearBtn.addEventListener('click', voiceOutputClear);
-  loadVoiceOutputSetting();
+  renderVoiceOutputState();
 
   // ===== 运行日志 =====
   const debugLogClearBtn = document.getElementById('debugLogClear');
