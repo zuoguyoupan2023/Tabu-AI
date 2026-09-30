@@ -977,12 +977,9 @@ async function askViaApi(prompt, config, history) {
 async function newConversation(siteKey) {
   const site = AI_SITES[siteKey];
   if (!site) return { success: false, message: '未知站点' };
-  // 先探测可达性：不可达时不动现有标签（避免关掉能用的旧页、开一个加载不出来的新页）
-  if (!(await probeSiteReachable(site.newChatUrl))) {
-    return { success: false, message: '无法访问 ' + site.label + '，请检查网络或代理后再新建对话。' };
-  }
   try {
-    // 重开对话 = 零状态：先彻底关掉 AI 小窗（会话随窗口消失），再关闭其它匹配标签，最后重建全新小窗
+    // 重开对话 = 零状态：先彻底关掉 AI 小窗（会话随窗口消失），再关闭其它匹配标签，最后重建全新小窗。
+    // ＊不做可达性硬拦截（探测对部分站点会误报，实测 DeepSeek）——站点真不可达时新页面自然加载失败，无害。
     if (aiWindowId != null) {
       try { await chrome.windows.remove(aiWindowId); } catch (e) {}
       aiWindowId = null;
@@ -1149,12 +1146,15 @@ function withTimeout(promise, ms, tag) {
   ]).finally(() => clearTimeout(timer));
 }
 
-// 站点可达性探测（参考性）：HEAD 页面 URL 本身。
-// ＊不用 /favicon.ico——favicon 常被 CDN 拦截/挂起，实测会误报"站点不可达"（DeepSeek 踩过）。
+// 站点可达性探测（参考性）：先 HEAD 页面 URL，失败再 GET 重试一次（部分站点/WAF 对 HEAD 挂起，DeepSeek 实测踩过）。
 // ＊探测失败不作为硬拦截：实测存在"探测失败但站点可正常打开"的情况，真不可达由限时注入链路给出明确失败。
 async function probeSiteReachable(url, timeoutMs = 8000) {
   try {
     await fetch(url, { method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    return true;
+  } catch (e) {}
+  try {
+    await fetch(url, { method: 'GET', mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(Math.min(timeoutMs, 5000)) });
     return true;
   } catch (e) { return false; }
 }

@@ -593,43 +593,55 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
-// 系统 TTS 朗读（含音色校验）：选中的音色不在当前系统可用列表（换设备/系统语音变化）→
-// 回退当前界面语言的第一个可用音色 → 系统默认，避免"存了不存在的音色导致无法朗读"
+// 系统 TTS 朗读（音色校验为尽力而为，绝不阻塞朗读）：
+// 1.5s 内拿不到语音列表（部分浏览器 chrome.tts.getVoices 回调可能不触发）→ 直接用当前选择朗读；
+// 只有拿到非空列表且确实找不到所选音色时才降级：当前界面语言第一个可用音色 → 系统默认。
 async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
   let voice = document.getElementById('ttsVoice')?.value || '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-  try {
-    if (voice) {
-      const voices = await new Promise((res) => chrome.tts.getVoices((v) => res(v || [])));
-      const hit = (voices || []).find(v => (v.voiceName || '') === voice && !/^google[\s-]/i.test(String(v.voiceName || '')));
-      if (!hit) {
+  if (voice) {
+    try {
+      const voices = await Promise.race([
+        new Promise((res) => {
+          try { chrome.tts.getVoices((v) => res(v || [])); } catch (e) { res(null); }
+        }),
+        new Promise((res) => setTimeout(() => res(null), 1500))
+      ]);
+      if (voices && voices.length && !voices.some(v => (v.voiceName || '') === voice)) {
         const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
         const wantLang = uiZh ? 'zh' : 'en';
-        const cand = (voices || []).filter(v => !/^google[\s-]/i.test(String(v.voiceName || '')) && String(v.lang || '').toLowerCase().startsWith(wantLang));
-        voice = (cand[0] && cand[0].voiceName) || '';
-        logDebug('tts', '存储/选中的音色不可用，回退' + (voice ? '当前语言音色: ' + voice : '系统默认'), true);
-      }
-    }
-  } catch (e) {}
-  // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
-  runAction('tts', text, {
-    voice, rate, pitch, volume,
-    onEvent: (event) => {
-      // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
-      if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
-      else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
-      if (statusEl) {
-        if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
-        else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
-        else if (event.type === 'error') {
-          statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
-          showStatus(I18N.t('readErrorStatus'), 'error');
+        const cand = voices.filter(v => String(v.lang || '').toLowerCase().startsWith(wantLang) && (v.voiceName || ''));
+        if (cand.length && cand[0].voiceName) {
+          logDebug('tts', '所选音色不在系统列表，降级: ' + voice + ' → ' + cand[0].voiceName, true);
+          voice = cand[0].voiceName;
         }
       }
-    }
-  });
+    } catch (e) {}
+  }
+  logDebug('tts', '系统朗读: voice=' + (voice || '(默认)') + ' · ' + text.length + ' 字');
+  try {
+    runAction('tts', text, {
+      voice, rate, pitch, volume,
+      onEvent: (event) => {
+        // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
+        if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
+        else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
+        if (statusEl) {
+          if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
+          else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
+          else if (event.type === 'error') {
+            statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
+            showStatus(I18N.t('readErrorStatus'), 'error');
+          }
+        }
+      }
+    });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = I18N.t('speakError') + ((e && e.message) || I18N.t('unknown'));
+    showStatus(I18N.t('readErrorStatus'), 'error');
+  }
 }
 
 function doSpeak(text, statusEl, triggerBtn, forceSystem) {
