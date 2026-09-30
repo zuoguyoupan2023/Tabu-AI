@@ -811,11 +811,12 @@ function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride, triggerBtn)
 }
 
 // 当前对话流里最近一条 AI 回答的小喇叭按钮（供自动朗读显示「停止」态）
+// 新问答插在最上方 → 文档顺序里第一个 bot 即最新一条
 function lastBotSpeakBtn() {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return null;
   const bots = body.querySelectorAll('.voice-msg.voice-bot .msg-speak');
-  return bots.length ? bots[bots.length - 1] : null;
+  return bots.length ? bots[0] : null;
 }
 
 // ===== 流式朗读（008 §3）：边流式生成边按句合成/播放 TTS =====
@@ -4251,9 +4252,10 @@ async function voiceChatAskText(text, mode, opts = {}) {
   return { answer: (r && r.answer) || '', thinking: '' };
 }
 
-// 统一对话流渲染（006 方案二）：语音/文本/本地/API 的问答都追加到同一容器。
+// 统一对话流渲染（006 方案二）：语音/文本/本地/API 的问答都进同一容器。
 // recognized = 用户消息；answer = AI 回答（Markdown）；reasoning = 思考（灰）；userLabel = 用户消息标签（默认"识别"）
-// 追加式渲染（insertAdjacentHTML，避免 innerHTML += 重复解析导致的内容丢失）+ 自动滚到底部。
+// 布局（2026-09 改）：输入区在上、对话区在下；每轮问答包成 .voice-exchange，新 exchange 插到最上方，
+// 最新内容始终在顶部可见；组内用 column-reverse 呈现「答在上、问在下」；旧内容向下溢出、滚动可见。
 let lastAnswerText = '';
 // 每条消息底部的小喇叭图标（简洁 SVG，非 emoji；点击朗读这一条；朗读中显示停止方块）
 function msgSpeakBtn() {
@@ -4268,17 +4270,34 @@ function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   if (!body) return;
   const empty = document.getElementById('voiceOutputEmpty');
   if (empty) empty.remove();
-  let html = '';
+  // 新的用户发问 → 开一轮新的 exchange（插到最上方）；否则并入当前 exchange
+  const ex = recognized ? beginExchange(body) : (currentExchange(body) || beginExchange(body));
   const uLabel = userLabel || I18N.t('chatRecognized');
-  if (reasoning) html += '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(reasoning) + '</div>';
-  if (recognized) html += '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '<div class="msg-actions">' + msgSpeakBtn() + '</div></div>';
+  if (reasoning) ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-think"><b>' + escapeHtml(I18N.t('chatThinking')) + '</b>' + escapeHtml(reasoning) + '</div>');
+  if (recognized) ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '<div class="msg-actions">' + msgSpeakBtn() + '</div></div>');
   if (answer) {
     lastAnswerText = String(answer);
-    html += '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div></div>';
+    ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div></div>');
   }
-  if (html) body.insertAdjacentHTML('beforeend', html);
-  body.scrollTop = body.scrollHeight;
+  outputNewestAtTop(body);
   renderVoiceOutputState();
+}
+
+// 问答成组：新组插到最上方（最新在最上、旧内容向下溢出）
+let currentExchangeEl = null;
+function beginExchange(body) {
+  const ex = document.createElement('div');
+  ex.className = 'voice-exchange';
+  body.insertBefore(ex, body.firstChild);
+  currentExchangeEl = ex;
+  return ex;
+}
+function currentExchange(body) {
+  return (currentExchangeEl && currentExchangeEl.isConnected && currentExchangeEl.parentElement === body) ? currentExchangeEl : null;
+}
+// 最新在顶部：仅当用户本就在顶部附近时才自动置顶，避免打断手动向上翻看历史
+function outputNewestAtTop(body) {
+  if (body && body.scrollTop < 60) body.scrollTop = 0;
 }
 
 // 流式气泡（API 渠道逐字渲染用）：返回 { set(text), finish(markdown) }
@@ -4287,11 +4306,12 @@ function appendStreamBubble(kind) {
   if (!body) return null;
   const empty = document.getElementById('voiceOutputEmpty');
   if (empty) empty.remove();
+  const ex = currentExchange(body) || beginExchange(body);
   const el = document.createElement('div');
   el.className = 'voice-msg ' + kind;
   el.innerHTML = '<b>' + escapeHtml(kind === 'voice-think' ? I18N.t('chatThinking') : I18N.t('chatAnswer')) + '</b><span class="stream-text"></span><div class="msg-actions">' + (kind === 'voice-bot' ? msgSpeakBtn() : '') + '</div>';
-  body.appendChild(el);
-  body.scrollTop = body.scrollHeight;
+  ex.appendChild(el);
+  outputNewestAtTop(body);
   renderVoiceOutputState();
   return el;
 }
@@ -4300,6 +4320,7 @@ function voiceOutputClear() {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
   body.innerHTML = '<div class="voice-output-empty" id="voiceOutputEmpty">' + escapeHtml(I18N.t('voiceOutputEmpty')) + '</div>';
+  currentExchangeEl = null;
   renderVoiceOutputState();
 }
 

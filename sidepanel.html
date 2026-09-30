@@ -51,28 +51,12 @@
 
         <!-- 主对话面板（chatMain 扶正）：S/T 模式切换 + i 设置 + 统一对话记录 -->
         <div class="chat-main" id="chatMain">
-          <!-- 顶栏：能力徽章 + 模式切换 + 设置 -->
+          <!-- 顶栏：S/T 切换（最左） + 能力徽章（居中） + 新对话/设置（右） -->
           <div class="chat-main-head">
+            <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
             <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
-            <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
-          </div>
-
-          <!-- 当前对话（统一回答流：语音/文本/本地/API 都追加到这里；无内容时整体隐藏） -->
-          <div class="voice-output hidden" id="voiceOutput">
-            <div class="voice-output-head">
-              <button class="vo-toggle" id="voiceOutputToggle" data-i18n-title="voiceOutputToggleTitle" title="收起/展开当前对话">
-                <span class="vo-arrow">▾</span> <span data-i18n="chatStreamTitle">💬 当前对话</span>
-              </button>
-              <span class="vo-actions">
-                <button class="mini-btn" id="voiceCopyLast" data-i18n="voiceCopyLast" data-i18n-title="voiceCopyLastTitle" title="复制最近一条 AI 回答">复制回答</button>
-                <button class="mini-btn" id="voiceOutputClear" data-i18n="voiceOutputClear">清空</button>
-              </span>
-            </div>
-            <div id="voiceOutputContent" class="voice-output-body">
-              <div class="voice-output-empty" id="voiceOutputEmpty" data-i18n="voiceOutputEmpty">输出将显示在这里…</div>
-            </div>
           </div>
 
           <!-- 页面素材：语音填入 / 附件（选中/全文已由「关联页面」与选区条取代） -->
@@ -103,6 +87,22 @@
               <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="开关：AI 回答后是否自动朗读（与蓝区「LLM 回复朗读」同步，默认开）">🔊 自动朗读</button>
               <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务（MyMemory）翻译输入框内容">🌐 免费翻译</button>
               <span id="injectStatus" class="tool-status inline"></span>
+            </div>
+          </div>
+
+          <!-- 当前对话（统一回答流）：位于输入区下方；最新的问答在最上方，旧内容向下溢出 -->
+          <div class="voice-output hidden" id="voiceOutput">
+            <div class="voice-output-head">
+              <button class="vo-toggle" id="voiceOutputToggle" data-i18n-title="voiceOutputToggleTitle" title="收起/展开当前对话">
+                <span class="vo-arrow">▾</span> <span data-i18n="chatStreamTitle">💬 当前对话</span>
+              </button>
+              <span class="vo-actions">
+                <button class="mini-btn" id="voiceCopyLast" data-i18n="voiceCopyLast" data-i18n-title="voiceCopyLastTitle" title="复制最近一条 AI 回答">复制回答</button>
+                <button class="mini-btn" id="voiceOutputClear" data-i18n="voiceOutputClear">清空</button>
+              </span>
+            </div>
+            <div id="voiceOutputContent" class="voice-output-body">
+              <div class="voice-output-empty" id="voiceOutputEmpty" data-i18n="voiceOutputEmpty">输出将显示在这里…</div>
             </div>
           </div>
 

@@ -633,7 +633,8 @@ input, select, textarea { font-family: var(--font); }
 .voice-output.collapsed .vo-arrow { transform: rotate(-90deg); }
 .voice-output.collapsed .voice-output-body { display: none; }
 .voice-output-head .vo-actions { display: flex; gap: 4px; margin-left: auto; }
-.voice-output-body { max-height: 280px; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.5; }
+.voice-output-body { max-height: 280px; overflow-y: auto; overflow-anchor: none; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.5; }
+.voice-exchange { display: flex; flex-direction: column-reverse; gap: 6px; } /* 组内「答在上、问在下」；组间新组在最上方 */
 .voice-output-empty { color: rgba(255,255,255,.45); font-size: 11px; }
 .voice-msg { padding: 8px 10px; border-radius: 8px; }
 .voice-msg b { display: block; margin-bottom: 2px; opacity: .8; font-size: 11px; }
@@ -734,7 +735,7 @@ footer a { color: #fff; text-decoration: none; }
 /* ===== 主对话面板（chatMain 扶正）：顶栏 + S/T 模式切换 + i 设置 ===== */
 .chat-main { margin: 2px 0 6px; }
 .chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
-.chat-main-head .chat-new-btn { margin-left: auto; }
+.chat-main-head #injectCapBadges { margin: 0 auto; } /* 徽章居中：左 S/T、右 新对话/设置 */
 /* 能力徽章悬浮浮窗 */
 .cap-tip { position: fixed; z-index: 9999; max-width: 240px; background: rgba(18,20,26,.97); color: #fff; font-size: 11px; line-height: 1.45; padding: 6px 8px; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: none; opacity: 0; transition: opacity .12s; }
 .cap-tip.show { opacity: 1; }
