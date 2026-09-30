@@ -1329,7 +1329,12 @@ function askInSite(question, adapter, requestId, images) {
       }
       return [];
     };
-    let before = msgs();
+    // 选择器池多含嵌套匹配（如 wrapper 与其内部 markdown 同时命中）：
+    // 只保留"最外层"元素，避免把内层小片段当答案（DeepSeek 曾因此只截到正文最后一段）。
+    const topLevel = (els) => els.filter(el => !els.some(o => o !== el && o.contains(el)));
+    const topMsgs = () => topLevel(msgs());
+    let before = topMsgs();
+    let beforeSet = new Set(before); // 身份基线：避免 index 漂移导致新元素被切掉
     let baselineLast = before.length ? (before[before.length - 1].innerText || '').trim() : '';
     let sentAt = 0;
     let genericFallbackOn = false;
@@ -1481,9 +1486,10 @@ function askInSite(question, adapter, requestId, images) {
       // 已有会话但适配器选择器全空（站点改版）时：发送瞬间重取基线（旧消息已在、新回复未出），
       // 否则通用兜底选择器匹配到的整个历史都会被当成"新回复"
       if (!before.length) {
-        const nowMsgs = msgs();
+        const nowMsgs = topMsgs();
         if (nowMsgs.length) {
           before = nowMsgs;
+          beforeSet = new Set(before);
           baselineLast = (before[before.length - 1].innerText || '').trim();
         }
       }
@@ -1510,14 +1516,15 @@ function askInSite(question, adapter, requestId, images) {
     ];
     const generating = () => stopSelectors.some(sel => document.querySelector(sel));
     const check = () => {
-      const list = msgs();
+      const list = topMsgs();
       diag.replyCount = list.length;
       // 兜底：发送 8s 后适配器选择器一个元素都没匹配到（站点改版）→ 并入通用候选选择器
       if (!genericFallbackOn && sentAt && Date.now() - sentAt > 8000 && list.length === 0) {
         genericFallbackOn = true;
         selectorPool = selectorPool.concat(GENERIC_REPLY_SELECTORS.filter(s => !selectorPool.includes(s)));
       }
-      const newElements = list.slice(before.length);
+      // 身份基线：新元素 = 不在发送前基线集合里的顶层元素（比 index 切片稳健）
+      const newElements = list.filter(el => !beforeSet.has(el));
       // 思维链分离（确定性）：思考块无论"答案元素的后代"还是"独立兄弟元素"都被单独识别，
       // 返回 { text, thinking } 分离结构 —— 解决奇偶轮思考块 DOM 形态不同导致的漏剥
       const pickParts = (el) => {
@@ -1538,12 +1545,16 @@ function askInSite(question, adapter, requestId, images) {
         }
         const full = (el.innerText || '').trim();
         if (!full) return { text: '', thinking: '' };
-        // 思考容器是后代：扣除并计入 thinking
+        // 思考容器是后代：扣除并计入 thinking（thinking 文本确为正文的连续子串时才剥离，
+        // 并只移除该子串、保留两侧正文，避免内容被整体截断）
         try {
           const thinkEl = el.querySelector('[class*="think" i], [class*="reason" i], [class*="thought" i], details');
           if (thinkEl) {
             const tt = (thinkEl.innerText || '').trim();
-            if (tt && tt.length < full.length) return { text: full.replace(tt, '').trim(), thinking: tt };
+            if (tt && tt.length < full.length && full.includes(tt)) {
+              const stripped = full.replace(tt, '\n').replace(/\n{3,}/g, '\n\n').trim();
+              return { text: stripped || full, thinking: tt };
+            }
           }
         } catch (e) {}
         return { text: full, thinking: '' };
@@ -1557,11 +1568,12 @@ function askInSite(question, adapter, requestId, images) {
           if (p.text && p.text !== question) text = text ? text + '\n' + p.text : p.text;
           if (p.thinking) thinking = thinking ? thinking + '\n' + p.thinking : p.thinking;
         }
-      } else if (list.length > 0) {
-        // 情况 a：元素被复用，读最后一个元素
+      }
+      // 情况 a / 兜底：无新增元素，或新增元素全是思考块 → 读最后一个顶层元素（元素被复用的站点）
+      if (!text && list.length > 0) {
         const p = pickParts(list[list.length - 1]);
-        text = p.text;
-        thinking = p.thinking;
+        if (p.text) text = p.text;
+        if (!thinking) thinking = p.thinking;
       }
       if (thinking) lastThinking = thinking;
       if (!text) return;
