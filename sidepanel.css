@@ -638,6 +638,8 @@ input, select, textarea { font-family: var(--font); }
 .voice-output-empty { color: rgba(255,255,255,.45); font-size: 11px; }
 .voice-msg { padding: 8px 10px; border-radius: 8px; }
 .voice-msg b { display: block; margin-bottom: 2px; opacity: .8; font-size: 11px; }
+/* 服务来源标注（如译文「来自 MyMemory 的服务」），缀在答句标题行内 */
+.voice-msg b .msg-via { margin-left: 5px; font-size: 10px; font-weight: 400; opacity: .62; }
 .voice-user { background: rgba(0,0,0,.16); }
 .voice-bot { background: rgba(52,211,153,.14); }
 /* 每条消息底部的小喇叭：默认淡，hover 变亮，朗读中变红 */
@@ -758,13 +760,19 @@ footer a { color: #fff; text-decoration: none; }
 .chat-bottom-bar { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; }
 .chat-bottom-bar .chat-ctx-toggle { margin-left: 0; }
 .chat-bottom-bar #injectAttach { margin-left: auto; }
-.chat-mode-switch {
-  width: 30px; height: 30px; border-radius: 9px; padding: 0;
-  background: #fff; color: var(--red-b); font-size: 14px; font-weight: 800;
-  box-shadow: 0 2px 8px rgba(0,0,0,.2); transition: transform .15s, box-shadow .15s;
+/* 顶栏三分段布局切换：圆球 / 圆球+输入 / 仅输入 */
+.chat-layout-seg {
+  display: inline-flex; flex: none; height: 30px; border-radius: 9px; overflow: hidden;
+  background: var(--glass-strong); box-shadow: 0 2px 8px rgba(0,0,0,.2);
 }
-.app[data-layer="blue"] .chat-mode-switch { color: var(--blue-b); }
-.chat-mode-switch:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.26); }
+.chat-layout-seg .layout-seg {
+  border: 0; background: transparent; color: #fff; font-size: 12px; line-height: 1;
+  padding: 0 6px; cursor: pointer; opacity: .62; transition: background .15s, opacity .15s;
+}
+.chat-layout-seg .layout-seg + .layout-seg { border-left: 1px solid rgba(255,255,255,.18); }
+.chat-layout-seg .layout-seg:hover { opacity: .92; }
+.chat-layout-seg .layout-seg.active { background: #fff; color: var(--red-b); opacity: 1; }
+.app[data-layer="blue"] .chat-layout-seg .layout-seg.active { color: var(--blue-b); }
 .chat-i-btn {
   width: 30px; height: 30px; border-radius: 50%; padding: 0; flex: none;
   background: var(--glass-strong); color: #fff; font-size: 15px; font-weight: 800; font-style: italic;
@@ -787,10 +795,6 @@ footer a { color: #fff; text-decoration: none; }
 .chat-behavior-row { display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
 .chat-behavior-row label { display: flex; align-items: center; gap: 6px; opacity: .9; }
 .chat-behavior-row input[type="radio"] { accent-color: #fff; }
-
-/* S 模式：文本输入折叠开关 */
-.chat-input-toggle { flex: none; align-self: center; min-width: 0; font-size: 11px; padding: 5px 12px; margin-top: 2px; }
-.chat-input-toggle.on { background: rgba(255,255,255,.28); }
 
 /* 选区操作条（仅页面有选中时出现，置最下） */
 .selection-bar { margin-top: 8px; padding: 8px 9px; border-radius: 8px; background: rgba(0,0,0,.18); border: 1px solid var(--line); }

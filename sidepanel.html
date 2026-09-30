@@ -51,9 +51,13 @@
 
         <!-- 主对话面板（chatMain 扶正）：S/T 模式切换 + i 设置 + 统一对话记录 -->
         <div class="chat-main" id="chatMain">
-          <!-- 顶栏：左侧 S/T + 新对话；右侧 能力徽章 + 设置 -->
+          <!-- 顶栏：左侧 输入区布局三分段（圆球/圆球+输入/仅输入）+ 新对话；右侧 能力徽章 + 设置 -->
           <div class="chat-main-head">
-            <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
+            <div class="chat-layout-seg" id="chatLayoutSeg" role="group" data-i18n-title="chatLayoutTitle" title="输入区布局：圆球 / 圆球+输入框 / 仅输入框">
+              <button class="layout-seg active" data-layout="mic" data-i18n-title="layoutMicTitle" title="仅语音圆球">🎤</button>
+              <button class="layout-seg" data-layout="both" data-i18n-title="layoutBothTitle" title="圆球 + 输入框">🎤⌨️</button>
+              <button class="layout-seg" data-layout="text" data-i18n-title="layoutTextTitle" title="仅输入框">⌨️</button>
+            </div>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
             <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
@@ -65,7 +69,7 @@
             <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
           </div>
 
-          <!-- ▸ 语音模式（默认）：圆球「识别 → LLM → 输出并朗读」+ 可折叠文本输入 -->
+          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（布局可含 输入框，由顶栏三分段决定） -->
           <div class="chat-mode-body" id="chatVoiceBody">
             <button class="voice-circle" id="voiceCircleBtn" data-i18n-title="voiceCircleTitle" title="点击说话：识别 → LLM → 输出并朗读">
               <span class="voice-circle-ico">🎤</span>
@@ -75,17 +79,16 @@
               <button class="vc-mode active" data-vcmode="manual" data-i18n="voiceModeManual">点击停止</button>
               <button class="vc-mode" data-vcmode="vad" data-i18n="voiceModeVad">说话自动停</button>
             </div>
-            <button class="chip chat-input-toggle" id="chatInputToggle" data-i18n="chatTextInput" data-i18n-title="chatTextInputTitle" title="展开/收起输入框">⌨️ 输入框</button>
           </div>
 
-          <!-- ▸ 文本模式：输入 + 发送（S 模式展开文本输入时也显示） -->
+          <!-- ▸ 文本输入：输入 + 发送（「圆球+输入框」「仅输入框」布局时显示） -->
           <div class="chat-mode-body hidden" id="chatTextBody">
             <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
             <div class="ops">
               <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
               <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
               <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="开关：AI 回答后是否自动朗读（与蓝区「LLM 回复朗读」同步，默认开）">🔊 自动朗读</button>
-              <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务（MyMemory）翻译输入框内容">🌐 免费翻译</button>
+              <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务翻译输入框内容（当前：自动 MyMemory → Google，服务源在蓝区「🌐 翻译」卡选择）">🌐 免费翻译</button>
               <span id="injectStatus" class="tool-status inline"></span>
             </div>
           </div>
@@ -409,6 +412,7 @@
             <button type="button" class="cap-tab active" data-captab="asr" data-i18n="capTabAsr">🎙 识别</button>
             <button type="button" class="cap-tab" data-captab="llm" data-i18n="capTabLlm">💬 LLM</button>
             <button type="button" class="cap-tab" data-captab="tts" data-i18n="capTabTts">🗣 朗读</button>
+            <button type="button" class="cap-tab" data-captab="trans" data-i18n="capTabTrans">🌐 翻译</button>
           </div>
           <div class="card hidden" data-captab-panel="llm">
             <div class="card-title" data-i18n="aiSvcLabel">💬 LLM 对话</div>
@@ -565,6 +569,20 @@
                 <button type="button" class="mini-btn" id="ttsSaveBtn" data-i18n="saveBtn" style="flex:none;">保存</button>
                 <span id="ttsTestStatus" class="ai-test-status"></span>
               </div>
+            </div>
+          </div>
+          <div class="card hidden" data-captab-panel="trans">
+            <div class="card-title" data-i18n="transCardTitle">🌐 免费翻译</div>
+            <div class="ai-config">
+              <div class="ai-svc-sep" data-i18n="transProviderSepLabel">🔀 服务源</div>
+              <label class="cfg-row"><span data-i18n="transProviderLabel">翻译服务源</span>
+                <select id="transProviderBlue" class="row-select" style="flex:1;">
+                  <option value="auto" data-i18n="transSvcAuto">自动（MyMemory → Google）</option>
+                  <option value="mymemory" data-i18n="transSvcMymemory">MyMemory</option>
+                  <option value="google" data-i18n="transSvcGoogle">Google</option>
+                </select>
+              </label>
+              <div class="hint" data-i18n="transProviderHint">免费翻译（主界面「🌐 免费翻译」与选区条「翻译」）使用此服务源；对话流中的译文会标注实际服务的来源。均为免费无 Key 服务。</div>
             </div>
           </div>
           <div class="card" data-captab-panel="asr">

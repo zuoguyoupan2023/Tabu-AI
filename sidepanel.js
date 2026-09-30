@@ -2177,7 +2177,7 @@ function bindCapBadgeTips() {
 let injectVoiceOn = false;
 async function toggleInjectVoice() {
   if (injectVoiceOn) { stopBrowserAsr(); return; }
-  setChatMode('text'); // 语音填入到文本框：确保文本模式可见
+  ensureTextInput(); // 语音填入到文本框：确保输入框可见
   // 单一音频通道：先停掉其它面板的录音/识别
   if (asrRecording) stopAsrRecording();
   if (vbRecording) stopVoiceCircleRecording();
@@ -3872,53 +3872,42 @@ async function loadVoiceCircleMode() {
   } catch (e) {}
 }
 
-// ===== 主对话面板（chatMain 扶正）：语音/文本模式 + i 设置 =====
-// chatMode：'voice'（默认，圆球）| 'text'（输入框）
+// ===== 主对话面板（chatMain 扶正）：输入区布局 + i 设置 =====
+// chatLayout（输入区布局，顶栏三分段切换）：'mic'（仅圆球，默认）| 'both'（圆球+输入框）| 'text'（仅输入框）
 // chatVoiceBehavior：'direct'（识别后直接问答+朗读）| 'compose'（识别后填入文本可编辑再发）
-// chatInputExpanded：S 模式下文本输入框的展开状态（默认收起）
-let chatMode = 'voice';
+let chatLayout = 'mic';
 let chatVoiceBehavior = 'direct';
-let chatInputExpanded = false;
 
 function updateChatBodies() {
   const voiceBody = document.getElementById('chatVoiceBody');
   const textBody = document.getElementById('chatTextBody');
-  const showText = (chatMode === 'text') || chatInputExpanded;
-  if (voiceBody) voiceBody.classList.toggle('hidden', chatMode !== 'voice');
-  if (textBody) textBody.classList.toggle('hidden', !showText);
-  const toggle = document.getElementById('chatInputToggle');
-  if (toggle) toggle.classList.toggle('on', chatInputExpanded);
-  // 「语音填入」只在文本模式有意义（S 模式已有圆球）；附件两种模式都保留
+  if (voiceBody) voiceBody.classList.toggle('hidden', chatLayout === 'text');
+  if (textBody) textBody.classList.toggle('hidden', chatLayout === 'mic');
+  // 「语音填入」仅在纯输入布局有意义（圆球在场时冗余）
   const voiceFill = document.getElementById('injectVoice');
-  if (voiceFill) voiceFill.classList.toggle('hidden', chatMode === 'voice');
+  if (voiceFill) voiceFill.classList.toggle('hidden', chatLayout !== 'text');
 }
 
-function setChatMode(mode) {
-  chatMode = (mode === 'text') ? 'text' : 'voice';
-  chrome.storage.local.set({ chatMode }).catch(() => {});
-  const btn = document.getElementById('chatModeSwitch');
-  if (btn) {
-    // 按钮显示「切换目标」：语音态显示 T（去文本），文本态显示 S（去语音）
-    btn.textContent = chatMode === 'voice' ? 'T' : 'S';
-    const key = chatMode === 'voice' ? 'chatModeToText' : 'chatModeToVoice';
-    btn.setAttribute('data-i18n-title', key);
-    btn.title = I18N.t(key);
-  }
+function setChatLayout(layout) {
+  chatLayout = (layout === 'text' || layout === 'both') ? layout : 'mic';
+  chrome.storage.local.set({ chatLayout }).catch(() => {});
+  document.querySelectorAll('#chatLayoutSeg .layout-seg').forEach(b => b.classList.toggle('active', b.getAttribute('data-layout') === chatLayout));
   updateChatBodies();
-  // 当前对话：T 默认展开、S 默认折叠（无记录时整体隐藏）
-  voiceOutputCollapsed = (chatMode === 'voice');
+  // 当前对话：含输入框时展开、仅圆球时折叠（无记录时整体隐藏）
+  voiceOutputCollapsed = (chatLayout === 'mic');
   renderVoiceOutputState();
 }
-async function loadChatMode() {
+async function loadChatLayout() {
   try {
-    const r = await chrome.storage.local.get('chatMode');
-    setChatMode(r.chatMode === 'text' ? 'text' : 'voice');
-  } catch (e) { setChatMode('voice'); }
+    const r = await chrome.storage.local.get(['chatLayout', 'chatMode']);
+    // 旧 chatMode 迁移：'text' → 仅输入框，'voice' → 仅圆球
+    const layout = r.chatLayout || ((r.chatMode === 'text') ? 'text' : 'mic');
+    setChatLayout(layout);
+  } catch (e) { setChatLayout('mic'); }
 }
-// S 模式下展开/收起文本输入框
-function toggleChatInput() {
-  chatInputExpanded = !chatInputExpanded;
-  updateChatBodies();
+// 确保文本输入框可见（供 填入输入框/翻译 等场景调用）：仅圆球时升为圆球+输入框，不动用户已选的其他布局
+function ensureTextInput() {
+  if (chatLayout === 'mic') setChatLayout('both');
 }
 
 // i 设置区：默认收起；点击展开/收起
@@ -4025,13 +4014,13 @@ async function onTabMaybeNavigated() {
   }
 }
 
-// 语音识别完成后的分流：compose → 填入文本框并切到文本模式；direct → 直接问答+朗读
+// 语音识别完成后的分流：compose → 填入文本框并确保输入框可见；direct → 直接问答+朗读
 async function handleVoiceRecognized(text) {
   if (!text) return;
   if (chatVoiceBehavior === 'compose') {
     const input = document.getElementById('injectInput');
     if (input) input.value = text;
-    setChatMode('text');
+    ensureTextInput();
     setVoiceCircleStatus('✅ ' + I18N.t('chatVoiceFilled'));
     try { input.focus(); } catch (e) {}
     return;
@@ -4099,17 +4088,47 @@ function transTgtCode() {
   return document.getElementById('selTgtLang')?.value || 'zh-CN';
 }
 
-// 免费翻译（MyMemory）：结果进对话流；供 选区AI处理 / 主界面 共用
+// 免费翻译：结果进对话流并标注实际服务来源；供 选区AI处理 / 主界面 共用
+// 服务源在蓝区「🌐 翻译」卡选择（translateProvider：auto | mymemory | google，默认 auto=MyMemory→Google）
 async function freeTranslate(text) {
   if (!text || !text.trim()) { showStatus(I18N.t('enterTextFirst'), 'info'); return; }
-  setChatMode('text');
+  let provider = 'auto';
+  try {
+    const r = await chrome.storage.local.get('translateProvider');
+    if (r.translateProvider) provider = r.translateProvider;
+  } catch (e) {}
+  ensureTextInput();
   renderVoiceOutput(text.trim(), null, null, I18N.t('aiTplTranslate'));
   try {
-    const out = await TABU_CAPS.translateText(text.trim(), { source: transSrcCode(), target: transTgtCode() });
-    renderVoiceOutput(null, out || '');
+    const out = await TABU_CAPS.translateText(text.trim(), { source: transSrcCode(), target: transTgtCode(), provider });
+    renderVoiceOutput(null, (out && out.text) || '', null, null, transViaLabel(out && out.provider));
   } catch (e) {
     showStatus(I18N.t('translateFail') + ((e && e.message) || ''), 'error');
   }
+}
+// 译文来源标注（renderVoiceOutput 第 5 参）
+function transViaLabel(provider) {
+  return I18N.t(provider === 'google' ? 'transViaGoogle' : 'transViaMymemory');
+}
+// 免费翻译按钮 title 随服务源变化（蓝区切换后同步）
+function applyTranslateProviderUi(provider) {
+  const btn = document.getElementById('injectTranslateFree');
+  if (!btn) return;
+  const key = provider === 'google' ? 'aiFreeTranslateTitleGoogle'
+    : provider === 'mymemory' ? 'aiFreeTranslateTitleMymemory' : 'aiFreeTranslateTitle';
+  btn.setAttribute('data-i18n-title', key);
+  btn.title = I18N.t(key);
+}
+// 启动时恢复翻译服务源（蓝区下拉 + 红区按钮 title）
+async function loadTranslateProvider() {
+  let provider = 'auto';
+  try {
+    const r = await chrome.storage.local.get('translateProvider');
+    if (r.translateProvider) provider = r.translateProvider;
+  } catch (e) {}
+  const sel = document.getElementById('transProviderBlue');
+  if (sel) sel.value = provider;
+  applyTranslateProviderUi(provider);
 }
 // 主界面：免费翻译输入框内容
 async function translateInputFree() {
@@ -4420,7 +4439,7 @@ function msgSpeakBtn() {
     + '<svg class="ic-stop" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>'
     + '</button>';
 }
-function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
+function renderVoiceOutput(recognized, answer, reasoning, userLabel, viaLabel) {
   const body = document.getElementById('voiceOutputContent');
   if (!body) return;
   const empty = document.getElementById('voiceOutputEmpty');
@@ -4432,7 +4451,9 @@ function renderVoiceOutput(recognized, answer, reasoning, userLabel) {
   if (recognized) ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-user"><b>' + escapeHtml(uLabel) + '</b> ' + escapeHtml(recognized) + '<div class="msg-actions">' + msgSpeakBtn() + '</div></div>');
   if (answer) {
     lastAnswerText = String(answer);
-    ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div></div>');
+    // viaLabel：服务来源标注（如译文「来自 MyMemory 的服务」），缀在答句标题行内
+    const viaHtml = viaLabel ? '<span class="msg-via">' + escapeHtml(viaLabel) + '</span>' : '';
+    ex.insertAdjacentHTML('beforeend', '<div class="voice-msg voice-bot"><b>' + escapeHtml(I18N.t('chatAnswer')) + viaHtml + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div></div>');
   }
   outputNewestAtTop(body);
   renderVoiceOutputState();
@@ -4480,8 +4501,8 @@ function voiceOutputClear() {
 }
 
 // 当前对话：无记录时整体隐藏；有记录时可展开/折叠（折叠只留标题行）
-// 默认：T 模式展开、S 模式折叠
-let voiceOutputCollapsed = (chatMode === 'voice');
+// 默认：含输入框的布局展开、仅圆球布局折叠
+let voiceOutputCollapsed = (chatLayout === 'mic');
 function voiceHasRecords() {
   const body = document.getElementById('voiceOutputContent');
   return !!(body && body.querySelector('.voice-msg'));
@@ -4835,7 +4856,7 @@ function asrSendToTts() {
   const out = document.getElementById('asrResult');
   if (!out || !out.value.trim()) return;
   // 朗读标签已移除：转写结果填入对话输入框并朗读
-  setChatMode('text');
+  ensureTextInput();
   injectSetInput(out.value);
   speakInputText();
 }
@@ -4846,7 +4867,7 @@ async function asrSendToTrans() {
   // 独立翻译标签已移除：转写结果翻译改走对话 AI处理（LLM 渠道），目标语言取选区条的语言选择
   const sel = document.getElementById('selTgtLang');
   const target = (sel && sel.selectedOptions[0]) ? sel.selectedOptions[0].textContent.trim() : '中文(简体)';
-  setChatMode('text');
+  ensureTextInput();
   await injectRun('请将以下内容翻译成' + target + '：\n\n' + out.value.trim(), [], { skipPageContext: true });
 }
 
@@ -5198,6 +5219,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // 蓝区识别后端（与转写面板共用 asrBackend）
   const asrBackendBlue = document.getElementById('asrBackendBlue');
   if (asrBackendBlue) asrBackendBlue.addEventListener('change', () => setAsrBackend(asrBackendBlue.value));
+  // 蓝区免费翻译服务源（选区条「翻译」与主界面「🌐 免费翻译」共用）
+  const transProviderBlue = document.getElementById('transProviderBlue');
+  if (transProviderBlue) transProviderBlue.addEventListener('change', () => {
+    const p = ['auto', 'mymemory', 'google'].includes(transProviderBlue.value) ? transProviderBlue.value : 'auto';
+    chrome.storage.local.set({ translateProvider: p }).catch(() => {});
+    applyTranslateProviderUi(p);
+  });
   const ttsLocalVoiceBlue = document.getElementById('ttsLocalVoiceBlue');
   if (ttsLocalVoiceBlue) ttsLocalVoiceBlue.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceBlue));
   // 云端 TTS 供应商切换 → 自动填 Base URL + 模型/音色建议
@@ -5467,13 +5495,12 @@ document.addEventListener('DOMContentLoaded', () => {
   loadVoiceCircleMode();
   // 初始提示（"点击说话…"）显示几秒后自动隐藏
   vcStatusHideTimer = setTimeout(() => { document.getElementById('voiceCircleStatus')?.classList.add('hidden'); }, 5000);
-  // ===== 主对话面板：语音/文本模式切换 + i 设置 =====
-  const chatModeSwitch = document.getElementById('chatModeSwitch');
-  if (chatModeSwitch) chatModeSwitch.addEventListener('click', () => setChatMode(chatMode === 'voice' ? 'text' : 'voice'));
+  // ===== 主对话面板：输入区布局（圆球/圆球+输入/仅输入）+ i 设置 =====
+  document.querySelectorAll('#chatLayoutSeg .layout-seg').forEach(btn => {
+    btn.addEventListener('click', () => setChatLayout(btn.getAttribute('data-layout')));
+  });
   const chatSettingsToggle = document.getElementById('chatSettingsToggle');
   if (chatSettingsToggle) chatSettingsToggle.addEventListener('click', toggleChatSettings);
-  const chatInputToggle = document.getElementById('chatInputToggle');
-  if (chatInputToggle) chatInputToggle.addEventListener('click', toggleChatInput);
   // 「关联页面」开关（默认开）：控制发送时是否自动并入当前页正文
   const chatPageContext = document.getElementById('chatPageContext');
   if (chatPageContext) {
@@ -5482,7 +5509,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }).catch(() => {});
     chatPageContext.addEventListener('change', () => chrome.storage.local.set({ chatPageContext: !!chatPageContext.checked }).catch(() => {}));
   }
-  loadChatMode();
+  loadChatLayout();
+  loadTranslateProvider();
   loadChatSettings();
   // 会话行为设置（默认保留对话）
   const restartOpenEl = document.getElementById('chatRestartOnOpen');

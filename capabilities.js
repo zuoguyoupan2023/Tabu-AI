@@ -323,7 +323,13 @@ function speakText(text, opts = {}) {
   });
 }
 
-// 翻译（MyMemory + Google 回退 + 长文本分段）
+// 翻译（免费服务源：MyMemory / Google + 长文本分段）
+// 服务源：'auto'（默认，MyMemory → Google 兜底）| 'mymemory' | 'google'；显式指定时严格用该源，失败报错不静默换源
+const TRANSLATE_PROVIDERS = {
+  mymemory: 'MyMemory',
+  google: 'Google'
+};
+
 // 将长文本按句子分割成块，每块不超过 maxLength
 function splitTextIntoChunks(text, maxLength) {
   const sentenceRegex = /[。！？；\n]+/;
@@ -343,23 +349,24 @@ function splitTextIntoChunks(text, maxLength) {
   return chunks;
 }
 
-// 备用翻译 API（Google）
-async function translateFallback(text, sourceLang, targetLang) {
-  try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-    const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const data = await response.json();
-    if (data && data[0]) {
-      return data[0].map(item => item[0]).join('');
-    }
-    return null;
-  } catch (e) {
-    return null;
+// 单段 · Google（免费、无 Key；'auto' 为其合法源语言）
+async function translateChunkGoogle(text, sourceLang, targetLang, retries = 1) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const data = await response.json();
+      if (data && data[0]) {
+        return data[0].map(item => item[0]).join('');
+      }
+    } catch (e) { /* 重试 */ }
+    if (attempt < retries) await new Promise(resolve => setTimeout(resolve, 1500));
   }
+  throw new Error(I18N.t('translateFail'));
 }
 
-// 单段翻译（带重试）
-async function translateSingleChunk(text, sourceLang, targetLang, retries = 2) {
+// 单段 · MyMemory（带重试）
+async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 2) {
   const MAX_LENGTH = 500;
   let finalText = text;
   if (text.length > MAX_LENGTH) {
@@ -380,29 +387,22 @@ async function translateSingleChunk(text, sourceLang, targetLang, retries = 2) {
       try {
         data = JSON.parse(textData);
       } catch (e) {
-        const fallbackResult = await translateFallback(text, sourceLang, targetLang);
-        if (fallbackResult) return fallbackResult;
         throw new Error(I18N.t('apiFormatError'));
       }
       if (data.responseData && data.responseData.translatedText) {
         return data.responseData.translatedText;
-      } else {
-        if (data.responseStatus === 403 || data.responseStatus === 429) {
-          if (attempt < retries) {
-            await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
-            continue;
-          }
-        }
-        const fallbackResult = await translateFallback(text, sourceLang, targetLang);
-        if (fallbackResult) return fallbackResult;
-        throw new Error(data.responseDetails || I18N.t('translateFail'));
       }
+      if (data.responseStatus === 403 || data.responseStatus === 429) {
+        if (attempt < retries) {
+          await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
+          continue;
+        }
+      }
+      throw new Error(data.responseDetails || I18N.t('translateFail'));
     } catch (e) {
       if (attempt < retries) {
         await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
       } else {
-        const fallbackResult = await translateFallback(text, sourceLang, targetLang);
-        if (fallbackResult) return fallbackResult;
         throw e;
       }
     }
@@ -410,37 +410,60 @@ async function translateSingleChunk(text, sourceLang, targetLang, retries = 2) {
   throw new Error(I18N.t('retryFailed'));
 }
 
+// 单段分发：返回 { text, provider, viaFallback }（provider = 实际服务的来源）
+async function translateChunk(text, sourceLang, targetLang, provider) {
+  if (provider === 'google') {
+    return { text: await translateChunkGoogle(text, sourceLang, targetLang), provider: 'google', viaFallback: false };
+  }
+  try {
+    return { text: await translateChunkMyMemory(text, sourceLang, targetLang), provider: 'mymemory', viaFallback: false };
+  } catch (e) {
+    if (provider === 'mymemory') throw e;
+    // auto：MyMemory 失败 → Google 兜底
+    return { text: await translateChunkGoogle(text, sourceLang, targetLang), provider: 'google', viaFallback: true };
+  }
+}
+
 // 分段翻译长文本
-async function translateLongText(text, sourceLang, targetLang, onProgress) {
+async function translateLongText(text, sourceLang, targetLang, onProgress, provider) {
   const maxChunkSize = 480;
   const chunks = splitTextIntoChunks(text, maxChunkSize);
-  if (chunks.length === 0) return '';
+  if (chunks.length === 0) return { text: '', provider: provider === 'google' ? 'google' : 'mymemory', viaFallback: false };
 
   let results = [];
+  let providers = [];
   for (let i = 0; i < chunks.length; i++) {
     if (onProgress) {
       onProgress(i + 1, chunks.length);
     }
-    const translated = await translateSingleChunk(chunks[i], sourceLang, targetLang);
-    results.push(translated);
+    const r = await translateChunk(chunks[i], sourceLang, targetLang, provider);
+    results.push(r.text);
+    providers.push(r.provider);
     if (i < chunks.length - 1) {
       await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
   // 分段边界补回句读（splitTextIntoChunks 剥离了句末标点），避免译文句子粘连
-  return results.join('。');
+  // 任一分段用到 Google 即按 Google 标注（如 MyMemory 中途限流，auto 兜底混源）
+  const usedGoogle = providers.includes('google');
+  return {
+    text: results.join('。'),
+    provider: usedGoogle ? 'google' : 'mymemory',
+    viaFallback: usedGoogle && provider !== 'google'
+  };
 }
 
-// 翻译动作核心：返回译文文本；超长自动分段
+// 翻译动作核心：返回 { text, provider, viaFallback }（provider = 实际服务的来源）；超长自动分段
 async function translateText(text, opts = {}) {
   const source = opts.source || 'en';
   const target = opts.target || 'zh-CN';
+  const provider = TRANSLATE_PROVIDERS[opts.provider] ? opts.provider : 'auto';
   const onProgress = opts.onProgress;
   const MAX_SINGLE = 500;
   if (text.length > MAX_SINGLE) {
-    return translateLongText(text, source, target, onProgress);
+    return translateLongText(text, source, target, onProgress, provider);
   }
-  return translateSingleChunk(text, source, target);
+  return translateChunk(text, source, target, provider);
 }
 
 // 发送到 AI：注入 askInSite（后台）并返回 { ok, text, error }
@@ -698,8 +721,8 @@ async function downloadCardImage(text, opts = {}) {
 const ACTIONS = {
   tts:       { label: I18N.t('actTts'),      run: (t, o) => speakText(t, o) },
   translate: { label: I18N.t('aiTplTranslate'),      run: async (t, o) => {
-    const translated = await translateText(t, o || {});
-    return { ok: true, text: translated };
+    const r = await translateText(t, o || {});
+    return { ok: true, text: r.text, provider: r.provider };
   } },
   inject:    { label: I18N.t('actInject'), run: (t, o) => sendToAI((o && o.site) || 'chatgpt', t, (o && o.images) || [], { streamId: o && o.streamId, onDelta: o && o.onDelta }) },
   copy:      { label: I18N.t('actCopy'),      run: (t) => copyText(t) },
