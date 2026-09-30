@@ -735,7 +735,7 @@ footer a { color: #fff; text-decoration: none; }
 /* ===== 主对话面板（chatMain 扶正）：顶栏 + S/T 模式切换 + i 设置 ===== */
 .chat-main { margin: 2px 0 6px; }
 .chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
-.chat-main-head #injectCapBadges { margin: 0 auto; } /* 徽章居中：左 S/T、右 新对话/设置 */
+.chat-main-head #injectCapBadges { margin-left: auto; } /* 徽章+i 靠右；S/T 与新对话靠左 */
 /* 能力徽章悬浮浮窗 */
 .cap-tip { position: fixed; z-index: 9999; max-width: 240px; background: rgba(18,20,26,.97); color: #fff; font-size: 11px; line-height: 1.45; padding: 6px 8px; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: none; opacity: 0; transition: opacity .12s; }
 .cap-tip.show { opacity: 1; }

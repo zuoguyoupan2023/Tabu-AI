@@ -645,10 +645,10 @@ function ttsUrlPhrase(url, uiZh) {
 function humanizeUrlsForTts(text) {
   const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
   let s = String(text || '');
-  // Markdown 链接：有意义的文字标签直接读标签；编号/短标签读域名短语
+  // Markdown 链接：有意义的文字标签 → 读标签并标注「超链接」；编号/短标签 → 读域名短语
   s = s.replace(/\[([^\]]*)\]\(\s*(https?:\/\/[^\s)]+)\s*\)/g, (m, label, url) => {
     const l = String(label || '').replace(/\s+/g, ' ').trim();
-    if (l && l.length > 1 && !/^[-\s\d]+$/.test(l)) return l;
+    if (l && l.length > 1 && !/^[-\s\d]+$/.test(l)) return uiZh ? (l + '（超链接）') : (l + ' (link)');
     return ttsUrlPhrase(url, uiZh);
   });
   // 裸 URL

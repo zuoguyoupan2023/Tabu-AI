@@ -51,11 +51,11 @@
 
         <!-- 主对话面板（chatMain 扶正）：S/T 模式切换 + i 设置 + 统一对话记录 -->
         <div class="chat-main" id="chatMain">
-          <!-- 顶栏：S/T 切换（最左） + 能力徽章（居中） + 新对话/设置（右） -->
+          <!-- 顶栏：左侧 S/T + 新对话；右侧 能力徽章 + 设置 -->
           <div class="chat-main-head">
             <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
-            <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
+            <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
 
