@@ -131,6 +131,10 @@
               <label><input type="radio" name="chatVoiceBehavior" value="compose"> <span data-i18n="chatVoiceCompose">识别后填入文本（可编辑再发）</span></label>
             </div>
 
+            <div class="ai-svc-sep" data-i18n="chatSessionLabel">🔄 会话行为（默认保留对话）</div>
+            <label class="cfg-row"><input type="checkbox" id="chatRestartOnOpen" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnOpenRow" style="opacity:.85;font-size:11px;">关闭侧栏再打开时自动开新对话（并重启 AI 页面/会话）</span></label>
+            <label class="cfg-row"><input type="checkbox" id="chatRestartOnNav" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnNavRow" style="opacity:.85;font-size:11px;">切换页面（网址变化）时自动开新对话</span></label>
+
             <div class="ai-svc-sep" data-i18n="chatAsrSectionLabel">🎙 识别</div>
             <label class="cfg-row"><span data-i18n="asrBackendLabel">识别后端</span>
               <select id="chatAsrBackend" class="row-select" style="flex:1;">
@@ -208,7 +212,7 @@
             </label>
             <button class="chip hidden" id="aiShowThinkingToggle" data-i18n="aiShowThinkingOff" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭 思考隐藏</button>
             <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎 附件</button>
-            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf" hidden />
+            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
           </div>
         </div><!-- /chatMain -->
 

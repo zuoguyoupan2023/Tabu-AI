@@ -1925,6 +1925,7 @@ function materialLabel(type) {
   return type === 'selection' ? I18N.t('aiMaterialSel')
     : type === 'fulltext' ? I18N.t('aiMaterialFull')
     : type === 'file' ? I18N.t('aiMaterialFile')
+    : type === 'upload' ? I18N.t('aiMaterialUpload')
     : I18N.t('aiMaterialImage');
 }
 function renderInjectMaterials() {
@@ -1935,10 +1936,12 @@ function renderInjectMaterials() {
   injectMaterials.forEach((m) => {
     const chip = document.createElement('span');
     chip.className = 'material-chip';
-    const preview = m.type === 'image' ? (m.name || 'image')
-      : (m.type === 'file' ? (m.name || '') : (m.text.length > 24 ? m.text.slice(0, 24) + '…' : m.text));
+    const isBinary = (m.type === 'image' || m.type === 'upload');
+    const preview = isBinary ? (m.name || '')
+      : (m.type === 'file' ? (m.name || '') : ((m.text || '').length > 24 ? m.text.slice(0, 24) + '…' : (m.text || '')));
+    const title = (isBinary || m.type === 'file') ? (m.name || '') : String(m.text || '').slice(0, 200);
     chip.innerHTML = '<span class="mtag">' + escapeHtml(materialLabel(m.type)) + '</span>' +
-      '<span class="mprev" title="' + escapeHtml(m.type === 'image' ? (m.name || '') : String(m.text || '').slice(0, 200)) + '">' + escapeHtml(preview) + '</span>' +
+      '<span class="mprev" title="' + escapeHtml(title) + '">' + escapeHtml(preview) + '</span>' +
       '<button class="mremove" data-mid="' + m.id + '">✕</button>';
     chip.querySelector('.mremove').addEventListener('click', () => {
       injectMaterials = injectMaterials.filter((x) => x.id !== m.id);
@@ -1947,13 +1950,15 @@ function renderInjectMaterials() {
     box.appendChild(chip);
   });
 }
-// 素材 → { text, images }：文本类并入引用块；图片单独携带（浏览器版渠道在站点页面内粘贴上传）
+// 素材 → { text, images }：文本类并入引用块；图片/文件（二进制）随发送在站点页面内粘贴/设 file input 上传
 function composeWithMaterials(base) {
-  const images = injectMaterials.filter((m) => m.type === 'image').map((m) => ({ name: m.name || 'image', dataUrl: m.dataUrl }));
-  const textMats = injectMaterials.filter((m) => m.type !== 'image');
+  // images 数组同时承载图片与待上传文件（含 mime 前缀的 dataUrl；仅浏览器版渠道支持）
+  const images = injectMaterials.filter((m) => m.type === 'image' || m.type === 'upload')
+    .map((m) => ({ name: m.name || 'file', dataUrl: m.dataUrl }));
+  const textMats = injectMaterials.filter((m) => m.type !== 'image' && m.type !== 'upload');
   const mats = textMats.map((m) => {
     const head = (m.type === 'file' && m.name) ? '[附件 ' + m.name + ']\n' : '';
-    return head + '> ' + m.text.replace(/\n/g, '\n> ');
+    return head + '> ' + String(m.text || '').replace(/\n/g, '\n> ');
   }).join('\n>\n');
   const text = mats ? (base ? base + '\n\n' : '') + mats : base;
   return { text, images };
@@ -1961,18 +1966,25 @@ function composeWithMaterials(base) {
 function injectComposeParts() { return composeWithMaterials(injectGetInput()); }
 function injectComposeText() { return injectComposeParts().text; }
 function injectClearMaterials() { injectMaterials = []; renderInjectMaterials(); }
+function fileToDataUrl(f) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result); r.onerror = () => rej(r.error);
+    r.readAsDataURL(f);
+  });
+}
+// 可作为"文件上传"的文档类型（非图片/文本/PDF；这些走上传而非本地解析）
+const UPLOAD_DOC_RE = /\.(docx?|xlsx?|pptx?|rtf|odt|ods|odp|epub|pages|numbers|key)$/i;
+const UPLOAD_MIME_RE = /^application\/(msword|vnd\.|rtf|epub|octet-stream)/i;
 
-// 📎 附件选择：图片（≤5MB，随发送粘贴上传）+ 文本类（≤512KB，读为文本素材）；其余格式提示 P2/手动上传
+// 📎 附件选择：图片（≤5MB，随发送粘贴上传）+ 文本类（≤512KB，读为文本素材）
+// + PDF（本地提取文本，失败则回退为文件上传）+ 文档类（≤10MB，作为文件上传，仅浏览器版渠道）
 async function injectAttachPick(fileList) {
   for (const f of Array.from(fileList || [])) {
     try {
       if (/^image\//.test(f.type)) {
         if (f.size > 5 * 1024 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
-        const dataUrl = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload = () => res(r.result); r.onerror = () => rej(r.error);
-          r.readAsDataURL(f);
-        });
+        const dataUrl = await fileToDataUrl(f);
         injectAddMaterial({ type: 'image', name: f.name, dataUrl });
         showStatus(I18N.t('aiAttachAdded', f.name), 'success');
       } else if (/^(text\/|application\/json)/.test(f.type) || /\.(txt|md|csv|json|log)$/i.test(f.name)) {
@@ -1981,12 +1993,23 @@ async function injectAttachPick(fileList) {
         injectAddMaterial({ type: 'file', name: f.name, text });
         showStatus(I18N.t('aiAttachAdded', f.name), 'success');
       } else if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
-        // PDF 解析（005 P2）：尽力提取文本，作为文本附件并入 prompt
+        // PDF（005 P2）：优先本地提取文本并入 prompt；提取不到（扫描件/特殊字体）→ 回退为文件上传
         if (f.size > 20 * 1024 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
         const text = await extractPdfText(await f.arrayBuffer());
-        if (!text || text.trim().length < 2) { showStatus(I18N.t('aiAttachPdfNoText', f.name), true); continue; }
-        injectAddMaterial({ type: 'file', name: f.name, text });
-        showStatus(I18N.t('aiAttachAdded', f.name), 'success');
+        if (text && text.trim().length >= 2) {
+          injectAddMaterial({ type: 'file', name: f.name, text });
+          showStatus(I18N.t('aiAttachAdded', f.name), 'success');
+        } else {
+          const dataUrl = await fileToDataUrl(f);
+          injectAddMaterial({ type: 'upload', name: f.name, dataUrl });
+          showStatus(I18N.t('aiAttachUploaded', f.name), 'success');
+        }
+      } else if (UPLOAD_DOC_RE.test(f.name) || UPLOAD_MIME_RE.test(f.type)) {
+        // 文档类：作为文件上传（仅浏览器版渠道，站点页面内粘贴/设 file input）
+        if (f.size > 10 * 1024 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
+        const dataUrl = await fileToDataUrl(f);
+        injectAddMaterial({ type: 'upload', name: f.name, dataUrl });
+        showStatus(I18N.t('aiAttachUploaded', f.name), 'success');
       } else {
         showStatus(I18N.t('aiAttachUnsupported', f.name), true);
       }
@@ -3920,6 +3943,88 @@ async function loadChatSettings() {
   });
 }
 
+// ===== 会话行为：关闭重开 / 切换页面 是否自动开新对话（默认都保留对话）=====
+let chatRestartOnOpen = false;
+let chatRestartOnNav = false;
+async function loadChatSessionPrefs() {
+  try {
+    const r = await chrome.storage.local.get(['chatRestartOnOpen', 'chatRestartOnNav']);
+    chatRestartOnOpen = r.chatRestartOnOpen === true;
+    chatRestartOnNav = r.chatRestartOnNav === true;
+  } catch (e) {}
+  const o = document.getElementById('chatRestartOnOpen'); if (o) o.checked = chatRestartOnOpen;
+  const n = document.getElementById('chatRestartOnNav'); if (n) n.checked = chatRestartOnNav;
+}
+// 对话流持久化（storage.session，随浏览器会话存活）：侧栏关闭再打开可恢复
+let chatStreamHtml = '';
+let persistStreamTimer = null;
+function schedulePersistStream() {
+  clearTimeout(persistStreamTimer);
+  persistStreamTimer = setTimeout(() => {
+    const body = document.getElementById('voiceOutputContent');
+    if (!body) return;
+    try { chatStreamHtml = body.innerHTML; chrome.storage.session.set({ chatStreamHtml, lastAnswerText }).catch(() => {}); } catch (e) {}
+  }, 500);
+}
+async function restoreChatStream() {
+  let html = '';
+  try {
+    const r = await chrome.storage.session.get(['chatStreamHtml', 'lastAnswerText']);
+    html = r.chatStreamHtml || '';
+    if (r.lastAnswerText) lastAnswerText = r.lastAnswerText;
+  } catch (e) { html = ''; }
+  const body = document.getElementById('voiceOutputContent');
+  if (!body) return;
+  chatStreamHtml = html;
+  if (html && html.indexOf('voice-msg') >= 0) {
+    body.innerHTML = html;
+    currentExchangeEl = null;
+    renderVoiceOutputState();
+  }
+}
+// 开新对话：清对话流（并清持久化）+ 重启底层 AI（API 重置会话 / 注入关小窗重开）
+async function resetConversation(opts = {}) {
+  voiceOutputClear();
+  chatStreamHtml = '';
+  lastAnswerText = '';
+  try { await chrome.storage.session.remove(['chatStreamHtml', 'lastAnswerText']); } catch (e) {}
+  try {
+    const mode = await getEffectiveAiMode();
+    if (mode === 'api') await sendMessage('resetAiSession');
+    else await sendMessage('newConversation', { site: injectSite() });
+  } catch (e) {}
+  if (opts.notify) showStatus(I18N.t('chatRestarted'), 'info');
+}
+// 初始化：读取偏好；重开侧栏时按设置决定"恢复对话"还是"开新对话"
+async function initChatSession() {
+  await loadChatSessionPrefs();
+  if (chatRestartOnOpen) await resetConversation();
+  else await restoreChatStream();
+}
+// 切换页面（网址变化）检测：忽略 AI 站点与浏览器内部页
+function isAiSiteUrl(u) {
+  return /^https?:\/\/([^/]*\.)?(chatgpt\.com|chat\.openai\.com|claude\.ai|kimi\.moonshot\.cn|chat\.deepseek\.com)\//i.test(u);
+}
+async function currentBrowsingUrl() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    const u = tabs[0] && tabs[0].url;
+    if (!u || /^(chrome|edge|about|chrome-extension|devtools|chrome-untrusted):/i.test(u)) return '';
+    if (isAiSiteUrl(u)) return '';
+    return u;
+  } catch (e) { return ''; }
+}
+let lastBrowsingUrl = '';
+async function onTabMaybeNavigated() {
+  const u = await currentBrowsingUrl();
+  if (!u) return;
+  if (!lastBrowsingUrl) { lastBrowsingUrl = u; return; }
+  if (u !== lastBrowsingUrl) {
+    lastBrowsingUrl = u;
+    if (chatRestartOnNav) await resetConversation({ notify: true });
+  }
+}
+
 // 语音识别完成后的分流：compose → 填入文本框并切到文本模式；direct → 直接问答+朗读
 async function handleVoiceRecognized(text) {
   if (!text) return;
@@ -4387,6 +4492,7 @@ function renderVoiceOutputState() {
   const has = voiceHasRecords();
   out.classList.toggle('hidden', !has);
   out.classList.toggle('collapsed', has && !!voiceOutputCollapsed);
+  schedulePersistStream(); // 变更后持久化，供侧栏重开恢复
 }
 function toggleVoiceOutput() {
   voiceOutputCollapsed = !voiceOutputCollapsed;
@@ -5378,6 +5484,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   loadChatMode();
   loadChatSettings();
+  // 会话行为设置（默认保留对话）
+  const restartOpenEl = document.getElementById('chatRestartOnOpen');
+  if (restartOpenEl) restartOpenEl.addEventListener('change', () => { chatRestartOnOpen = !!restartOpenEl.checked; chrome.storage.local.set({ chatRestartOnOpen: chatRestartOnOpen }).catch(() => {}); });
+  const restartNavEl = document.getElementById('chatRestartOnNav');
+  if (restartNavEl) restartNavEl.addEventListener('change', () => { chatRestartOnNav = !!restartNavEl.checked; chrome.storage.local.set({ chatRestartOnNav: chatRestartOnNav }).catch(() => {}); });
+  initChatSession(); // 重开侧栏：按设置恢复对话或开新对话
   // ===== 选区操作条：朗读 / AI处理（+语言） / 加入上下文 =====
   const selReadBtn = document.getElementById('selRead');
   if (selReadBtn) selReadBtn.addEventListener('click', selReadText);
@@ -5403,8 +5515,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // 转写标签页：仅页面含音视频时显示；随标签页切换/加载更新
   updateAsrTabVisibility();
   window.addEventListener('focus', updateAsrTabVisibility);
-  if (chrome.tabs && chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => { updateAsrTabVisibility(); refreshPageSelection(); refreshInjectCapBadges(); });
-  if (chrome.tabs && chrome.tabs.onUpdated) chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete' || info.url) { updateAsrTabVisibility(); refreshInjectCapBadges(); } });
+  if (chrome.tabs && chrome.tabs.onActivated) chrome.tabs.onActivated.addListener(() => { updateAsrTabVisibility(); refreshPageSelection(); refreshInjectCapBadges(); onTabMaybeNavigated(); });
+  if (chrome.tabs && chrome.tabs.onUpdated) chrome.tabs.onUpdated.addListener((id, info) => { if (info.status === 'complete' || info.url) { updateAsrTabVisibility(); refreshInjectCapBadges(); onTabMaybeNavigated(); } });
+  onTabMaybeNavigated(); // 记录初始浏览网址，供后续"切换页面"判断
   // 语音模式行为（识别后直接发 / 填入文本）
   document.querySelectorAll('input[name="chatVoiceBehavior"]').forEach(radio => {
     radio.addEventListener('change', () => {

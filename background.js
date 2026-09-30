@@ -1170,7 +1170,11 @@ async function probeSiteCapabilities(siteKey) {
 function probeCapsInPage() {
   try {
     const fileInputs = Array.from(document.querySelectorAll('input[type=file]'));
-    const acceptsImage = fileInputs.some(i => /image/i.test(i.accept || ''));
+    // accept 为空 = 接受任意文件（含图片）；含 image/ 或 .png/.jpg 等也算
+    const acceptsImage = fileInputs.some(i => {
+      const a = String(i.getAttribute('accept') || '').toLowerCase().trim();
+      return !a || a.includes('image') || /\.(png|jpe?g|gif|webp|bmp|heic|avif)/.test(a);
+    });
     return {
       fileInput: fileInputs.length > 0,
       acceptsImage,
@@ -1420,33 +1424,47 @@ function askInSite(question, adapter, requestId, images) {
     };
     insertText();
 
-    // 2.5) 附件图片（005 P1）：以"粘贴"方式注入（ChatGPT/Claude/Kimi 均支持粘贴图片），
-    //      失败则回退站点自带的 input[type=file]；每张等待 1.5s 出上传缩略图
+    // 2.5) 附件注入（005 P1/P2）：图片走"粘贴"（ChatGPT/Claude/Kimi 支持粘贴图片）；
+    //      其它文件（PDF/文档）直接设站点 input[type=file]；每项等待上传（缩略图/进度）后再发送。
     diag.images = 0;
-    const dataUrlToFile = (du) => {
+    const dataUrlToFile = (du, name) => {
       try {
         const m = /^data:([^;]+);base64,(.*)$/.exec(du);
         if (!m) return null;
         const bin = atob(m[2]);
         const arr = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-        return new File([arr], 'image', { type: m[1] });
+        return new File([arr], name || 'file', { type: m[1] || 'application/octet-stream' });
       } catch (e) { return null; }
     };
-    const injectImages = async () => {
-      for (const img of (images || []).slice(0, 4)) {
-        const f = dataUrlToFile(img.dataUrl);
+    // 站点文件 input 选择器池（适配器可扩展 uploads；否则通用候选）
+    const uploadSelectors = (cfg.uploads && cfg.uploads.length) ? cfg.uploads
+      : ['input[type=file]', 'input[type="file"]', '[class*="upload" i] input[type=file]'];
+    const findFileInput = () => {
+      for (const sel of uploadSelectors) {
+        const el = document.querySelector(sel);
+        if (el) return el;
+      }
+      return null;
+    };
+    const injectAttachments = async () => {
+      for (const item of (images || []).slice(0, 6)) {
+        const f = dataUrlToFile(item.dataUrl, item.name);
         if (!f) continue;
+        const isImage = /^image\//i.test(f.type);
         let delivered = false;
-        try {
-          const dt = new DataTransfer();
-          dt.items.add(f);
-          input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
-          delivered = true;
-        } catch (e) {}
+        // 图片优先粘贴；非图片直接设 file input（粘贴通常不处理文档）
+        if (isImage) {
+          try {
+            const dt = new DataTransfer();
+            dt.items.add(f);
+            input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+            delivered = true;
+          } catch (e) {}
+        }
         if (!delivered) {
           try {
-            const fi = document.querySelector('input[type=file]');
+            const fi = findFileInput();
             if (fi) {
               const dt2 = new DataTransfer();
               dt2.items.add(f);
@@ -1456,8 +1474,17 @@ function askInSite(question, adapter, requestId, images) {
             }
           } catch (e) {}
         }
+        if (!delivered && !isImage) {
+          try {
+            const dt = new DataTransfer();
+            dt.items.add(f);
+            input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }));
+            delivered = true;
+          } catch (e) {}
+        }
         if (delivered) diag.images++;
-        await new Promise(r => setTimeout(r, 1500));
+        // 等待上传生效：图片 1.5s；文件 2.5s（文档解析/缩略图更慢）
+        await new Promise(r => setTimeout(r, isImage ? 1500 : 2500));
       }
     };
 
@@ -1653,7 +1680,7 @@ function askInSite(question, adapter, requestId, images) {
       }, RESOLVE_TIMEOUT);
     };
     // 有附件图片：先粘贴上传完成，再进入发送/等待流程
-    Promise.resolve((images && images.length) ? injectImages() : null).then(beginWait, beginWait);
+    Promise.resolve((images && images.length) ? injectAttachments() : null).then(beginWait, beginWait);
   });
 }
 
