@@ -462,11 +462,15 @@ async function populateVoices() {
       opt.textContent = ttsLangLabel(code);
       langFilter.appendChild(opt);
     }
-    // 选中值：首次按系统语言定默认；之后保留用户选择（含 all）。
+    // 选中值：优先存储的用户选择；首次（无存储）按系统语言定默认；之后保留 DOM 状态。
     // 注意：resolveDefaultFilterLang 返回小写 code，需映射回 option 的原始大小写（如 zh-CN），select 才能命中。
     const mapToOption = (def) => (def === 'all' ? 'all' : (codes.find(c => c.toLowerCase() === def) || 'all'));
+    const st = await chrome.storage.local.get('ttsLangFilterSel').catch(() => ({}));
     let val;
-    if (ttsLangFirstRender && codes.length > 0) {
+    if (st.ttsLangFilterSel && (st.ttsLangFilterSel === 'all' || codes.some(c => c.toLowerCase() === String(st.ttsLangFilterSel).toLowerCase()))) {
+      val = mapToOption(st.ttsLangFilterSel); // 存储的用户选择优先（重开侧边栏后保持）
+      ttsLangFirstRender = false;
+    } else if (ttsLangFirstRender && codes.length > 0) {
       // 首次拿到真实语音列表才应用系统语言默认（语音懒加载时首次可能为空，等 voiceschanged 再补）
       val = mapToOption(resolveDefaultFilterLang(codes));
       ttsLangFirstRender = false;
@@ -485,7 +489,7 @@ async function populateVoices() {
   }
 }
 
-function applyVoiceFilter() {
+async function applyVoiceFilter() {
   const select = document.getElementById('ttsVoice');
   const langFilter = document.getElementById('ttsLangFilter');
   if (!select || !langFilter) return;
@@ -513,7 +517,24 @@ function applyVoiceFilter() {
     opt.textContent = `${v.voiceName || I18N.t('unnamed')} (${v.lang})${v.gender ? ' ' + v.gender : ''}`;
     select.appendChild(opt);
   }
-  if (select.options.length > 0) select.selectedIndex = 0;
+  // 应用存储的音色；存储音色不在当前列表（换设备/系统语音变化）→ 回退当前界面语言第一个音色 → 第一个
+  try {
+    const st = await chrome.storage.local.get('ttsVoiceSel');
+    const wanted = st.ttsVoiceSel;
+    if (wanted) {
+      const hit = Array.from(select.options).find(o => o.value === wanted);
+      if (hit) {
+        select.value = wanted;
+      } else {
+        const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+        const wantLang = uiZh ? 'zh' : 'en';
+        const langHit = unique.find(v => String(v.lang || '').toLowerCase().startsWith(wantLang));
+        if (langHit && langHit.voiceName) select.value = langHit.voiceName;
+        logDebug('tts', '存储的音色不在可用列表，已回退: ' + (select.value || '系统默认'), true);
+      }
+    }
+  } catch (e) {}
+  if (select.options.length > 0 && !select.value) select.selectedIndex = 0;
 }
 
 // ===== 思维链（思考内容）处理 =====
@@ -572,47 +593,73 @@ function renderMarkdown(src) {
   return out.join('');
 }
 
+// 系统 TTS 朗读（含音色校验）：选中的音色不在当前系统可用列表（换设备/系统语音变化）→
+// 回退当前界面语言的第一个可用音色 → 系统默认，避免"存了不存在的音色导致无法朗读"
+async function speakSystemTtsSafe(text, statusEl, triggerBtn) {
+  let voice = document.getElementById('ttsVoice')?.value || '';
+  const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
+  const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
+  const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
+  try {
+    if (voice) {
+      const voices = await new Promise((res) => chrome.tts.getVoices((v) => res(v || [])));
+      const hit = (voices || []).find(v => (v.voiceName || '') === voice && !/^google[\s-]/i.test(String(v.voiceName || '')));
+      if (!hit) {
+        const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
+        const wantLang = uiZh ? 'zh' : 'en';
+        const cand = (voices || []).filter(v => !/^google[\s-]/i.test(String(v.voiceName || '')) && String(v.lang || '').toLowerCase().startsWith(wantLang));
+        voice = (cand[0] && cand[0].voiceName) || '';
+        logDebug('tts', '存储/选中的音色不可用，回退' + (voice ? '当前语言音色: ' + voice : '系统默认'), true);
+      }
+    }
+  } catch (e) {}
+  // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
+  runAction('tts', text, {
+    voice, rate, pitch, volume,
+    onEvent: (event) => {
+      // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
+      if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
+      else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
+      if (statusEl) {
+        if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
+        else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
+        else if (event.type === 'error') {
+          statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
+          showStatus(I18N.t('readErrorStatus'), 'error');
+        }
+      }
+    }
+  });
+}
+
 function doSpeak(text, statusEl, triggerBtn, forceSystem) {
   if (!text || !text.trim()) {
     showStatus(I18N.t('noTextToSpeak'), 'info');
     if (statusEl) statusEl.textContent = I18N.t('noText');
     return;
   }
-  // 思考内容默认不朗读：剥掉思维链（站点提取残留的思考块/标题行）；设置开启时保留
+  // 思考内容默认不朗读：剥掉思维链（站点提取残留的思维块/标题行）；设置开启时保留
   if (!currentVoiceConfig.ttsReadThinking) text = stripThinkingForTts(text);
   // 本地朗读引擎分流：Kokoro / Qwen3 走本地服务 /speak（fetch + AudioContext 播放），否则系统 chrome.tts
   // forceSystem=true（如语音工作台自动朗读）→ 固定用系统 TTS，即时出声，不受本地引擎慢首帧影响
   // 统一来源「自动」时按可达性解析；否则沿用显式引擎
-  resolveEffectiveTtsEngine().then(engine => {
+  resolveEffectiveTtsEngine().then(async (engine) => {
     if (forceSystem) engine = 'system'; // 语音工作台等固定用系统 TTS，即时出声
     if (engine !== 'system') {
-      speakLocalTts(text, statusEl, triggerBtn, engine);
-      return;
-    }
-    const voice = document.getElementById('ttsVoice')?.value || '';
-    const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
-    const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
-    const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-    // 走统一动作 ACTIONS.tts（capabilities.js），输出 { ok, text, error }
-    runAction('tts', text, {
-      voice, rate, pitch, volume,
-      onEvent: (event) => {
-        // 触发的朗读按钮联动：开始 → 变为「停止」；结束/中断/取消/出错 → 恢复原样
-        if (event.type === 'start') setSpeakButtonState(triggerBtn, true);
-        else if (event.type === 'end' || event.type === 'interrupted' || event.type === 'cancelled' || event.type === 'error') setSpeakButtonState(triggerBtn, false);
-        if (statusEl) {
-          if (event.type === 'start') statusEl.textContent = I18N.t('speaking');
-          else if (event.type === 'end') statusEl.textContent = I18N.t('speakDone');
-          else if (event.type === 'error') {
-            statusEl.textContent = I18N.t('speakError') + (event.errorMessage || I18N.t('unknown'));
-            showStatus(I18N.t('readErrorStatus'), 'error');
-          }
-        }
+      try {
+        await speakLocalTts(text, statusEl, triggerBtn, engine);
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return; // 用户主动停止，不回退
+        // 本地/云端引擎不可用（服务未启动、Key 失效等）→ 回退系统 TTS，避免无法朗读
+        logDebug('tts', '本地/云端引擎失败，回退系统 TTS：' + ((e && e.message) || ''), true);
+        if (statusEl) statusEl.textContent = I18N.t('ttsLocalFallback');
       }
-    });
-    showStatus(I18N.t('startSpeaking'), 'success');
-    if (statusEl) statusEl.textContent = I18N.t('speakStarting');
+    }
+    await speakSystemTtsSafe(text, statusEl, triggerBtn);
   });
+  showStatus(I18N.t('startSpeaking'), 'success');
+  if (statusEl) statusEl.textContent = I18N.t('speakStarting');
 }
 
 // ========== 本地 TTS 朗读（Kokoro / Qwen3，走本地服务 /speak） ==========
@@ -749,6 +796,7 @@ async function speakLocalTts(text, statusEl, triggerBtn, engine) {
       if (statusEl) statusEl.textContent = I18N.t('speakError') + msg;
       showStatus(I18N.t('readErrorStatus'), 'error');
       logDebug('tts', '朗读错误: ' + msg, true);
+      throw e; // 向上传递：doSpeak 据此回退系统 TTS（AbortError 除外，已在上面处理）
     }
   } finally {
     localTtsActive = false;
@@ -4466,12 +4514,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activeSpeakBtn === ttsSpeakInput) stopSpeaking(); else speakInputText();
   });
   const langFilter = document.getElementById('ttsLangFilter');
-  if (langFilter) langFilter.addEventListener('change', applyVoiceFilter);
+  if (langFilter) langFilter.addEventListener('change', () => {
+    applyVoiceFilter();
+    chrome.storage.local.set({ ttsLangFilterSel: langFilter.value }).catch(() => {});
+  });
+  // 音色选择持久化（重开侧边栏后保持上次选择）
+  const voiceSelEl = document.getElementById('ttsVoice');
+  if (voiceSelEl) voiceSelEl.addEventListener('change', () => chrome.storage.local.set({ ttsVoiceSel: voiceSelEl.value }).catch(() => {}));
   // OS TTS 引擎常懒加载语音：等 voiceschanged 再补一次列表（首次可能返回空）
   if (chrome.tts && chrome.tts.onVoicesChanged) {
     chrome.tts.onVoicesChanged.addListener(() => { if (allVoices.length === 0) populateVoices(); });
   }
-  // 滑块标签
+  // 滑块标签 + 持久化（语速/语调/音量）
   ['ttsRate', 'ttsPitch', 'ttsVolume'].forEach(id => {
     const input = document.getElementById(id);
     const label = document.getElementById(id + 'Label');
@@ -4479,8 +4533,23 @@ document.addEventListener('DOMContentLoaded', () => {
       input.addEventListener('input', () => {
         label.textContent = parseFloat(input.value).toFixed(1);
       });
+      input.addEventListener('change', () => {
+        chrome.storage.local.set({ [id + 'Sel']: parseFloat(input.value) }).catch(() => {});
+      });
     }
   });
+  // 恢复存储的语速/语调/音量
+  chrome.storage.local.get(['ttsRateSel', 'ttsPitchSel', 'ttsVolumeSel']).then((r) => {
+    [['ttsRate', 'ttsRateSel'], ['ttsPitch', 'ttsPitchSel'], ['ttsVolume', 'ttsVolumeSel']].forEach(([id, key]) => {
+      const input = document.getElementById(id);
+      const label = document.getElementById(id + 'Label');
+      const v = r[key];
+      if (input && typeof v === 'number') {
+        input.value = v;
+        if (label) label.textContent = v.toFixed(1);
+      }
+    });
+  }).catch(() => {});
   // 朗读引擎 + 本地音色（朗读面板 / 蓝区共用，双向同步）
   const ttsEngineSel = document.getElementById('ttsEngine');
   if (ttsEngineSel) ttsEngineSel.addEventListener('change', () => setTtsEngine(ttsEngineSel.value));

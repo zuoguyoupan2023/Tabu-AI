@@ -982,6 +982,11 @@ async function newConversation(siteKey) {
     return { success: false, message: '无法访问 ' + site.label + '，请检查网络或代理后再新建对话。' };
   }
   try {
+    // 重开对话 = 零状态：先彻底关掉 AI 小窗（会话随窗口消失），再关闭其它匹配标签，最后重建全新小窗
+    if (aiWindowId != null) {
+      try { await chrome.windows.remove(aiWindowId); } catch (e) {}
+      aiWindowId = null;
+    }
     const tabs = await chrome.tabs.query({ url: site.urlPatterns });
     const ids = tabs.filter(t => t.id != null).map(t => t.id);
     if (ids.length) {
@@ -1477,6 +1482,17 @@ function askInSite(question, adapter, requestId, images) {
         if (/think|reason|thought/i.test(String(el.className || ''))) {
           return { text: '', thinking: (el.innerText || '').trim() };
         }
+        // 祖先链上有思考容器（DeepSeek 把思考内容也渲染成 ds-markdown，think 类标记在祖先容器上，
+        // 此时思考内容块会被回复选择器直接匹配到）→ 归为 thinking
+        let anc = el.parentElement;
+        let depth = 0;
+        while (anc && depth < 6) {
+          if (/think|reason|thought/i.test(String(anc.className || ''))) {
+            return { text: '', thinking: (el.innerText || '').trim() };
+          }
+          anc = anc.parentElement;
+          depth++;
+        }
         const full = (el.innerText || '').trim();
         if (!full) return { text: '', thinking: '' };
         // 思考容器是后代：扣除并计入 thinking
@@ -1521,6 +1537,7 @@ function askInSite(question, adapter, requestId, images) {
       setTimeout(() => {
         clearInterval(pollTimer);
         if (lastText) finish({ answer: lastText, thinking: lastThinking });
+        else if (lastThinking) finish({ answer: lastThinking, thinking: '' }); // 分类失误兜底：内容可见性优先
         else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；图片: ' + (diag.images || 0) + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
       }, RESOLVE_TIMEOUT);
     };
