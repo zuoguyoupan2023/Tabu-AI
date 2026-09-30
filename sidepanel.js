@@ -613,6 +613,16 @@ function stripThinkingForTts(text) {
   return splitThinkingText(text).body;
 }
 
+// 朗读用：去掉 Markdown 标记（链接只读标签、不读 URL），避免把引用链接读成网址
+function stripMarkdownForTts(text) {
+  return String(text || '')
+    .replace(/\[([^\]]+)\]\(https?:\/\/[^\s)]+\)/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2')
+    .replace(/^#{1,4}\s+/gm, '');
+}
+
 // ===== Markdown 轻量渲染（无依赖）=====
 // 支持：代码块 ```、行内代码 `x`、标题 #~####、粗体 **x**、斜体 *x*、无序/有序列表、段落换行。
 // 思考标题行渲染为灰色（.md-think）；所有内容先 escapeHtml 再转换，安全。
@@ -622,6 +632,7 @@ function renderMarkdown(src) {
   let inCode = false, codeBuf = [], listOpen = null;
   const closeList = () => { if (listOpen) { out.push('</' + listOpen + '>'); listOpen = null; } };
   const inline = (s) => s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a class="md-link" href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
@@ -727,6 +738,9 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
   }
   // 思考内容默认不朗读：剥掉思维链（站点提取残留的思维块/标题行）；设置开启时保留
   if (!currentVoiceConfig.ttsReadThinking) text = stripThinkingForTts(text);
+  // Markdown 标记（含引用链接）不朗读：只读链接文字，不读 URL
+  text = stripMarkdownForTts(text);
+  if (!text || !text.trim()) { showStatus(I18N.t('noTextToSpeak'), 'info'); if (statusEl) statusEl.textContent = I18N.t('noText'); return; }
   // 朗读轮次：同一回答只朗读一次（008 §4）
   const round = ++speakRoundSeq;
   activeSpeakRound = round;

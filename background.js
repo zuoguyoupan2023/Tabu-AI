@@ -1527,6 +1527,48 @@ function askInSite(question, adapter, requestId, images) {
       const newElements = list.filter(el => !beforeSet.has(el));
       // 思维链分离（确定性）：思考块无论"答案元素的后代"还是"独立兄弟元素"都被单独识别，
       // 返回 { text, thinking } 分离结构 —— 解决奇偶轮思考块 DOM 形态不同导致的漏剥
+      // DOM → Markdown：把 <a href> 保留为 [文本](url)，让引用数字/参考资料成为可点击超链接；
+      // 跳过思考块、隐藏节点与脚本；块级元素换行、li 加前缀。
+      const domToMarkdown = (root) => {
+        let out = '';
+        const isThink = (n) => /think|reason|thought/i.test(String(n.className || ''));
+        const isHidden = (n) => {
+          if (n.hasAttribute && (n.hasAttribute('hidden') || n.getAttribute('aria-hidden') === 'true')) return true;
+          const cls = String(n.className || '');
+          // 仅跳过典型引用浮层/隐藏标记，避免误伤 Tailwind 的 overflow-hidden 等
+          return /(^|\s)(tooltip|popover|invisible)(\s|$)/i.test(cls);
+        };
+        const walk = (node) => {
+          if (node.nodeType === 3) { out += node.nodeValue || ''; return; }
+          if (node.nodeType !== 1) return;
+          const tag = node.tagName.toLowerCase();
+          if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'button' || tag === 'noscript') return;
+          if (isThink(node) || isHidden(node)) return;
+          if (tag === 'a') {
+            const href = node.getAttribute('href') || '';
+            const label = (node.innerText || node.textContent || '').trim();
+            if (/^https?:/i.test(href) && label) { out += '[' + label + '](' + href + ')'; return; }
+            for (const c of node.childNodes) walk(c);
+            return;
+          }
+          // 引用标记（sup / cite / reference）：URL 可能挂在属性而非 <a href>
+          if (tag === 'sup' || /cite|reference|footnote/i.test(String(node.className || ''))) {
+            const url = node.getAttribute('data-url') || node.getAttribute('data-href') || node.getAttribute('data-link') || node.getAttribute('href') || '';
+            const label = (node.innerText || node.textContent || '').trim();
+            if (/^https?:/i.test(url) && label) { out += '[' + label + '](' + url + ')'; return; }
+          }
+          if (tag === 'br') { out += '\n'; return; }
+          if (tag === 'code') { const t = (node.innerText || '').trim(); if (t) out += '`' + t + '`'; return; }
+          if (tag === 'strong' || tag === 'b') { out += '**'; for (const c of node.childNodes) walk(c); out += '**'; return; }
+          const isBlock = /^(p|div|li|ul|ol|h[1-6]|tr|table|blockquote|pre|section|article|figure)$/.test(tag);
+          if (isBlock) out += '\n';
+          if (tag === 'li') out += '- ';
+          for (const c of node.childNodes) walk(c);
+          if (isBlock) out += '\n';
+        };
+        walk(root);
+        return out.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      };
       const pickParts = (el) => {
         // 元素自身就是思考块（类名含 think/reason/thought）→ 全部计入 thinking
         if (/think|reason|thought/i.test(String(el.className || ''))) {
@@ -1545,19 +1587,16 @@ function askInSite(question, adapter, requestId, images) {
         }
         const full = (el.innerText || '').trim();
         if (!full) return { text: '', thinking: '' };
-        // 思考容器是后代：扣除并计入 thinking（thinking 文本确为正文的连续子串时才剥离，
-        // 并只移除该子串、保留两侧正文，避免内容被整体截断）
+        let thinking = '';
         try {
           const thinkEl = el.querySelector('[class*="think" i], [class*="reason" i], [class*="thought" i], details');
-          if (thinkEl) {
-            const tt = (thinkEl.innerText || '').trim();
-            if (tt && tt.length < full.length && full.includes(tt)) {
-              const stripped = full.replace(tt, '\n').replace(/\n{3,}/g, '\n\n').trim();
-              return { text: stripped || full, thinking: tt };
-            }
-          }
+          if (thinkEl) thinking = (thinkEl.innerText || '').trim();
         } catch (e) {}
-        return { text: full, thinking: '' };
+        // 优先 DOM→Markdown（保留链接）；空则回退纯文本（剥离思考块）
+        const md = domToMarkdown(el);
+        if (md) return { text: md, thinking };
+        const stripped = (thinking && full.includes(thinking)) ? full.replace(thinking, '\n').replace(/\n{3,}/g, '\n\n').trim() : full;
+        return { text: stripped || full, thinking };
       };
       let text = '';
       let thinking = '';

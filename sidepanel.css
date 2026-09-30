@@ -703,6 +703,7 @@ footer a { color: #fff; text-decoration: none; }
 .md-body ul, .md-body ol { margin: 2px 0 2px 18px; padding: 0; }
 .md-body li { margin: 1px 0; }
 .md-body code { background: rgba(127,140,170,.14); padding: 1px 4px; border-radius: 3px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; }
+.md-body .md-link { color: var(--accent, #4a7dff); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 .md-body pre { background: rgba(127,140,170,.12); padding: 8px; border-radius: 6px; overflow-x: auto; margin: 4px 0; white-space: pre-wrap; word-break: break-word; }
 .md-body pre code { background: none; padding: 0; }
 /* 思维链（思考内容）灰色，与正文黑色区分 */
