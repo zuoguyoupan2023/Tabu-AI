@@ -712,8 +712,10 @@ footer a { color: #fff; text-decoration: none; }
 
 /* ===== AI 工作台（005 P0：composer 布局） ===== */
 .cap-badges { display: inline-flex; gap: 4px; align-items: center; }
-.cap-badge { font-size: 12px; opacity: .9; cursor: help; }
+.cap-badge { font-size: 12px; opacity: .9; cursor: help; display: inline-flex; align-items: center; }
+.cap-badge svg { width: 13px; height: 13px; display: block; }
 .cap-badge.exp { opacity: .55; filter: grayscale(.4); }
+.cap-badge.unknown { opacity: .35; }
 .material-capsules { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
 .material-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; background: rgba(127,140,170,.14); border-radius: 12px; padding: 2px 8px; font-size: 11px; }
 .material-chip .mtag { color: var(--accent, #4a7dff); font-weight: 600; white-space: nowrap; }
@@ -746,6 +748,10 @@ footer a { color: #fff; text-decoration: none; }
   font-size: 11px; color: rgba(255,255,255,.9); cursor: pointer; white-space: nowrap;
 }
 .chat-ctx-toggle input { accent-color: var(--accent, #fff); width: auto; }
+/* 底部工具条：关联页面 + 附件（两模式通用，置最下） */
+.chat-bottom-bar { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; }
+.chat-bottom-bar .chat-ctx-toggle { margin-left: 0; }
+.chat-bottom-bar #injectAttach { margin-left: auto; }
 .chat-mode-switch {
   width: 30px; height: 30px; border-radius: 9px; padding: 0;
   background: #fff; color: var(--red-b); font-size: 14px; font-weight: 800;

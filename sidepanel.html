@@ -54,10 +54,8 @@
           <!-- 顶栏：标题 + 能力徽章 + 模式切换 + 设置 -->
           <div class="chat-main-head">
             <span class="chat-main-title" data-i18n="chatMainTitle">💬 对话</span>
+            <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
-            <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
-              <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
-            </label>
             <button class="chat-mode-switch" id="chatModeSwitch" data-i18n-title="chatModeToText" title="切换到文本输入">T</button>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
@@ -82,8 +80,6 @@
           <div id="materialBar" class="ops">
             <div id="injectMaterials" class="material-capsules hidden" style="flex-basis:100%;"></div>
             <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
-            <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文本文件（并入素材）">📎 附件</button>
-            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log" hidden />
           </div>
 
           <!-- ▸ 语音模式（默认）：圆球「识别 → LLM → 输出并朗读」+ 可折叠文本输入 -->
@@ -205,6 +201,15 @@
                 <button class="chip" data-selproc="explain" data-i18n="aiTplExplain">解释</button>
               </div>
             </div>
+          </div>
+
+          <!-- 底部：关联页面（上下文） / 附件（两模式通用，置最下） -->
+          <div class="chat-bottom-bar" id="chatBottomBar">
+            <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
+              <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
+            </label>
+            <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎 附件</button>
+            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf" hidden />
           </div>
         </div><!-- /chatMain -->
 

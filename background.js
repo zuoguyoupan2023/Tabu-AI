@@ -660,6 +660,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
         // 注入功能（AI 页面问答）
         case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt, { images: request.images || [], requestId: request.streamId || '' }); break;
+        // 站点能力运行时探测（005 P2）：探测已打开的 AI 页面是否有 file input / 接受图片
+        case 'probeSiteCapabilities': result = await probeSiteCapabilities(request.site); break;
         // 自定义 API：测试连接 / 单次调用（openai 兼容或 anthropic 原生）
         case 'askViaApi': result = await askViaApi(request.prompt, request.config, request.history); break;
         // 自定义 API：多轮会话上下文（session + 历史消息）
@@ -1144,9 +1146,43 @@ async function injectAsk(siteKey, prompt, opts = {}) {
   }
 }
 
+// 站点能力探测（005 P2）：若有该站点的已打开标签，注入探测函数读取是否有 file input / 接受图片。
+// 页面不存在则返回 { present: false }，由侧边栏回退到适配器静态声明。
+async function probeSiteCapabilities(siteKey) {
+  const site = AI_SITES[siteKey];
+  if (!site || !site.ready) return { present: false };
+  try {
+    const tabs = await chrome.tabs.query({ url: site.urlPatterns });
+    const tab = tabs.find(t => t.url && !t.discarded) || tabs[0];
+    if (!tab || tab.id == null) return { present: false };
+    const results = await withTimeout(chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: probeCapsInPage
+    }), 8000, '能力探测超时');
+    const out = results && results[0] ? results[0].result : null;
+    return out ? { present: true, ...out } : { present: false };
+  } catch (e) {
+    return { present: false, error: e.message };
+  }
+}
+
+// 页面内执行（自包含，勿引用外部变量）：探测文件/图片上传能力
+function probeCapsInPage() {
+  try {
+    const fileInputs = Array.from(document.querySelectorAll('input[type=file]'));
+    const acceptsImage = fileInputs.some(i => /image/i.test(i.accept || ''));
+    return {
+      fileInput: fileInputs.length > 0,
+      acceptsImage,
+      contentEditable: !!document.querySelector('[contenteditable="true"]')
+    };
+  } catch (e) {
+    return { fileInput: false, acceptsImage: false, contentEditable: false };
+  }
+}
+
 // Promise 限时包装：超时抛错（原 Promise 继续在后台跑，结果被忽略）
-function withTimeout(promise, ms, tag) {
-  let timer;
+function withTimeout(promise, ms, tag) {  let timer;
   return Promise.race([
     promise,
     new Promise((_, rej) => { timer = setTimeout(() => rej(new Error(tag || 'timeout')), ms); })

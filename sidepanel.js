@@ -777,7 +777,8 @@ let lastAutoSpeak = { key: '', at: 0 };
 const AUTO_SPEAK_DEDUP_MS = 8000;
 
 // 自动朗读统一入口（工作台/语音管线共用）：按规范化文本 + 时间窗去重，避免双触发读两遍。
-function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride) {
+// triggerBtn = 该回答消息底部的小喇叭按钮：传入后朗读期间会切换为「停止」，用户可点击中断。
+function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride, triggerBtn) {
   const key = String(text || '').trim();
   if (!key) return;
   const now = Date.now();
@@ -786,7 +787,15 @@ function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride) {
     return;
   }
   lastAutoSpeak = { key, at: now };
-  doSpeak(key, statusEl, null, forceSystem, voiceOverride);
+  doSpeak(key, statusEl, triggerBtn || null, forceSystem, voiceOverride);
+}
+
+// 当前对话流里最近一条 AI 回答的小喇叭按钮（供自动朗读显示「停止」态）
+function lastBotSpeakBtn() {
+  const body = document.getElementById('voiceOutputContent');
+  if (!body) return null;
+  const bots = body.querySelectorAll('.voice-msg.voice-bot .msg-speak');
+  return bots.length ? bots[bots.length - 1] : null;
 }
 
 // ===== 流式朗读（008 §3）：边流式生成边按句合成/播放 TTS =====
@@ -799,8 +808,8 @@ async function loadStreamSpeakPref() {
 function isStreamSpeakEnabled() { return streamSpeakOn === true; }
 function setStreamSpeakPref(on) { streamSpeakOn = !!on; chrome.storage.local.set({ ttsStreamSpeak: !!on }).catch(() => {}); }
 
-let _streamSpeaker = { token: 0, active: false, stopped: true, buffer: '', queue: [], speaking: false, spoke: false };
-function streamSpeakStart() {
+let _streamSpeaker = { token: 0, active: false, stopped: true, buffer: '', queue: [], speaking: false, spoke: false, btn: null };
+function streamSpeakStart(btn) {
   // 打断上一轮朗读，避免新旧句子叠加
   try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
   if (localTtsActive && localTtsAbort) { try { localTtsAbort.abort(); } catch (e) {} }
@@ -808,11 +817,16 @@ function streamSpeakStart() {
   const token = _streamSpeaker.token;
   _streamSpeaker.active = true; _streamSpeaker.stopped = false;
   _streamSpeaker.buffer = ''; _streamSpeaker.queue = []; _streamSpeaker.speaking = false; _streamSpeaker.spoke = false;
+  _streamSpeaker.btn = btn || null;
+  if (btn) setSpeakButtonState(btn, true); // 朗读中该消息小喇叭变为「停止」，可点击中断
   warmAudioContext();
   logDebug('tts', '流式朗读开始 #' + token);
   return token;
 }
 function streamSpeakIsCurrent(token) { return _streamSpeaker.active && !_streamSpeaker.stopped && _streamSpeaker.token === token; }
+function streamSpeakClearBtn() {
+  if (_streamSpeaker.btn) { setSpeakButtonState(_streamSpeaker.btn, false); _streamSpeaker.btn = null; }
+}
 function streamSpeakFeed(token, text) {
   if (!streamSpeakIsCurrent(token) || !text) return;
   _streamSpeaker.buffer += text;
@@ -828,15 +842,16 @@ function streamSpeakEnd(token) {
   streamSpeakPump(token);
 }
 function streamSpeakStop() {
-  if (!_streamSpeaker.active && !_streamSpeaker.queue.length && !_streamSpeaker.speaking) return;
+  if (!_streamSpeaker.active && !_streamSpeaker.queue.length && !_streamSpeaker.speaking) { streamSpeakClearBtn(); return; }
   _streamSpeaker.stopped = true; _streamSpeaker.active = false;
   _streamSpeaker.buffer = ''; _streamSpeaker.queue = [];
+  streamSpeakClearBtn();
   logDebug('tts', '流式朗读已停止并清空队列');
 }
 async function streamSpeakPump(token) {
   if (_streamSpeaker.speaking || !streamSpeakIsCurrent(token)) return;
   const s = _streamSpeaker.queue.shift();
-  if (!s) return;
+  if (!s) { streamSpeakClearBtn(); return; } // 队列播完 → 小喇叭恢复
   _streamSpeaker.speaking = true;
   try { await streamSpeakOne(s, token); } catch (e) { logDebug('tts', '流式分句朗读失败: ' + ((e && e.message) || ''), true); }
   _streamSpeaker.speaking = false;
@@ -1896,6 +1911,13 @@ async function injectAttachPick(fileList) {
         const text = await f.text();
         injectAddMaterial({ type: 'file', name: f.name, text });
         showStatus(I18N.t('aiAttachAdded', f.name), 'success');
+      } else if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+        // PDF 解析（005 P2）：尽力提取文本，作为文本附件并入 prompt
+        if (f.size > 20 * 1024 * 1024) { showStatus(I18N.t('aiAttachTooLarge', f.name), true); continue; }
+        const text = await extractPdfText(await f.arrayBuffer());
+        if (!text || text.trim().length < 2) { showStatus(I18N.t('aiAttachPdfNoText', f.name), true); continue; }
+        injectAddMaterial({ type: 'file', name: f.name, text });
+        showStatus(I18N.t('aiAttachAdded', f.name), 'success');
       } else {
         showStatus(I18N.t('aiAttachUnsupported', f.name), true);
       }
@@ -1903,6 +1925,137 @@ async function injectAttachPick(fileList) {
       showStatus(I18N.t('aiAttachReadFail', (e && e.message) || ''), true);
     }
   }
+}
+
+// ===== PDF 文本提取（005 P2，尽力而为，无第三方依赖）=====
+// 思路：扫描 stream…endstream，FlateDecode 用 DecompressionStream 解压，
+// 再从内容流里取 BT/ET 文本操作符（Tj / TJ / Td / TD / T*）。扫描件或 CID 字体的中文 PDF 可能取不到文本。
+function bytesToLatin1(u8) {
+  let s = '';
+  for (let i = 0; i < u8.length; i += 0x8000) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  }
+  return s;
+}
+async function inflatePdfBytes(u8) {
+  const inflate = async (fmt) => {
+    const ds = new DecompressionStream(fmt);
+    const writer = ds.writable.getWriter();
+    const reader = ds.readable.getReader();
+    const chunks = [];
+    let total = 0;
+    // 读取端在流结束/尾部杂字节报错时保留已解出的内容（PDF 流常带尾部多余字节）
+    const readAll = (async () => {
+      try {
+        while (true) { const { done, value } = await reader.read(); if (done) break; if (value) { chunks.push(value); total += value.length; } }
+      } catch (e) { /* 容忍尾部杂字节 */ }
+    })();
+    writer.write(u8).then(() => writer.close()).catch(() => {});
+    await readAll;
+    if (!total) throw new Error('inflate empty');
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  };
+  try { return await inflate('deflate'); } catch (e) {}
+  return await inflate('deflate-raw'); // 少数 PDF 用裸 deflate
+}
+function decodePdfString(s) {
+  return s.replace(/\\(n|r|t|b|f|\(|\)|\\|[0-7]{1,3})/g, (mm, g) => {
+    switch (g) {
+      case 'n': return '\n'; case 'r': return '\r'; case 't': return '\t';
+      case 'b': return '\b'; case 'f': return '\f';
+      case '(': return '('; case ')': return ')'; case '\\': return '\\';
+      default: return /^[0-7]{1,3}$/.test(g) ? String.fromCharCode(parseInt(g, 8)) : g;
+    }
+  });
+}
+function extractPdfTextOperators(content) {
+  let result = '';
+  const re = /\((?:\\.|[^\\()])*\)|\[(?:[^\]]*)\]|T[Jj]|T[dD]|T\*|'|"/g;
+  let lastStrings = [];
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    const tok = m[0];
+    if (tok[0] === '(') {
+      lastStrings = [decodePdfString(tok.slice(1, -1))];
+    } else if (tok[0] === '[') {
+      const arr = [];
+      const sre = /\((?:\\.|[^\\()])*\)/g;
+      let sm;
+      while ((sm = sre.exec(tok)) !== null) arr.push(decodePdfString(sm[0].slice(1, -1)));
+      lastStrings = arr;
+    } else if (tok === 'Tj') {
+      result += lastStrings[0] || '';
+    } else if (tok === 'TJ') {
+      result += lastStrings.join('');
+    } else {
+      result += '\n'; // Td / TD / T* / ' / "
+    }
+  }
+  return result;
+}
+async function extractPdfText(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const latin1 = bytesToLatin1(bytes);
+  const parts = [];
+  const re = /stream\r?\n/g;
+  let m;
+  while ((m = re.exec(latin1)) !== null) {
+    const start = m.index + m[0].length;
+    const end = latin1.indexOf('endstream', start);
+    if (end < 0) break;
+    const dictRegion = latin1.slice(Math.max(0, m.index - 600), m.index);
+    let contentBytes = bytes.subarray(start, end);
+    if (/FlateDecode/.test(dictRegion)) {
+      try { contentBytes = await inflatePdfBytes(contentBytes); } catch (e) { /* 解压失败用原始串 */ }
+    }
+    const t = extractPdfTextOperators(bytesToLatin1(contentBytes));
+    if (t && t.trim()) parts.push(t);
+    re.lastIndex = end + 9;
+  }
+  return parts.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ===== AI 工作台：站点能力徽章（005 P2：静态声明 + 运行时探测；简洁 SVG 图标，无 emoji）=====
+const AI_SITE_CAPABILITIES = {
+  chatgpt:  { image: 'ok', file: 'ok' },
+  claude:   { image: 'ok', file: 'ok' },
+  kimi:     { image: 'ok', file: 'ok' },
+  deepseek: { image: 'exp', file: 'exp' } // Vision-Exp 实验性，以站点实际为准
+};
+const CAP_ICON = {
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>',
+  file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>'
+};
+let injectCapProbe = null; // 最近一次运行时探测结果 { site, present, fileInput, acceptsImage }
+function renderInjectCapBadges() {
+  const el = document.getElementById('injectCapBadges');
+  if (!el) return;
+  const site = injectSite();
+  const declared = AI_SITE_CAPABILITIES[site] || { image: 'ok', file: 'ok' };
+  const cap = { image: declared.image, file: declared.file };
+  const probe = (injectCapProbe && injectCapProbe.site === site) ? injectCapProbe : null;
+  if (probe && probe.present) {
+    cap.image = probe.acceptsImage ? 'ok' : 'exp';
+    cap.file = probe.fileInput ? 'ok' : 'exp';
+  }
+  const badge = (kind) => {
+    const st = cap[kind] === 'ok' ? 'ok' : (cap[kind] === 'exp' ? 'exp' : 'unknown');
+    const title = st === 'ok' ? I18N.t('aiCapOkTitle') : (st === 'exp' ? I18N.t('aiCapExpTitle') : I18N.t('aiCapUnknownTitle'));
+    const label = I18N.t(kind === 'image' ? 'aiCapImage' : 'aiCapFile');
+    return '<span class="cap-badge ' + st + '" title="' + escapeHtml(label + '：' + title) + '">' + CAP_ICON[kind] + '</span>';
+  };
+  el.innerHTML = badge('image') + badge('file');
+}
+async function refreshInjectCapBadges() {
+  renderInjectCapBadges(); // 先按静态声明渲染，避免空窗
+  try {
+    const site = injectSite();
+    const r = await sendMessage('probeSiteCapabilities', { site });
+    if (r && !r.error) { injectCapProbe = Object.assign({ site }, r); renderInjectCapBadges(); }
+  } catch (e) {}
 }
 
 // ===== AI 工作台：语音输入（browser 后端，识别文本填入输入框可编辑后再发送） =====
@@ -1976,7 +2129,7 @@ async function injectRun(prompt, images = [], opts = {}) {
     const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
     const autoOn = await aiSpeakAnswerEnabled();
     const streamOn = autoOn && isStreamSpeakEnabled();
-    const spToken = streamOn ? streamSpeakStart() : 0;
+    const spToken = streamOn ? streamSpeakStart(ansEl && ansEl.querySelector('.msg-speak')) : 0;
     const controller = new AbortController();
     aiAbortController = controller;
     let acc = '';
@@ -2028,7 +2181,7 @@ async function injectRun(prompt, images = [], opts = {}) {
   let injectAcc = '';
   const autoOn = await aiSpeakAnswerEnabled();
   const streamOn = autoOn && isStreamSpeakEnabled();
-  const spToken = streamOn ? streamSpeakStart() : 0;
+  const spToken = streamOn ? streamSpeakStart(injectAnsEl && injectAnsEl.querySelector('.msg-speak')) : 0;
   let lastSnap = '';
 
   // 走统一管线 execute（capabilities.js）：动作 inject，后台会话历史自动写入
@@ -2077,9 +2230,14 @@ async function injectRun(prompt, images = [], opts = {}) {
 // 流式气泡收尾：把逐字纯文本替换为 Markdown 化正文 + 小喇叭操作
 function finalizeStreamBubble(el, answer) {
   if (!el) return;
-  text = String(answer || '');
+  const text = String(answer || '');
   if (text) lastAnswerText = text;
   el.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(text) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div>';
+  // innerHTML 替换后旧按钮节点失效：若流式朗读仍在进行，把「停止」态重新绑到新按钮
+  if (_streamSpeaker.active && _streamSpeaker.token) {
+    const btn = el.querySelector('.msg-speak');
+    if (btn) { _streamSpeaker.btn = btn; setSpeakButtonState(btn, true); }
+  }
 }
 
 // 自定义 API 流式发送（P2）：aiContext 取 session + 多轮历史 → askApiStream 逐字渲染 → 完成写历史
@@ -2099,9 +2257,9 @@ async function injectRunApi(sendText, displayText) {
   const showThink = await aiShowThinkingEnabled();
   const autoOn = await aiSpeakAnswerEnabled();
   const streamOn = autoOn && isStreamSpeakEnabled();
-  const spToken = streamOn ? streamSpeakStart() : 0;
   const thinkEl = showThink ? appendStreamBubble('voice-think') : null;
   const ansEl = appendStreamBubble('voice-bot');
+  const spToken = streamOn ? streamSpeakStart(ansEl && ansEl.querySelector('.msg-speak')) : 0;
   const setThink = (t) => { const s = thinkEl && thinkEl.querySelector('.stream-text'); if (s) s.textContent = t.slice(-600); };
   const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
   let reasoningAcc = '';
@@ -2139,7 +2297,7 @@ async function injectRunApi(sendText, displayText) {
       return;
     }
     const answer = (r && r.answer) || acc;
-    if (ansEl) ansEl.innerHTML = '<b>' + escapeHtml(I18N.t('chatAnswer')) + '</b><div class="md-body">' + renderMarkdown(answer) + '</div><div class="msg-actions">' + msgSpeakBtn() + '</div>';
+    finalizeStreamBubble(ansEl, answer);
     if (streamOn) streamSpeakEnd(spToken); else maybeSpeakAnswer(answer);
     if (statusEl) statusEl.textContent = I18N.t('injectDone');
     showStatus(I18N.t('injectSuccess'), 'success');
@@ -2191,7 +2349,7 @@ function maybeSpeakAnswer(text) {
   Promise.all([aiSpeakAnswerEnabled(), aiSpeakVoicePref()]).then(([on, pref]) => {
     if (!on) { logDebug('tts', '自动朗读已关闭（工作台 🔊 开关或蓝区「LLM 回复朗读」）'); return; }
     logDebug('tts', '自动朗读 LLM 回答（' + String(text).length + ' 字）');
-    autoSpeakAnswer(String(text), document.getElementById('injectStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref);
+    autoSpeakAnswer(String(text), document.getElementById('injectStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref, lastBotSpeakBtn());
   }).catch(() => {});
 }
 function updateAiSpeakToggleUi(on) {
@@ -3830,9 +3988,9 @@ async function runVoiceCirclePipeline(text) {
       const showThink = await aiShowThinkingEnabled();
       const autoOn = await aiSpeakAnswerEnabled();
       const streamOn = autoOn && isStreamSpeakEnabled();
-      const spToken = streamOn ? streamSpeakStart() : 0;
       const ansEl = appendStreamBubble('voice-bot');
       vcAnsEl = ansEl;
+      const spToken = streamOn ? streamSpeakStart(ansEl && ansEl.querySelector('.msg-speak')) : 0;
       const setAns = (t) => { const s = ansEl && ansEl.querySelector('.stream-text'); if (s) s.textContent = t; };
       let streamAcc = '';
       let reasoningAcc = '';
@@ -3870,7 +4028,7 @@ async function runVoiceCirclePipeline(text) {
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
       // 流式朗读开启时：分句队列已随流式喂入，这里只收尾；否则整段朗读（autoSpeakAnswer 去重）
       if (streamOn) streamSpeakEnd(spToken);
-      else autoSpeakAnswer(spoken, document.getElementById('voiceCircleStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem));
+      else autoSpeakAnswer(spoken, document.getElementById('voiceCircleStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), undefined, lastBotSpeakBtn());
       logDebug('voice#' + round, '输出→朗读发起 ' + (performance.now() - tSpk0).toFixed(0) + 'ms');
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
@@ -4006,7 +4164,7 @@ function appendStreamBubble(kind) {
   if (empty) empty.remove();
   const el = document.createElement('div');
   el.className = 'voice-msg ' + kind;
-  el.innerHTML = '<b>' + escapeHtml(kind === 'voice-think' ? I18N.t('chatThinking') : I18N.t('chatAnswer')) + '</b><span class="stream-text"></span>';
+  el.innerHTML = '<b>' + escapeHtml(kind === 'voice-think' ? I18N.t('chatThinking') : I18N.t('chatAnswer')) + '</b><span class="stream-text"></span><div class="msg-actions">' + (kind === 'voice-bot' ? msgSpeakBtn() : '') + '</div>';
   body.appendChild(el);
   body.scrollTop = body.scrollHeight;
   renderVoiceOutputState();
@@ -4945,7 +5103,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (injectClearEl) injectClearEl.addEventListener('click', injectClear);
   // 免费浏览器版说明跟随「发送到」站点变化
   const injectSiteSel = document.getElementById('injectSite');
-  if (injectSiteSel) injectSiteSel.addEventListener('change', syncAiBackendUi);
+  if (injectSiteSel) injectSiteSel.addEventListener('change', () => { syncAiBackendUi(); refreshInjectCapBadges(); });
   const clearHistoryEl = document.getElementById('injectClearHistory');
   if (clearHistoryEl) clearHistoryEl.addEventListener('click', clearInjectHistory);
 
@@ -5191,10 +5349,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const INJECT_SITES = ['chatgpt', 'claude', 'kimi', 'deepseek'];
     chrome.storage.local.get('injectSite').then((r) => {
       if (r.injectSite && INJECT_SITES.includes(r.injectSite)) injectSiteSel.value = r.injectSite;
-    }).catch(() => {});
+      refreshInjectCapBadges(); // 站点就绪后按声明 + 运行时探测渲染能力徽章
+    }).catch(() => { refreshInjectCapBadges(); });
     injectSiteSel.addEventListener('change', () => {
       chrome.storage.local.set({ injectSite: injectSiteSel.value }).catch(() => {});
     });
+  } else {
+    refreshInjectCapBadges();
   }
   const bmMaxVersionsSave = document.getElementById('bmMaxVersionsSave');
   if (bmMaxVersionsSave) bmMaxVersionsSave.addEventListener('click', saveBmMaxVersions);
