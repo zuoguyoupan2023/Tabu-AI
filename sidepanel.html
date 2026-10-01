@@ -75,9 +75,9 @@
               <span class="voice-circle-ico">🎤</span>
             </button>
             <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
-            <div class="voice-circle-mode" id="voiceCircleMode">
-              <button class="vc-mode active" data-vcmode="manual" data-i18n="voiceModeManual">点击停止</button>
-              <button class="vc-mode" data-vcmode="vad" data-i18n="voiceModeVad">说话自动停</button>
+            <div class="vc-stop-row" id="voiceCircleMode">
+              <span class="vc-stop-label" data-i18n="voiceAutoStopLabel">自动停</span>
+              <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-i18n-title="voiceAutoStopTitle" title="开启：检测到说完话自动停止并发送；关闭：再次点击圆球停止录音"></span>
             </div>
           </div>
 
@@ -109,69 +109,84 @@
             </div>
           </div>
 
-          <!-- ▾ i 展开：设置（渠道 / 站点 / 语音行为 / 识别 / 朗读 / 模板） -->
+          <!-- ▾ i 展开：设置（横向标签页分区：渠道 / 语音 / 朗读，避免单列长滚动） -->
           <div class="chat-settings hidden" id="chatSettings">
-            <div class="ai-svc-sep" data-i18n="chatChannelSiteLabel">🌐 渠道 / 站点</div>
-            <div class="ai-backend-row">
-              <button type="button" class="ai-backend active" id="aiBackendLocal" data-i18n="aiBackendLocal">💻 本地版</button>
-              <button type="button" class="ai-backend" id="aiBackendInject" data-i18n="aiBackendInject">🌐 浏览器版</button>
-              <button type="button" class="ai-backend" id="aiBackendApi" data-i18n="aiBackendApi">🔑 API 版</button>
-            </div>
-            <div id="aiModeHint" class="ai-mode-hint hidden"></div>
-
-            <label class="cfg-row"><span data-i18n="aiSiteLabel">发送到</span>
-              <select id="injectSite" class="row-select" style="flex:1;">
-                <option value="chatgpt" data-i18n="aiSiteChatgpt">ChatGPT</option>
-                <option value="claude" data-i18n="aiSiteClaude">Claude</option>
-                <option value="kimi" data-i18n="aiSiteKimi">Kimi</option>
-                <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
-              </select>
-            </label>
-
-            <div class="ai-svc-sep" data-i18n="chatVoiceBehaviorLabel">🎙 语音模式行为</div>
-            <div class="chat-behavior-row">
-              <label><input type="radio" name="chatVoiceBehavior" value="direct" checked> <span data-i18n="chatVoiceDirect">识别后直接发送（问答 + 朗读）</span></label>
-              <label><input type="radio" name="chatVoiceBehavior" value="compose"> <span data-i18n="chatVoiceCompose">识别后填入文本（可编辑再发）</span></label>
+            <div class="cs-tabs" id="chatSettingsTabs" role="tablist">
+              <button type="button" class="cs-tab active" data-cstab="channel" role="tab" data-i18n="csTabChannel">🌐 渠道</button>
+              <button type="button" class="cs-tab" data-cstab="voice" role="tab" data-i18n="csTabVoice">🎙 语音</button>
+              <button type="button" class="cs-tab" data-cstab="tts" role="tab" data-i18n="csTabTts">🗣 朗读</button>
             </div>
 
-            <div class="ai-svc-sep" data-i18n="chatSessionLabel">🔄 会话行为（默认保留对话）</div>
-            <label class="cfg-row"><input type="checkbox" id="chatRestartOnOpen" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnOpenRow" style="opacity:.85;font-size:11px;">关闭侧栏再打开时自动开新对话（并重启 AI 页面/会话）</span></label>
-            <label class="cfg-row"><input type="checkbox" id="chatRestartOnNav" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnNavRow" style="opacity:.85;font-size:11px;">切换页面（网址变化）时自动开新对话</span></label>
+            <!-- Tab 1：渠道 / 站点 / 会话行为 -->
+            <div class="cs-panel" data-cstab-panel="channel">
+              <div class="ai-backend-row">
+                <button type="button" class="ai-backend active" id="aiBackendLocal" data-i18n="aiBackendLocal">💻 本地版</button>
+                <button type="button" class="ai-backend" id="aiBackendInject" data-i18n="aiBackendInject">🌐 浏览器版</button>
+                <button type="button" class="ai-backend" id="aiBackendApi" data-i18n="aiBackendApi">🔑 API 版</button>
+              </div>
+              <div id="aiModeHint" class="ai-mode-hint hidden"></div>
 
-            <div class="ai-svc-sep" data-i18n="chatAsrSectionLabel">🎙 识别</div>
-            <label class="cfg-row"><span data-i18n="asrBackendLabel">识别后端</span>
-              <select id="chatAsrBackend" class="row-select" style="flex:1;">
-                <option value="browser" data-i18n="asrBackendBrowser">🌍 浏览器内置</option>
-                <option value="azure" data-i18n="asrBackendAzure">🟦 微软 Azure</option>
-                <option value="openai" data-i18n="asrBackendOpenai">🤖 OpenAI Whisper</option>
-                <option value="aliyun" data-i18n="asrBackendAliyun">🔵 阿里云</option>
-                <option value="local" data-i18n="asrBackendLocal">💻 本地服务</option>
-              </select>
-            </label>
+              <label class="cfg-row"><span data-i18n="aiSiteLabel">发送到</span>
+                <select id="injectSite" class="row-select" style="flex:1;">
+                  <option value="chatgpt" data-i18n="aiSiteChatgpt">ChatGPT</option>
+                  <option value="claude" data-i18n="aiSiteClaude">Claude</option>
+                  <option value="kimi" data-i18n="aiSiteKimi">Kimi</option>
+                  <option value="deepseek" data-i18n="aiSiteDeepseek">DeepSeek</option>
+                </select>
+              </label>
 
-            <div class="ai-svc-sep" data-i18n="chatTtsSectionLabel">🗣 朗读</div>
-            <label class="cfg-row"><span data-i18n="ttsEngineLabel">朗读引擎</span>
-              <select id="chatTtsEngine" class="row-select" style="flex:1;">
-                <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
-                <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
-                <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
-                <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
-                <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
-                <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
-              </select>
-            </label>
-            <label class="cfg-row" id="chatTtsVoiceRow"><span data-i18n="ttsVoiceLabel">音色</span>
-              <select id="chatTtsVoice" class="row-select" style="flex:1;"></select>
-            </label>
-            <div class="tts-sliders">
-              <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="chatTtsRate" min="0.1" max="10" step="0.1" value="1" /><b id="chatTtsRateLabel">1.0</b></label>
+              <div class="ai-svc-sep" data-i18n="chatSessionLabel">🔄 会话行为（默认保留对话）</div>
+              <label class="cfg-row"><input type="checkbox" id="chatRestartOnOpen" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnOpenRow" style="opacity:.85;font-size:11px;">关闭侧栏再打开时自动开新对话（并重启 AI 页面/会话）</span></label>
+              <label class="cfg-row"><input type="checkbox" id="chatRestartOnNav" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnNavRow" style="opacity:.85;font-size:11px;">切换页面（网址变化）时自动开新对话</span></label>
             </div>
-            <div class="ops">
-              <button class="op" id="ttsSpeakFull" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
-              <button class="op" id="ttsSpeakInput" data-i18n="ttsSpeakInput" data-i18n-title="ttsSpeakInputTitle" title="朗读输入框内容">▶ 朗读输入框</button>
+
+            <!-- Tab 2：语音（语音模式行为 + 识别后端） -->
+            <div class="cs-panel hidden" data-cstab-panel="voice">
+              <div class="ai-svc-sep" data-i18n="chatVoiceBehaviorLabel">🎙 语音模式行为</div>
+              <div class="chat-behavior-row">
+                <label><input type="radio" name="chatVoiceBehavior" value="direct" checked> <span data-i18n="chatVoiceDirect">识别后直接发送（问答 + 朗读）</span></label>
+                <label><input type="radio" name="chatVoiceBehavior" value="compose"> <span data-i18n="chatVoiceCompose">识别后填入文本（可编辑再发）</span></label>
+              </div>
+
+              <div class="ai-svc-sep" data-i18n="chatAsrSectionLabel">🎙 识别</div>
+              <label class="cfg-row"><span data-i18n="asrBackendLabel">识别后端</span>
+                <select id="chatAsrBackend" class="row-select" style="flex:1;">
+                  <option value="browser" data-i18n="asrBackendBrowser">🌍 浏览器内置</option>
+                  <option value="azure" data-i18n="asrBackendAzure">🟦 微软 Azure</option>
+                  <option value="openai" data-i18n="asrBackendOpenai">🤖 OpenAI Whisper</option>
+                  <option value="aliyun" data-i18n="asrBackendAliyun">🔵 阿里云</option>
+                  <option value="local" data-i18n="asrBackendLocal">💻 本地服务</option>
+                </select>
+              </label>
+              <div class="hint" data-i18n="chatQuickHintAsr">完整识别配置（密钥、麦克风）在蓝区「🎙 识别」卡；此处为快捷选择。</div>
             </div>
-            <div id="ttsStatus" class="tool-status"></div>
-            <div class="hint" data-i18n="chatQuickHint">完整识别/朗读配置（密钥、音色、语速）在蓝区「🎙 识别 / 🗣 TTS」；此处为快捷选择。</div>
+
+            <!-- Tab 3：朗读（引擎 / 音色 / 语速 + 朗读动作） -->
+            <div class="cs-panel hidden" data-cstab-panel="tts">
+              <div class="ai-svc-sep" data-i18n="chatTtsSectionLabel">🗣 朗读</div>
+              <label class="cfg-row"><span data-i18n="ttsEngineLabel">朗读引擎</span>
+                <select id="chatTtsEngine" class="row-select" style="flex:1;">
+                  <option value="system" data-i18n="ttsEngineSystem">系统语音</option>
+                  <option value="kokoro" data-i18n="ttsEngineKokoro">Kokoro（本地 · CPU）</option>
+                  <option value="qwen3" data-i18n="ttsEngineQwen3">Qwen3-TTS（本地 · 低延迟）</option>
+                  <option value="cloud" data-i18n="ttsEngineCloud">🌐 云端 TTS</option>
+                  <option value="azure" data-i18n="ttsEngineAzure">🟦 Azure TTS（独立协议）</option>
+                  <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
+                </select>
+              </label>
+              <label class="cfg-row" id="chatTtsVoiceRow"><span data-i18n="ttsVoiceLabel">音色</span>
+                <select id="chatTtsVoice" class="row-select" style="flex:1;"></select>
+              </label>
+              <div class="tts-sliders">
+                <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="chatTtsRate" min="0.1" max="10" step="0.1" value="1" /><b id="chatTtsRateLabel">1.0</b></label>
+              </div>
+              <div class="ops">
+                <button class="op" id="ttsSpeakFull" data-i18n="ttsSpeakFull" data-i18n-title="ttsSpeakFullTitle" title="朗读当前网页正文">▶ 朗读全文</button>
+                <button class="op" id="ttsSpeakInput" data-i18n="ttsSpeakInput" data-i18n-title="ttsSpeakInputTitle" title="朗读输入框内容">▶ 朗读输入框</button>
+              </div>
+              <div id="ttsStatus" class="tool-status"></div>
+              <div class="hint" data-i18n="chatQuickHint">完整识别/朗读配置（密钥、音色、语速）在蓝区「🎙 识别 / 🗣 TTS」；此处为快捷选择。</div>
+            </div>
           </div>
 
           <!-- 选区操作条（仅当前页有选中文本时出现，置最下）：朗读 / AI处理 / 添加选中到上下文 -->
@@ -208,13 +223,11 @@
             </div>
           </div>
 
-          <!-- 底部：关联页面（上下文） / 思考显示 / 附件（两模式通用，置最下） -->
+          <!-- 底部：图标开关条（状态用亮暗区分，说明走 tooltip + 切换 toast）：关联页面 / 思考显示 / 附件 -->
           <div class="chat-bottom-bar" id="chatBottomBar">
-            <label class="chat-ctx-toggle" id="chatCtxLabel" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">
-              <input type="checkbox" id="chatPageContext" checked /> <span data-i18n="chatPageContext">🔗 关联页面</span>
-            </label>
-            <button class="chip hidden" id="aiShowThinkingToggle" data-i18n="aiShowThinkingOff" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭 思考隐藏</button>
-            <button class="chip" id="injectAttach" data-i18n="aiAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎 附件</button>
+            <button class="icon-toggle on" id="chatPageContextBtn" aria-pressed="true" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">🔗</button>
+            <button class="icon-toggle hidden" id="aiShowThinkingToggle" aria-pressed="false" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭</button>
+            <button class="icon-toggle" id="injectAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎</button>
             <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
           </div>
         </div><!-- /chatMain -->

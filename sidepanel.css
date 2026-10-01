@@ -551,6 +551,10 @@ input, select, textarea { font-family: var(--font); }
 .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .2s; }
 .switch.on { background: #34d399; }
 .switch.on::after { left: 21px; }
+/* 小号 switch（红区圆球停止模式等紧凑场景） */
+.switch.sm { width: 30px; height: 17px; border-radius: 17px; }
+.switch.sm::after { top: 2px; left: 2px; width: 13px; height: 13px; }
+.switch.sm.on::after { left: 15px; }
 .danger-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .danger-btn { background: rgba(239,68,68,.38); color: #fff; font-size: 12px; font-weight: 600; border-radius: 7px; padding: 10px 4px; flex: 1; min-width: 90px; }
 .danger-btn:hover { background: rgba(239,68,68,.58); }
@@ -608,13 +612,9 @@ input, select, textarea { font-family: var(--font); }
 @keyframes voiceCirclePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); } 50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
 .voice-circle-status { font-size: 11px; opacity: .85; text-align: center; min-height: 15px; }
 .voice-circle-status.error { color: #f87171; }
-.voice-circle-mode { display: flex; gap: 4px; }
-.vc-mode {
-  background: var(--glass); color: rgba(255,255,255,.7); font-size: 10px; font-weight: 600;
-  padding: 3px 10px; border-radius: 999px; cursor: pointer; transition: background .2s, color .2s;
-}
-.vc-mode:hover { background: var(--glass-strong); }
-.vc-mode.active { background: rgba(255,255,255,.28); color: #fff; }
+/* 停止模式 switch（替代原双 pill 按钮）：说明文字只在切换时以 toast 展示 */
+.vc-stop-row { display: inline-flex; align-items: center; gap: 6px; }
+.vc-stop-label { font-size: 10px; opacity: .65; user-select: none; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
 
 /* ===== 红区底部：运行日志（默认展开） ===== */
@@ -728,8 +728,8 @@ footer a { color: #fff; text-decoration: none; }
 .material-chip .mremove:hover { color: #d33; }
 #injectVoice.recording { background: #ffe8e8; color: #d33; }
 
-/* 工作台 🔊 朗读回答 / 💭 思考显示 开关 */
-#aiSpeakToggle.on, #aiShowThinkingToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
+/* 工作台 🔊 朗读回答 开关（💭 思考开关已并入底部工具条 icon-toggle 状态色） */
+#aiSpeakToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
 
 /* 统一对话流：API 流式气泡实时文本 */
 .stream-text { white-space: pre-wrap; word-break: break-word; }
@@ -750,15 +750,16 @@ footer a { color: #fff; text-decoration: none; }
   transition: background .2s;
 }
 .chat-new-btn:hover { background: rgba(255,255,255,.3); }
-/* 「关联页面」开关 */
-.chat-ctx-toggle {
-  margin-left: auto; display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: rgba(255,255,255,.9); cursor: pointer; white-space: nowrap;
+/* 底部工具条：图标开关（关联页面/思考/附件）。状态用亮暗区分，说明走 tooltip + 切换 toast，避免常驻文字 */
+.chat-bottom-bar { display: flex; align-items: center; gap: 6px; padding: 6px 0 2px; }
+.icon-toggle {
+  width: 36px; height: 28px; border-radius: 8px; padding: 0; flex: none;
+  font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--glass); color: rgba(255,255,255,.5);
+  transition: background .15s, color .15s;
 }
-.chat-ctx-toggle input { accent-color: var(--accent, #fff); width: auto; }
-/* 底部工具条：关联页面 + 附件（两模式通用，置最下） */
-.chat-bottom-bar { display: flex; align-items: center; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; }
-.chat-bottom-bar .chat-ctx-toggle { margin-left: 0; }
+.icon-toggle:hover { background: var(--glass-strong); color: rgba(255,255,255,.85); }
+.icon-toggle.on { background: rgba(52,211,153,.26); color: #fff; box-shadow: inset 0 0 0 1px rgba(52,211,153,.4); }
 .chat-bottom-bar #injectAttach { margin-left: auto; }
 /* 顶栏三分段布局切换：圆球 / 圆球+输入 / 仅输入 */
 .chat-layout-seg {
@@ -786,12 +787,26 @@ footer a { color: #fff; text-decoration: none; }
 #chatVoiceBody { align-items: center; gap: 5px; padding: 4px 0 2px; }
 #chatTextBody > .ops { margin-top: 6px; }
 
-/* i 展开：设置区（卡片式） */
+/* i 展开：设置区（卡片式，横向标签页分区，避免单列长滚动） */
 .chat-settings {
-  margin-top: 8px; padding: 10px 11px; border-radius: 8px;
+  margin-top: 8px; padding: 8px 11px 11px; border-radius: 8px;
   background: rgba(0,0,0,.16); border: 1px solid var(--line);
 }
 .chat-settings .ai-svc-sep { margin-top: 8px; }
+.cs-tabs {
+  display: flex; gap: 2px; margin: 0 -3px 8px; padding: 3px;
+  background: rgba(0,0,0,.22); border-radius: 8px;
+}
+.cs-tab {
+  flex: 1; min-width: 0; border: 0; background: transparent; color: rgba(255,255,255,.6);
+  font-size: 11px; font-weight: 600; padding: 5px 0; border-radius: 6px; cursor: pointer;
+  transition: background .15s, color .15s; white-space: nowrap;
+}
+.cs-tab:hover { color: rgba(255,255,255,.9); }
+.cs-tab.active { background: rgba(255,255,255,.24); color: #fff; }
+.cs-panel { display: flex; flex-direction: column; gap: 6px; }
+.cs-panel.hidden { display: none; }
+.cs-panel .ai-svc-sep:first-child { margin-top: 0; padding-top: 0; border-top: none; }
 .chat-behavior-row { display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
 .chat-behavior-row label { display: flex; align-items: center; gap: 6px; opacity: .9; }
 .chat-behavior-row input[type="radio"] { accent-color: #fff; }

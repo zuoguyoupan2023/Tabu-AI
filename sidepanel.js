@@ -1899,6 +1899,13 @@ async function pageContextEnabled() {
     return r.chatPageContext !== false;
   } catch (e) { return true; }
 }
+// 底部工具条图标开关：状态用亮暗区分，说明走 tooltip + 切换 toast
+function updateChatCtxBtnUi(on) {
+  const btn = document.getElementById('chatPageContextBtn');
+  if (!btn) return;
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', String(on));
+}
 async function appendPageContext(text) {
   if (!(await pageContextEnabled())) return text;
   let page = '';
@@ -2454,8 +2461,9 @@ async function aiShowThinkingEnabled() {
 function updateAiShowThinkingToggleUi(on) {
   const btn = document.getElementById('aiShowThinkingToggle');
   if (!btn) return;
-  btn.textContent = on ? I18N.t('aiShowThinkingOn') : I18N.t('aiShowThinkingOff');
+  // 图标开关：状态用亮暗区分（.on），说明走 tooltip 与切换 toast，不再写常驻文字
   btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', String(on));
 }
 // ===== 思考能力判定 + 用户自定义「思考模式名单」=====
 // 内置名单（会随模型迭代更新）：命中「有思考」→ 显示开关并保留思考；
@@ -3851,25 +3859,31 @@ function warmAudioContext() {
   } catch (e) {}
 }
 
-// 圆形模式切换：manual（点击一直录，再点停止）/ vad（说话自动停）
-function setVoiceCircleMode(mode) {
-  voiceCircleMode = (mode === 'vad') ? 'vad' : 'manual';
+// 圆形停止模式：switch 切换 manual（点击停止）/ vad（说话自动停）；说明只在用户切换时以 toast 展示，UI 常驻文字最少
+function applyVoiceCircleModeUi() {
+  const sw = document.getElementById('voiceAutoStopSwitch');
+  if (!sw) return;
+  const on = voiceCircleMode === 'vad';
+  sw.classList.toggle('on', on);
+  sw.setAttribute('aria-checked', String(on));
+}
+function setVoiceCircleMode(mode, opts = {}) {
+  const next = (mode === 'vad') ? 'vad' : 'manual';
+  const changed = voiceCircleMode !== next;
+  voiceCircleMode = next;
   chrome.storage.local.set({ voiceCircleMode }).catch(() => {});
-  document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
-    b.classList.toggle('active', b.dataset.vcmode === voiceCircleMode);
-  });
+  applyVoiceCircleModeUi();
+  if (opts.notify && changed) {
+    showToast(voiceCircleMode === 'vad' ? I18N.t('voiceModeVadToast') : I18N.t('voiceModeManualToast'), 2200, 'info');
+  }
 }
 
 async function loadVoiceCircleMode() {
   try {
     const r = await chrome.storage.local.get('voiceCircleMode');
-    if (r.voiceCircleMode === 'vad' || r.voiceCircleMode === 'manual') {
-      voiceCircleMode = r.voiceCircleMode;
-      document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
-        b.classList.toggle('active', b.dataset.vcmode === voiceCircleMode);
-      });
-    }
+    if (r.voiceCircleMode === 'vad' || r.voiceCircleMode === 'manual') voiceCircleMode = r.voiceCircleMode;
   } catch (e) {}
+  applyVoiceCircleModeUi();
 }
 
 // ===== 主对话面板（chatMain 扶正）：输入区布局 + i 设置 =====
@@ -3930,6 +3944,21 @@ async function loadChatSettings() {
   document.querySelectorAll('input[name="chatVoiceBehavior"]').forEach(radio => {
     radio.checked = radio.value === chatVoiceBehavior;
   });
+}
+
+// i 设置横向标签页：channel（渠道/站点/会话）/ voice（语音行为+识别）/ tts（朗读）；记住用户所在页
+const CHAT_SETTINGS_TABS = ['channel', 'voice', 'tts'];
+function setChatSettingsTab(name, persist = true) {
+  if (!CHAT_SETTINGS_TABS.includes(name)) name = 'channel';
+  document.querySelectorAll('#chatSettingsTabs .cs-tab').forEach(b => b.classList.toggle('active', b.dataset.cstab === name));
+  document.querySelectorAll('#chatSettings .cs-panel').forEach(p => p.classList.toggle('hidden', p.dataset.cstabPanel !== name));
+  if (persist) chrome.storage.local.set({ chatSettingsTab: name }).catch(() => {});
+}
+async function loadChatSettingsTab() {
+  try {
+    const r = await chrome.storage.local.get('chatSettingsTab');
+    setChatSettingsTab(r.chatSettingsTab, false);
+  } catch (e) { setChatSettingsTab('channel', false); }
 }
 
 // ===== 会话行为：关闭重开 / 切换页面 是否自动开新对话（默认都保留对话）=====
@@ -5403,7 +5432,7 @@ document.addEventListener('DOMContentLoaded', () => {
       injectAttachFile.value = ''; // 允许重复选择同一文件
     });
   }
-  // 💭 思考显示开关（默认隐藏；仅当当前 LLM 可能产出思考时显示，S/T 两模式通用）
+  // 💭 思考显示开关（默认隐藏；仅当当前 LLM 可能产出思考时显示，图标开关 + 切换 toast）
   const showThinkToggle = document.getElementById('aiShowThinkingToggle');
   if (showThinkToggle) {
     chrome.storage.local.get('aiShowThinking').then((r) => updateAiShowThinkingToggleUi(r.aiShowThinking === true)).catch(() => {});
@@ -5411,6 +5440,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const on = !(await aiShowThinkingEnabled());
       await chrome.storage.local.set({ aiShowThinking: on });
       updateAiShowThinkingToggleUi(on);
+      showToast(I18N.t(on ? 'aiShowThinkingOnToast' : 'aiShowThinkingOffToast'), 2200, 'info');
     });
     updateThinkingToggleVisibility();
   }
@@ -5489,9 +5519,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== 顶部圆形语音工作台 + 输出栏 =====
   const voiceCircleBtn = document.getElementById('voiceCircleBtn');
   if (voiceCircleBtn) voiceCircleBtn.addEventListener('click', toggleVoiceCircle);
-  document.querySelectorAll('#voiceCircleMode .vc-mode').forEach(b => {
-    b.addEventListener('click', () => setVoiceCircleMode(b.dataset.vcmode));
-  });
+  // 停止模式 switch：切换时 toast 说明（manual=点击停止 / vad=说话自动停）
+  const vcAutoStopSwitch = document.getElementById('voiceAutoStopSwitch');
+  if (vcAutoStopSwitch) {
+    const toggleVcStopMode = () => setVoiceCircleMode(voiceCircleMode === 'vad' ? 'manual' : 'vad', { notify: true });
+    vcAutoStopSwitch.addEventListener('click', toggleVcStopMode);
+    vcAutoStopSwitch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleVcStopMode(); }
+    });
+  }
   loadVoiceCircleMode();
   // 初始提示（"点击说话…"）显示几秒后自动隐藏
   vcStatusHideTimer = setTimeout(() => { document.getElementById('voiceCircleStatus')?.classList.add('hidden'); }, 5000);
@@ -5501,13 +5537,21 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   const chatSettingsToggle = document.getElementById('chatSettingsToggle');
   if (chatSettingsToggle) chatSettingsToggle.addEventListener('click', toggleChatSettings);
-  // 「关联页面」开关（默认开）：控制发送时是否自动并入当前页正文
-  const chatPageContext = document.getElementById('chatPageContext');
-  if (chatPageContext) {
-    chrome.storage.local.get('chatPageContext').then((r) => {
-      chatPageContext.checked = r.chatPageContext !== false;
-    }).catch(() => {});
-    chatPageContext.addEventListener('change', () => chrome.storage.local.set({ chatPageContext: !!chatPageContext.checked }).catch(() => {}));
+  // i 设置横向标签页：点击切换 + 记忆所在页
+  document.querySelectorAll('#chatSettingsTabs .cs-tab').forEach(b => {
+    b.addEventListener('click', () => setChatSettingsTab(b.dataset.cstab));
+  });
+  loadChatSettingsTab();
+  // 「关联页面」图标开关（默认开）：控制发送时是否自动并入当前页正文；切换时 toast 说明
+  const chatPageCtxBtn = document.getElementById('chatPageContextBtn');
+  if (chatPageCtxBtn) {
+    pageContextEnabled().then(updateChatCtxBtnUi).catch(() => {});
+    chatPageCtxBtn.addEventListener('click', async () => {
+      const on = !(await pageContextEnabled());
+      try { await chrome.storage.local.set({ chatPageContext: on }); } catch (e) {}
+      updateChatCtxBtnUi(on);
+      showToast(I18N.t(on ? 'chatPageContextOn' : 'chatPageContextOff'), 2200, 'info');
+    });
   }
   loadChatLayout();
   loadTranslateProvider();
