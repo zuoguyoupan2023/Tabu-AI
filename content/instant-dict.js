@@ -253,7 +253,7 @@
         mode,
         targetLang: resolveTarget(),
       });
-    } catch (e) { resp = { ok: false, reason: 'network' }; }
+    } catch (e) { resp = { ok: false, reason: 'network', detail: '后台未连接：' + ((e && e.message) || '扩展需重新加载') }; }
     if (token !== lookupToken) return; // 已有更新的查询/已关闭
     if (!resp || !resp.ok) { renderError((resp && resp.reason) || 'network', info.rect, resp && resp.detail); return; }
     if (resp.kind === 'entry') renderEntry(resp, info.rect);

@@ -2,8 +2,11 @@
 // ECDICT → 划词即显离线词典子集（docs/009 §3.1）
 // 用法：node tools/build-ecdict-subset.js [ecdict.csv 路径]
 //   缺省自动 `npm pack ecdict` 取官方 npm 包内全量 CSV（22MB tgz，一次性）。
-// 产物：data/ecdict-top50k.json.gz
+// 产物：data/ecdict-top50k.json.gz（英文词头 → 字段数组）
+//       data/ecdict-zh-rev.json.gz（中文释义词 → 英文词头候选，zh→en 离线对照）
+//       data/ecdict-zh-pinyin.json.gz（反向索引中文词 → 拼音，gtx 不可达时的离线原词读音）
 //   体积规则（009 审阅决定①）：gzip 产物 ≤5MB → 随扩展打包；>5MB → 打印 CDN 模式指引。
+//   拼音索引依赖 pinyin-pro；无法获取时跳过该产物（不视为失败）。
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -21,6 +24,21 @@ function acquireCsv(argPath) {
   const name = execSync('npm pack ecdict --silent', { cwd: tmp, encoding: 'utf8' }).trim().split('\n').pop();
   execSync(`tar -xzf ${path.join(tmp, name)} package/assets/ecdict.csv -C ${tmp}`);
   return path.join(tmp, 'package', 'assets', 'ecdict.csv');
+}
+
+// 获取 pinyin-pro（优先本地已装，否则 npm pack 到临时目录再 require）；失败返回 null
+function acquirePinyin() {
+  try { return require('pinyin-pro'); } catch (e) {}
+  try {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pinyin-'));
+    console.log('[build] npm pack pinyin-pro（离线拼音索引用）…');
+    const name = execSync('npm pack pinyin-pro --silent', { cwd: tmp, encoding: 'utf8' }).trim().split('\n').pop();
+    execSync(`tar -xzf ${path.join(tmp, name)} -C ${tmp}`);
+    return require(path.join(tmp, 'package'));
+  } catch (e) {
+    console.warn('[build] ⚠️ 无法获取 pinyin-pro，跳过拼音索引:', e.message);
+    return null;
+  }
 }
 
 // 流式状态机 CSV 解析（字段含引号/逗号/换行）
@@ -89,18 +107,37 @@ function main() {
   const revJson = JSON.stringify(zhRev);
   const revGz = zlib.gzipSync(Buffer.from(revJson), { level: 9 });
 
+  // 拼音索引：反向索引的中文词 → 拼音（含声调符号）。gtx `dt=rm` 不可达时离线补 sourceRoman（009 §11.3）
+  const py = acquirePinyin();
+  let pyGz = null, pyCount = 0;
+  if (py && typeof py.pinyin === 'function') {
+    const zhPy = {};
+    for (const term of Object.keys(zhRev)) {
+      try {
+        const arr = py.pinyin(term, { toneType: 'symbol', type: 'array' });
+        const s = Array.isArray(arr) ? arr.join(' ') : String(arr || '');
+        if (s) { zhPy[term] = s; pyCount++; }
+      } catch (e) {}
+    }
+    pyGz = zlib.gzipSync(Buffer.from(JSON.stringify(zhPy)), { level: 9 });
+  }
+
   fs.mkdirSync(path.join(__dirname, '..', 'data'), { recursive: true });
   const out = path.join(__dirname, '..', 'data', 'ecdict-top50k.json.gz');
   fs.writeFileSync(out, gz);
   const outRev = path.join(__dirname, '..', 'data', 'ecdict-zh-rev.json.gz');
   fs.writeFileSync(outRev, revGz);
+  const outPy = path.join(__dirname, '..', 'data', 'ecdict-zh-pinyin.json.gz');
+  if (pyGz) fs.writeFileSync(outPy, pyGz);
 
   const mb = (n) => (n / 1048576).toFixed(2) + 'MB';
   console.log(`[build] 全量 ${total} 条 → 入选 ${picked.length} 条，反向索引 ${Object.keys(zhRev).length} 个中文词`);
   console.log(`[build] 词典原始 ${mb(json.length)} → gzip ${mb(gz.length)} → ${out}`);
   console.log(`[build] 反向原始 ${mb(revJson.length)} → gzip ${mb(revGz.length)} → ${outRev}`);
-  if (gz.length <= LIMIT_MB * 1048576 && revGz.length <= LIMIT_MB * 1048576) {
-    console.log(`[build] ✅ gzip 产物 ≤ ${LIMIT_MB}MB → 随扩展打包（docs/009 §3.1 体积规则）`);
+  if (pyGz) console.log(`[build] 拼音 ${pyCount} 词 → gzip ${mb(pyGz.length)} → ${outPy}`);
+  const sizes = [gz.length, revGz.length, ...(pyGz ? [pyGz.length] : [])];
+  if (sizes.every((n) => n <= LIMIT_MB * 1048576)) {
+    console.log(`[build] ✅ gzip 产物 ≤ ${LIMIT_MB}MB（合计 ${mb(sizes.reduce((a, b) => a + b, 0))}）→ 随扩展打包（docs/009 §3.1 体积规则）`);
   } else {
     console.log(`[build] ⚠️ gzip 产物 > ${LIMIT_MB}MB → 按 009 §3.1 应切 CDN 模式：产物上传 Release/jsDelivr，扩展首用时拉取缓存`);
     process.exitCode = 2;

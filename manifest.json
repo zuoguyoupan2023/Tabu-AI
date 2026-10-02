@@ -12,10 +12,8 @@
     "alarms",
     "clipboardRead",
     "clipboardWrite",
-    "incognito",
     "scripting",
     "tts",
-    "audioCapture",
     "tabCapture"
   ],
   "host_permissions": [

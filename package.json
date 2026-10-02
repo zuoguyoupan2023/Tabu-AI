@@ -4,7 +4,9 @@
   "private": true,
   "description": "TabU AI — Chrome 扩展（MV3）+ 终端桥接服务",
   "scripts": {
-    "bridge": "node bridge/server.js"
+    "bridge": "node bridge/server.js",
+    "build:dict": "node tools/build-ecdict-subset.js",
+    "pack": "node tools/pack.js"
   },
   "dependencies": {
     "ws": "^8.21.2"

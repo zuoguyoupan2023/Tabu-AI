@@ -759,8 +759,36 @@ function loadEcdictRev() {
     return _ecdictRev;
   })();
   _ecdictRevLoading.catch(() => { _ecdictRevLoading = null; _ecdictRev = null; });
-  return _ecdictRev;
+  return _ecdictRevLoading;
 }
+// 拼音索引（data/ecdict-zh-pinyin.json.gz）：中文词 → 拼音（含声调）。
+// gtx `dt=rm` 不可达时离线补 sourceRoman（原词读音），使断网也保留拼音行（docs/009 §11.3）
+let _ecdictPy = null, _ecdictPyLoading = null;
+function loadEcdictPinyin() {
+  if (_ecdictPy) return Promise.resolve(_ecdictPy);
+  if (_ecdictPyLoading) return _ecdictPyLoading;
+  _ecdictPyLoading = (async () => {
+    const url = chrome.runtime.getURL('data/ecdict-zh-pinyin.json.gz');
+    const buf = await (await fetch(url)).arrayBuffer();
+    const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    _ecdictPy = new Map(Object.entries(JSON.parse(text)));
+    return _ecdictPy;
+  })();
+  _ecdictPyLoading.catch(() => { _ecdictPyLoading = null; _ecdictPy = null; });
+  return _ecdictPyLoading;
+}
+// 中文词 → 拼音：与反向索引同形（原词 / 原词+「的」 / 去「的了地」）
+async function ecdictPinyinLookup(text) {
+  try {
+    const py = await loadEcdictPinyin();
+    const t = String(text || '').trim();
+    for (const key of [t, t + '的', t.replace(/[的了地]$/, '')]) {
+      if (key && py.has(key)) return py.get(key);
+    }
+  } catch (e) {}
+  return '';
+}
+
 // 中文词 → 英文词头候选：尝试 原词 / 原词+「的」 / 去「的了地」三种形态
 async function ecdictRevLookup(text) {
   const rev = await loadEcdictRev();
@@ -798,6 +826,14 @@ async function ecdictLookup(word) {
     if (map.has(c)) return { word: c, e: map.get(c) };
   }
   return null;
+}
+
+// 预热：SW 启动即后台解压三份离线资产（词典/反向索引/拼音），首次查询免解压延迟（docs/009 §11.3）
+// 防御式：任何同步异常/拒绝都吞掉，绝不影响 SW 注册与其余功能
+function idPrewarm() {
+  for (const fn of [loadEcdict, loadEcdictRev, loadEcdictPinyin]) {
+    try { Promise.resolve(fn()).catch(() => {}); } catch (e) {}
+  }
 }
 
 // 源语言粗判（决定走 ECDICT 还是 gtx 通道）
@@ -927,6 +963,8 @@ async function idWord(text, targetLang, prov) {
     }
     if (!head) { try { head = (await mymemoryTranslate(text, 'zh-CN', 'en')).trim(); via = 'mymemory'; } catch (e) {} }
     if (!head) return { ok: false, reason: 'network' };
+    // gtx dt=rm 未给出罗马音（不可达/熔断）→ 离线拼音索引补 sourceRoman
+    if (!roman) roman = await ecdictPinyinLookup(text);
     let hit = null;
     try { hit = await ecdictLookup(head.split(/\s+/)[0].replace(/[^A-Za-z''-]/g, '') || head); } catch (e) { hit = null; }
     if (hit) {
@@ -990,6 +1028,9 @@ function instantDictSpeak(text, lang) {
     chrome.tts.speak(String(text || '').slice(0, 120), { lang: lang || 'en-US', rate: 0.95 });
   } catch (e) {}
 }
+
+// SW 启动即预热离线词典（首查免解压等待）；错误静默，不影响未启用该功能的用户
+idPrewarm();
 
 // ========== 终端桥接客户端（TabU AI Bridge） ==========
 // 连接本地 bridge/server.js（ws://127.0.0.1:9527）。
