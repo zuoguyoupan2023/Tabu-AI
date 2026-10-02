@@ -69,14 +69,18 @@
             <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
           </div>
 
-          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（布局可含 输入框，由顶栏三分段决定） -->
+          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（布局可含 输入框，由顶栏三分段决定）；圆球居左，停止模式 switch 居右 -->
           <div class="chat-mode-body" id="chatVoiceBody">
             <button class="voice-circle" id="voiceCircleBtn" data-i18n-title="voiceCircleTitle" title="点击说话：识别 → LLM → 输出并朗读">
               <span class="voice-circle-ico">🎤</span>
             </button>
+            <!-- 状态提示：悬浮显示，不占布局高度，消失时不引起 UI 跳动 -->
             <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
             <div class="vc-stop-row" id="voiceCircleMode">
-              <span class="vc-stop-label" data-i18n="voiceAutoStopLabel">自动停</span>
+              <span class="vc-stop-label" id="voiceAutoStopLabel">
+                <span class="lbl-manual" data-i18n="voiceModeManualShort">手动停</span>
+                <span class="lbl-vad hidden" data-i18n="voiceModeVadShort">自动停</span>
+              </span>
               <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-i18n-title="voiceAutoStopTitle" title="开启：检测到说完话自动停止并发送；关闭：再次点击圆球停止录音"></span>
             </div>
           </div>

@@ -3861,11 +3861,18 @@ function warmAudioContext() {
 
 // 圆形停止模式：switch 切换 manual（点击停止）/ vad（说话自动停）；说明只在用户切换时以 toast 展示，UI 常驻文字最少
 function applyVoiceCircleModeUi() {
-  const sw = document.getElementById('voiceAutoStopSwitch');
-  if (!sw) return;
   const on = voiceCircleMode === 'vad';
-  sw.classList.toggle('on', on);
-  sw.setAttribute('aria-checked', String(on));
+  const sw = document.getElementById('voiceAutoStopSwitch');
+  if (sw) {
+    sw.classList.toggle('on', on);
+    sw.setAttribute('aria-checked', String(on));
+  }
+  // 标签随模式切换显示：手动停 / 自动停（双 span 切换，语言切换时 data-i18n 仍生效）
+  const label = document.getElementById('voiceAutoStopLabel');
+  if (label) {
+    label.querySelector('.lbl-manual')?.classList.toggle('hidden', on);
+    label.querySelector('.lbl-vad')?.classList.toggle('hidden', !on);
+  }
 }
 function setVoiceCircleMode(mode, opts = {}) {
   const next = (mode === 'vad') ? 'vad' : 'manual';
@@ -3900,6 +3907,16 @@ function updateChatBodies() {
   // 「语音填入」仅在纯输入布局有意义（圆球在场时冗余）
   const voiceFill = document.getElementById('injectVoice');
   if (voiceFill) voiceFill.classList.toggle('hidden', chatLayout !== 'text');
+  // 底部图标条（🔗💭📎）随布局移动：圆球在场 → 并入圆球行右侧（与话筒同排，避免被隔开）；
+  // 仅输入框 → 并入素材行右侧（与「语音填入」同处顶部一行）
+  const bar = document.getElementById('chatBottomBar');
+  if (bar && voiceBody && textBody) {
+    if (chatLayout === 'text') {
+      document.getElementById('materialBar')?.appendChild(bar);
+    } else {
+      voiceBody.appendChild(bar);
+    }
+  }
 }
 
 function setChatLayout(layout) {
