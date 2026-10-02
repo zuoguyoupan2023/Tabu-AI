@@ -515,6 +515,7 @@ async function populateVoices() {
       });
     }
     allVoices = voices;
+    populateInstantDictVoice();
     // 语言筛选下拉：显示可读名称（随界面语言中/英切换），value 仍为 BCP-47 代码；Google 语音不参与
     const langSet = new Set();
     for (const v of usableVoices()) {
@@ -624,6 +625,29 @@ function mirrorVoiceExtras(voiceSel) {
     prefSel.insertBefore(new Option(I18N.t('aiSpeakVoiceFollow'), ''), prefSel.firstChild);
     prefSel.value = cur;
   }
+}
+
+// 划词即显「朗读音色」：独立于主朗读，列出全部可用系统音色（不随语言筛选收敛）
+function populateInstantDictVoice() {
+  const sel = document.getElementById('instantDictVoice');
+  if (!sel) return;
+  const pool = usableVoices().slice().sort((a, b) => (a.voiceName || '').localeCompare(b.voiceName || ''));
+  const seen = new Set();
+  sel.innerHTML = `<option value="">${I18N.t('instantDictVoiceFollow')}</option>`;
+  for (const v of pool) {
+    const key = v.voiceName || v.lang;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const o = document.createElement('option');
+    o.value = v.voiceName || '';
+    o.textContent = `${v.voiceName || I18N.t('unnamed')} (${v.lang})`;
+    sel.appendChild(o);
+  }
+  // 应用存储选择（语音列表可能在启动后才就绪，故每次填充后回填）
+  chrome.storage.local.get('instantDictVoice').then((st) => {
+    const wanted = st.instantDictVoice || '';
+    if (wanted && Array.from(sel.options).some((o) => o.value === wanted)) sel.value = wanted;
+  }).catch(() => {});
 }
 
 // ===== 思维链（思考内容）处理 =====
@@ -5605,6 +5629,22 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.storage.local.get('instantDictTargetLang').then((r) => { idTarget.value = r.instantDictTargetLang || 'system'; }).catch(() => {});
       idTarget.addEventListener('change', () => chrome.storage.local.set({ instantDictTargetLang: idTarget.value }).catch(() => {}));
     }
+    // 朗读音色（独立于主朗读）：选项在 populateVoices 后由 populateInstantDictVoice 填充
+    populateInstantDictVoice();
+    const idVoice = document.getElementById('instantDictVoice');
+    if (idVoice) idVoice.addEventListener('change', () => chrome.storage.local.set({ instantDictVoice: idVoice.value }).catch(() => {}));
+    const idVoiceTest = document.getElementById('instantDictVoiceTest');
+    if (idVoiceTest) idVoiceTest.addEventListener('click', () => {
+      try {
+        if (!window.speechSynthesis) return;
+        const name = (idVoice && idVoice.value) || '';
+        const u = new SpeechSynthesisUtterance('wooden / 敏捷');
+        const v = name ? (speechSynthesis.getVoices() || []).find((x) => x.name === name) : null;
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
+        speechSynthesis.cancel();
+        speechSynthesis.speak(u);
+      } catch (e) {}
+    });
   }
   // ===== 蓝层：AI 服务（P0-B） =====
   const aiSaveBtn = document.getElementById('aiSaveBtn');

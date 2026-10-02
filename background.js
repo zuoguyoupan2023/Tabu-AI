@@ -683,7 +683,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
         // 划词即显（docs/009）：词典/翻译查询 + 发音
         case 'instantDictLookup': result = await instantDictLookup(request); break;
-        case 'instantDictSpeak': instantDictSpeak(request.text, request.lang); result = { ok: true }; break;
+        case 'instantDictSpeak': instantDictSpeak(request.text, request.lang, request.voice); result = { ok: true }; break;
         default: result = { success: false, message: '未知操作' };
       }
       sendResponse(result);
@@ -1022,10 +1022,12 @@ async function instantDictLookup(req) {
   try { return await p; } finally { _idInflight.delete(key); }
 }
 
-function instantDictSpeak(text, lang) {
+function instantDictSpeak(text, lang, voice) {
   try {
     chrome.tts.stop();
-    chrome.tts.speak(String(text || '').slice(0, 120), { lang: lang || 'en-US', rate: 0.95 });
+    const opts = { lang: lang || 'en-US', rate: 0.95 };
+    if (voice) opts.voiceName = voice;
+    chrome.tts.speak(String(text || '').slice(0, 120), opts);
   } catch (e) {}
 }
 

@@ -6,14 +6,15 @@
   'use strict';
 
   // ===== 设置缓存 =====
-  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', uiLang: '' };
+  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', uiLang: '', voice: '' };
   function loadSettings() {
-    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'uiLang'], (r) => {
+    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'instantDictVoice', 'uiLang'], (r) => {
       S.enabled = r.instantDictEnabled !== false;
       S.sentence = r.instantDictSentence !== false;
       S.word = r.instantDictWord !== false;
       S.targetLang = r.instantDictTargetLang || 'system';
       S.uiLang = r.uiLang || (((navigator.language || 'en').toLowerCase().startsWith('zh')) ? 'zh' : 'en');
+      S.voice = r.instantDictVoice || '';
       if (!S.enabled) hidePopup();
     });
   }
@@ -188,9 +189,7 @@
     host.style.pointerEvents = '';
     positionCard(rect);
     card.querySelector('[data-act="close"]')?.addEventListener('click', hidePopup);
-    card.querySelector('[data-act="speak"]')?.addEventListener('click', () => {
-      if (speakText) chrome.runtime.sendMessage({ action: 'instantDictSpeak', text: speakText, lang: speakLang }).catch(() => {});
-    });
+    card.querySelector('[data-act="speak"]')?.addEventListener('click', () => speak(speakText, speakLang));
     const copyBtn = card.querySelector('[data-act="copy"]');
     copyBtn?.addEventListener('click', async () => {
       if (!speakText) return;
@@ -198,6 +197,24 @@
       copyBtn.innerHTML = `<span class="copied">${esc(t('copied'))}</span>`;
       setTimeout(() => { copyBtn.innerHTML = ICONS.copy; }, 1200);
     });
+  }
+
+  // 朗读：优先页面 Web Speech（可用设置里的音色名精确选中），失败回退后台 chrome.tts
+  function speak(text, lang) {
+    if (!text) return;
+    try {
+      const synth = window.speechSynthesis;
+      if (synth) {
+        synth.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        let v = null;
+        if (S.voice) v = (synth.getVoices() || []).find((x) => x.name === S.voice) || null;
+        if (v) { u.voice = v; u.lang = v.lang || lang || ''; } else if (lang) { u.lang = lang; }
+        synth.speak(u);
+        return;
+      }
+    } catch (e) {}
+    chrome.runtime.sendMessage({ action: 'instantDictSpeak', text, lang, voice: S.voice }).catch(() => {});
   }
   function fallbackCopy(text) {
     const ta = document.createElement('textarea');
