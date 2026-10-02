@@ -51,61 +51,75 @@
 
         <!-- 主对话面板（chatMain 扶正）：S/T 模式切换 + i 设置 + 统一对话记录 -->
         <div class="chat-main" id="chatMain">
-          <!-- 顶栏：左侧 输入区布局三分段（圆球/圆球+输入/仅输入）+ 新对话；右侧 能力徽章 + 设置 -->
+          <!-- 顶栏：左侧 输入区布局三分段（圆球/圆球+输入/仅输入）+ 居中 全局自动朗读 + 右侧 新对话/能力徽章/设置 -->
           <div class="chat-main-head">
             <div class="chat-layout-seg" id="chatLayoutSeg" role="group" data-i18n-title="chatLayoutTitle" title="输入区布局：圆球 / 圆球+输入框 / 仅输入框">
               <button class="layout-seg active" data-layout="mic" data-i18n-title="layoutMicTitle" title="仅语音圆球">🎤</button>
               <button class="layout-seg" data-layout="both" data-i18n-title="layoutBothTitle" title="圆球 + 输入框">🎤⌨️</button>
               <button class="layout-seg" data-layout="text" data-i18n-title="layoutTextTitle" title="仅输入框">⌨️</button>
             </div>
+            <button class="chip head-speak" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-tip="tipSpeak">🔊 自动朗读</button>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
             <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
 
-          <!-- 页面素材：语音填入 / 附件（选中/全文已由「关联页面」与选区条取代） -->
+          <!-- 页面素材：胶囊（「语音填入」已并入顶部区块图标条，仅输入布局显示） -->
           <div id="materialBar" class="ops">
             <div id="injectMaterials" class="material-capsules hidden" style="flex-basis:100%;"></div>
-            <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
           </div>
 
-          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（话筒居左；停止模式 switch 右上；状态行悬浮行中，不占布局高度） -->
+          <!-- ▸ 顶部区块：话筒居左；右列 = 停止模式 switch（右上）+ 功能图标条（右下），与话筒同高。
+               仅输入框布局（text-mode）时话筒/开关隐藏，图标条独占整行（含「语音填入」）。 -->
           <div class="chat-mode-body" id="chatVoiceBody">
             <button class="voice-circle" id="voiceCircleBtn" data-tip="tipMic">
               <span class="voice-circle-ico" data-icon="mic" data-icon-size="34"></span>
             </button>
             <!-- 状态提示：悬浮显示，不占布局高度，消失时不引起 UI 跳动 -->
             <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
-            <div class="vc-stop-row" id="voiceCircleMode">
-              <span class="vc-stop-label" id="voiceAutoStopLabel">
-                <span class="lbl-manual" data-i18n="voiceModeManualShort">手动停</span>
-                <span class="lbl-vad hidden" data-i18n="voiceModeVadShort">自动停</span>
-              </span>
-              <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-tip="tipStopMode"></span>
+            <div class="top-side">
+              <div class="vc-stop-row" id="voiceCircleMode">
+                <span class="vc-stop-label" id="voiceAutoStopLabel">
+                  <span class="lbl-manual" data-i18n="voiceModeManualShort">手动停</span>
+                  <span class="lbl-vad hidden" data-i18n="voiceModeVadShort">自动停</span>
+                </span>
+                <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-tip="tipStopMode"></span>
+              </div>
+              <div class="chat-bottom-bar" id="chatBottomBar">
+                <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
+                <button class="icon-toggle on" id="chatPageContextBtn" aria-pressed="true" data-tip="tipPageCtx"><span data-icon="link"></span></button>
+                <button class="icon-toggle hidden" id="aiShowThinkingToggle" aria-pressed="false" data-tip="tipThink"><span data-icon="think"></span></button>
+                <button class="icon-toggle" id="injectAttach" data-tip="tipAttach"><span data-icon="paperclip"></span></button>
+                <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
+              </div>
             </div>
           </div>
 
-          <!-- ▸ 文本输入：输入 + 发送（「圆球+输入框」「仅输入框」布局时显示） -->
+          <!-- ▸ 文本输入：输入框 + 右侧竖排（发送/停止/免费翻译），节省一行高度 -->
           <div class="chat-mode-body hidden" id="chatTextBody">
-            <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
-            <div class="ops">
-              <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
-              <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
-              <button class="chip" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-i18n-title="aiSpeakTitle" title="开关：AI 回答后是否自动朗读（与蓝区「LLM 回复朗读」同步，默认开）">🔊 自动朗读</button>
-              <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务翻译输入框内容（当前：自动 MyMemory → Google，服务源在蓝区「🌐 翻译」卡选择）">🌐 免费翻译</button>
-              <span id="injectStatus" class="tool-status inline"></span>
+            <div class="input-row">
+              <textarea id="injectInput" class="input" rows="3" data-i18n-placeholder="aiPlaceholder" placeholder="输入内容，或用上方按钮添加选中/全文/语音素材…"></textarea>
+              <div class="input-side">
+                <button class="op primary" id="injectSend" data-i18n="aiSend" data-i18n-title="aiSendTitle" title="发送（输入框+素材合成；填写自定义模板时自动套用）">🚀 发送</button>
+                <button class="op danger" id="injectStop" data-i18n="aiStop" style="display:none;">⏹ 停止</button>
+                <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务翻译输入框内容（当前：自动 MyMemory → Google，服务源在蓝区「🌐 翻译」卡选择）">🌐 免费翻译</button>
+              </div>
             </div>
+            <span id="injectStatus" class="tool-status inline"></span>
           </div>
 
-          <!-- 底部工具条（右下）：关联页面 / 思考显示 / 附件——线条图标开关，悬浮显示简短解释，移走即隐藏 -->
-          <div class="chat-bottom-bar" id="chatBottomBar">
-            <button class="icon-toggle on" id="chatPageContextBtn" aria-pressed="true" data-tip="tipPageCtx"><span data-icon="link"></span></button>
-            <button class="icon-toggle hidden" id="aiShowThinkingToggle" aria-pressed="false" data-tip="tipThink"><span data-icon="think"></span></button>
-            <button class="icon-toggle" id="injectAttach" data-tip="tipAttach"><span data-icon="paperclip"></span></button>
-            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
+          <!-- 选区处理结果（独立界面，不进对话流）：原文 → 处理结果（翻译/总结/润色/解释）；打开时隐藏「当前对话」 -->
+          <div class="voice-output hidden" id="selResultPanel">
+            <div class="voice-output-head">
+              <button class="vo-toggle" id="selResultClose" data-i18n-title="selResultCloseTitle" title="返回当前对话">
+                <span class="vo-arrow" style="transform:rotate(90deg);display:inline-block;">▾</span> <span data-i18n="selResultTitle">🧪 选区处理</span>
+              </button>
+              <span class="vo-actions">
+                <button class="mini-btn" id="selResultClear" data-i18n="voiceOutputClear">清空</button>
+              </span>
+            </div>
+            <div class="voice-output-body" id="selResultBody"></div>
           </div>
-
-          <!-- 当前对话（统一回答流）：位于输入区下方；最新的问答在最上方，旧内容向下溢出 -->
           <div class="voice-output hidden" id="voiceOutput">
             <div class="voice-output-head">
               <button class="vo-toggle" id="voiceOutputToggle" data-i18n-title="voiceOutputToggleTitle" title="收起/展开当前对话">
@@ -424,6 +438,30 @@
           <div class="card row-card">
             <span class="lbl" data-i18n="injectSwitchLabel">⌨️ 注入输入开关</span>
             <span class="switch" id="injectSwitch" data-i18n-title="injectSwitchTitle" title="点击切换注入输入工具开关"></span>
+          </div>
+          <div class="card row-card">
+            <span class="lbl" data-i18n="instantDictLabel">✨ 划词即显</span>
+            <span class="switch" id="instantDictSwitch" data-i18n-title="instantDictTitle" title="在网页中划选文字，原地浮出词典对照/译文"></span>
+          </div>
+          <div class="card" id="instantDictOpts">
+            <div class="ai-config">
+              <label class="cfg-row"><input type="checkbox" id="instantDictSentence" style="accent-color:var(--accent);width:auto;"> <span data-i18n="instantDictSentenceRow" style="opacity:.85;font-size:11px;">句子翻译（划选句子/段落显示译文）</span></label>
+              <label class="cfg-row"><input type="checkbox" id="instantDictWord" style="accent-color:var(--accent);width:auto;"> <span data-i18n="instantDictWordRow" style="opacity:.85;font-size:11px;">词汇对照（划选单词显示目标语言对照；关闭时单词回落为句子翻译）</span></label>
+              <label class="cfg-row"><span data-i18n="instantDictTargetLabel">对照目标语言</span>
+                <select id="instantDictTargetLang" class="row-select" style="flex:1;">
+                  <option value="system" data-i18n="instantDictTargetSystem">跟随系统语言</option>
+                  <option value="zh-CN">中文(简体)</option>
+                  <option value="en">English</option>
+                  <option value="ja">日本語</option>
+                  <option value="ko">한국어</option>
+                  <option value="fr">Français</option>
+                  <option value="de">Deutsch</option>
+                  <option value="es">Español</option>
+                  <option value="ru">Русский</option>
+                </select>
+              </label>
+              <div class="hint" data-i18n="instantDictHint">中英词汇对照使用内置离线词典（ECDICT），不出网；划选的句子会发往翻译服务（蓝区「🌐 翻译」所选源）。</div>
+            </div>
           </div>
           <div class="cap-tab-bar">
             <button type="button" class="cap-tab active" data-captab="asr" data-i18n="capTabAsr">🎙 识别</button>

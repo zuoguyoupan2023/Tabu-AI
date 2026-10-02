@@ -538,6 +538,8 @@ input, select, textarea { font-family: var(--font); }
 .stat b { display: block; font-size: 18px; font-weight: 800; margin-bottom: 2px; }
 .row-card { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .row-card .lbl { font-size: 12px; display: flex; align-items: center; gap: 8px; }
+/* 划词即显子选项：总开关关闭时置灰 */
+.card.disabled { opacity: .45; pointer-events: none; }
 .row-actions { display: flex; gap: 6px; align-items: center; }
 .row-actions input { background: rgba(0,0,0,.2); border: 1px solid var(--line); color: #fff; font-size: 11px; border-radius: 7px; padding: 5px 8px; width: 120px; }
 .row-select { background: rgba(0,0,0,.2); border: 1px solid var(--line); color: #fff; font-size: 11px; border-radius: 7px; padding: 5px 8px; }
@@ -610,16 +612,16 @@ input, select, textarea { font-family: var(--font); }
 .voice-circle .voice-circle-ico { display: inline-flex; }
 .voice-circle.recording { background: #ef4444; color: #fff; animation: voiceCirclePulse 1s ease-in-out infinite; }
 @keyframes voiceCirclePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); } 50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
-/* 状态提示：悬浮于圆球行中部空白区（话筒与右上开关之间），不占布局高度，消失不引起 UI 跳动 */
+/* 状态提示：悬浮于话筒与右列之间的空白区，不占布局高度，消失不引起 UI 跳动 */
 .voice-circle-status {
   position: absolute; top: 50%; transform: translateY(-50%);
-  left: 112px; right: 104px;
+  left: 112px; right: 136px;
   font-size: 11px; opacity: .85; text-align: center;
   pointer-events: none; z-index: 6;
 }
 .voice-circle-status.error { color: #f87171; opacity: 1; }
-/* 停止模式：圆球居左、switch 右上（行顶对齐）；标签随模式在 手动停/自动停 间切换（min-width 固定，切换不挪动开关） */
-.vc-stop-row { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; margin-top: 8px; }
+/* 停止模式（右列顶部）：标签随模式在 手动停/自动停 间切换（min-width 固定，切换不挪动开关） */
+.vc-stop-row { display: inline-flex; align-items: center; gap: 6px; }
 .vc-stop-label { font-size: 10px; opacity: .65; user-select: none; min-width: 52px; text-align: right; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
 
@@ -727,6 +729,8 @@ footer a { color: #fff; text-decoration: none; }
 .cap-badge.exp { opacity: .55; filter: grayscale(.4); }
 .cap-badge.unknown { opacity: .35; }
 .material-capsules { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 4px; }
+/* 素材行只在有胶囊时占位（语音填入已并入顶部区块图标条） */
+#materialBar:has(> .material-capsules.hidden) { display: none; }
 .material-chip { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; background: rgba(127,140,170,.14); border-radius: 12px; padding: 2px 8px; font-size: 11px; }
 .material-chip .mtag { color: var(--accent, #4a7dff); font-weight: 600; white-space: nowrap; }
 .material-chip .mprev { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; opacity: .8; }
@@ -734,15 +738,20 @@ footer a { color: #fff; text-decoration: none; }
 .material-chip .mremove:hover { color: #d33; }
 #injectVoice.recording { background: #ffe8e8; color: #d33; }
 
-/* 工作台 🔊 朗读回答 开关（💭 思考开关已并入底部工具条 icon-toggle 状态色） */
-#aiSpeakToggle.on { background: rgba(74,125,255,.14); color: var(--accent, #4a7dff); }
+/* 工作台 🔊 自动朗读开关已上移顶栏居中（.head-speak），状态色见 .chat-main-head .head-speak.on */
 
 /* 统一对话流：API 流式气泡实时文本 */
 .stream-text { white-space: pre-wrap; word-break: break-word; }
 
 /* ===== 主对话面板（chatMain 扶正）：顶栏 + S/T 模式切换 + i 设置 ===== */
 .chat-main { margin: 2px 0 6px; }
-.chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; }
+.chat-main-head { display: flex; align-items: center; gap: 6px; padding: 2px 0 6px; position: relative; }
+/* 全局自动朗读开关：顶栏居中（三模式切换那一行） */
+.chat-main-head .head-speak {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  margin: 0; font-size: 11px; padding: 4px 10px; white-space: nowrap;
+}
+.chat-main-head .head-speak.on { background: rgba(52,211,153,.26); color: #fff; }
 .chat-main-head #injectCapBadges { margin-left: auto; } /* 徽章+i 靠右；S/T 与新对话靠左 */
 /* 能力徽章悬浮浮窗 */
 .cap-tip { position: fixed; z-index: 9999; max-width: 240px; background: rgba(18,20,26,.97); color: #fff; font-size: 11px; line-height: 1.45; padding: 6px 8px; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.45); pointer-events: none; opacity: 0; transition: opacity .12s; }
@@ -756,8 +765,9 @@ footer a { color: #fff; text-decoration: none; }
   transition: background .2s;
 }
 .chat-new-btn:hover { background: rgba(255,255,255,.3); }
-/* 底部工具条（右下）：关联页面/思考/附件 线条图标开关。状态用亮暗区分，解释走悬浮 tooltip + 切换 toast */
-.chat-bottom-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 6px 0 2px; }
+/* 功能图标条（右下，位于顶部区块右列）：关联页面/思考/附件 + 语音填入（仅输入布局）。
+   状态用亮暗区分，解释走悬浮 tooltip + 切换 toast */
+.chat-bottom-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .icon-toggle {
   width: 36px; height: 28px; border-radius: 8px; padding: 0; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
@@ -799,9 +809,23 @@ footer a { color: #fff; text-decoration: none; }
 .app[data-layer="blue"] .chat-i-btn.active { color: var(--blue-b); }
 
 .chat-mode-body { display: flex; flex-direction: column; }
-/* 圆球行：话筒居左、停止模式 switch 右上（行顶对齐）；状态行悬浮行中不占位；窄面板 flex-wrap 兜底 */
-#chatVoiceBody { position: relative; flex-direction: row; align-items: flex-start; flex-wrap: wrap; padding: 4px 0 2px; }
-#chatTextBody > .ops { margin-top: 6px; }
+/* 顶部区块：话筒居左；右列 = 停止模式 switch（右上）+ 功能图标条（右下），列高拉伸与话筒一致 */
+#chatVoiceBody { position: relative; flex-direction: row; align-items: stretch; padding: 4px 0 2px; }
+#chatVoiceBody .top-side { margin-left: auto; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; gap: 8px; padding: 2px 0; }
+/* 仅输入框布局：话筒/停止模式/状态行隐藏，图标条独占顶行（按钮拉伸填满） */
+#chatVoiceBody.text-mode .voice-circle,
+#chatVoiceBody.text-mode .vc-stop-row,
+#chatVoiceBody.text-mode .voice-circle-status { display: none; }
+#chatVoiceBody.text-mode .top-side { flex: 1; margin-left: 0; justify-content: center; }
+#chatVoiceBody.text-mode .chat-bottom-bar { width: 100%; }
+#chatVoiceBody.text-mode .chat-bottom-bar > button { flex: 1; min-width: 0; height: 32px; }
+#chatTextBody { margin-top: 6px; }
+#chatTextBody .input-row { display: flex; gap: 6px; align-items: stretch; }
+#chatTextBody .input-row .input { flex: 1; min-width: 0; }
+/* 输入框右侧竖排按钮：发送 / 停止 / 免费翻译（节省一行高度） */
+#chatTextBody .input-side { display: flex; flex-direction: column; gap: 6px; width: 96px; flex: none; }
+#chatTextBody .input-side .op, #chatTextBody .input-side .chip { width: 100%; margin: 0; padding: 9px 4px; font-size: 11px; white-space: nowrap; text-align: center; }
+#chatTextBody .input-side .op.primary { flex: 1.4; }
 
 /* i 展开：设置区（卡片式，横向标签页分区，避免单列长滚动） */
 .chat-settings {

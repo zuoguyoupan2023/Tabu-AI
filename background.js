@@ -681,6 +681,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             result = { ok: true };
           } catch (e) { result = { success: false, message: '打开授权页失败: ' + e.message }; }
           break;
+        // 划词即显（docs/009）：词典/翻译查询 + 发音
+        case 'instantDictLookup': result = await instantDictLookup(request); break;
+        case 'instantDictSpeak': instantDictSpeak(request.text, request.lang); result = { ok: true }; break;
         default: result = { success: false, message: '未知操作' };
       }
       sendResponse(result);
@@ -692,6 +695,195 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 console.log('🧩 TabU AI v' + chrome.runtime.getManifest().version + ' 已启动');
+
+// ========== 划词即显（docs/009）：离线词典 + 跨语言词汇对照 + 句子翻译 ==========
+// 数据分层：ECDICT 内置子集（data/ecdict-top50k.json.gz，中↔英全卡）→ gtx 词典通道（dt=t/bd/rm，
+// 任意语言对基础卡）→ MyMemory 句子兜底。缓存 LRU 200 / TTL 24h，限流 5 次/10s。
+const ID_CACHE_MAX = 200, ID_CACHE_TTL = 86400000, ID_RATE_MAX = 5, ID_RATE_WIN = 10000;
+const _idCache = new Map(), _idInflight = new Map();
+let _idRate = [];
+
+async function idCacheGet(key) {
+  let e = _idCache.get(key);
+  if (!e) {
+    try { e = ((await chrome.storage.session.get('idCache')).idCache || {})[key]; } catch (err) { e = null; }
+    if (e) _idCache.set(key, e);
+  }
+  if (!e || Date.now() - e.at > ID_CACHE_TTL) return null;
+  return e.resp;
+}
+async function idCacheSet(key, resp) {
+  const e = { at: Date.now(), resp };
+  _idCache.set(key, e);
+  while (_idCache.size > ID_CACHE_MAX) _idCache.delete(_idCache.keys().next().value);
+  try {
+    const o = {};
+    for (const [k, v] of _idCache) o[k] = v;
+    await chrome.storage.session.set({ idCache: o });
+  } catch (err) {}
+}
+
+function idRateLimited() {
+  const now = Date.now();
+  _idRate = _idRate.filter((t) => now - t < ID_RATE_WIN);
+  if (_idRate.length >= ID_RATE_MAX) return true;
+  _idRate.push(now);
+  return false;
+}
+
+// ECDICT 懒加载：fetch gzip 资源 → DecompressionStream 解压 → Map
+let _ecdictMap = null, _ecdictLoading = null;
+function loadEcdict() {
+  if (_ecdictMap) return Promise.resolve(_ecdictMap);
+  if (_ecdictLoading) return _ecdictLoading;
+  _ecdictLoading = (async () => {
+    const url = chrome.runtime.getURL('data/ecdict-top50k.json.gz');
+    const buf = await (await fetch(url)).arrayBuffer();
+    const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    _ecdictMap = new Map(Object.entries(JSON.parse(text)));
+    return _ecdictMap;
+  })();
+  _ecdictLoading.catch(() => { _ecdictLoading = null; _ecdictMap = null; });
+  return _ecdictLoading;
+}
+
+// 词形还原候选（-s/-es/-ed/-ing/-er/-est/-ly/'s + 双写辅音）
+function lemmaCandidates(word) {
+  const w = word.toLowerCase(), out = [];
+  const push = (x) => { if (x && x.length > 1 && !out.includes(x)) out.push(x); };
+  const dedouble = (x) => (x.length > 3 && x[x.length - 1] === x[x.length - 2]) ? x.slice(0, -1) : '';
+  if (w.endsWith("'s")) push(w.slice(0, -2));
+  if (w.endsWith('ies') && w.length > 4) push(w.slice(0, -3) + 'y');
+  if (w.endsWith('ing')) { push(w.slice(0, -3)); push(w.slice(0, -3) + 'e'); push(dedouble(w.slice(0, -3)) ); }
+  if (w.endsWith('ed')) { push(w.slice(0, -1)); push(w.slice(0, -2)); push(dedouble(w.slice(0, -2))); }
+  if (w.endsWith('est')) { push(w.slice(0, -3)); push(w.slice(0, -2)); }
+  if (w.endsWith('er')) { push(w.slice(0, -2)); push(w.slice(0, -1)); }
+  if (w.endsWith('ly')) push(w.slice(0, -2));
+  if (w.endsWith('es') && w.length > 3) push(w.slice(0, -2));
+  if (w.endsWith('s') && !w.endsWith('ss') && w.length > 2) push(w.slice(0, -1));
+  return out;
+}
+
+async function ecdictLookup(word) {
+  const map = await loadEcdict();
+  const w = word.toLowerCase().trim();
+  if (map.has(w)) return { word: w, e: map.get(w) };
+  for (const c of lemmaCandidates(w)) {
+    if (map.has(c)) return { word: c, e: map.get(c) };
+  }
+  return null;
+}
+
+// 源语言粗判（决定走 ECDICT 还是 gtx 通道）
+function idDetectLang(text) {
+  if (/[\u3040-\u30ff]/.test(text)) return 'ja';
+  if (/[\uac00-\ud7af]/.test(text)) return 'ko';
+  if (/[\u0400-\u04ff]/.test(text)) return 'ru';
+  if (/[\u4e00-\u9fff]/.test(text)) return 'zh';
+  if (/^[a-zA-Z'’\-]+$/.test(text)) return 'en';
+  return 'en'; // 其他拉丁文默认按英文尝试（ECDICT miss 后仍有 gtx auto 兜底）
+}
+
+// Google gtx 通道：dt=t 翻译 / dt=bd 词典义 / dt=rm 罗马音（dj=1 返回 JSON 对象）
+async function gtxFetch(text, sl, tl, dt) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl || 'auto')}&tl=${encodeURIComponent(tl)}&dt=${dt}&dj=1&q=${encodeURIComponent(text)}`;
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    if (!r.ok) throw new Error('gtx ' + r.status);
+    return await r.json();
+  } finally { clearTimeout(to); }
+}
+async function gtxTranslate(text, sl, tl) {
+  const j = await gtxFetch(text, sl, tl, 't');
+  return (j.sentences || []).map((s) => s.trans || '').join('');
+}
+async function gtxCard(text, sl, tl) {
+  try {
+    const j = await gtxFetch(text, sl || 'auto', tl, 't&dt=bd&dt=rm');
+    const trans = (j.sentences || []).map((s) => s.trans || '').join('');
+    if (!trans) throw new Error('empty');
+    const dict = Array.isArray(j.dict)
+      ? j.dict.slice(0, 2).map((d) => `${d.pos || ''} ${(d.terms || []).slice(0, 4).join('；')}`.trim()).filter(Boolean).join('\n')
+      : '';
+    const roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
+    return { ok: true, kind: 'entry', tier: 'gtx', source: text, sourceRoman: roman, headword: trans, phonetic: '', gloss: dict, native: '', extra: '' };
+  } catch (e) {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+async function idWord(text, targetLang) {
+  const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
+  const src = idDetectLang(text);
+  const toZh = tl.startsWith('zh'), toEn = tl === 'en';
+  // 英文词：目标中文 → ECDICT 全卡；目标英文 → ECDICT 英英卡；其他目标/miss → gtx 基础卡
+  if (src === 'en' && (toZh || toEn)) {
+    const hit = await ecdictLookup(text);
+    if (hit) {
+      const [phonetic, defEn, defZh, , badge] = hit.e;
+      return { ok: true, kind: 'entry', tier: 'ecdict', source: toZh ? text : '', headword: hit.word, phonetic, gloss: defEn, native: toZh ? defZh : '', extra: badge };
+    }
+    return await gtxCard(text, 'auto', tl);
+  }
+  // 中文词 → 英文：gtx 取 headword → ECDICT 补音标/英释义；miss → gtx 基础卡
+  if (src === 'zh' && toEn) {
+    try {
+      const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm');
+      const head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
+      if (!head) throw new Error('empty');
+      const roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
+      const hit = await ecdictLookup(head.split(/\s+/)[0].replace(/[^A-Za-z'’-]/g, '') || head);
+      if (hit) {
+        const [phonetic, defEn, defZh, , badge] = hit.e;
+        return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge };
+      }
+      return { ok: true, kind: 'entry', tier: 'gtx', source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '' };
+    } catch (e) {
+      return { ok: false, reason: 'network' };
+    }
+  }
+  // 中文词 → 中文目标（同语言）：改查英文对照（学习兜底）；其余语言对 → gtx 基础卡
+  if (src === 'zh' && toZh) return await idWord(text, 'en');
+  return await gtxCard(text, 'auto', tl);
+}
+
+async function idSentence(text, targetLang) {
+  const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
+  try {
+    const j = await gtxFetch(text, 'auto', tl, 't');
+    const trans = (j.sentences || []).map((s) => s.trans || '').join('');
+    if (!trans) throw new Error('empty');
+    return { ok: true, kind: 'translation', text: trans, via: 'google', source: text };
+  } catch (e) {
+    return { ok: false, reason: 'network' };
+  }
+}
+
+async function instantDictLookup(req) {
+  if (idRateLimited()) return { ok: false, reason: 'rate-limited' };
+  const key = `${req.mode}:${req.targetLang || ''}:${String(req.text || '').toLowerCase()}`;
+  const cached = await idCacheGet(key);
+  if (cached) return cached;
+  if (_idInflight.has(key)) return _idInflight.get(key);
+  const p = (async () => {
+    const resp = req.mode === 'word'
+      ? await idWord(String(req.text || ''), req.targetLang)
+      : await idSentence(String(req.text || ''), req.targetLang);
+    if (resp && resp.ok) await idCacheSet(key, resp);
+    return resp;
+  })();
+  _idInflight.set(key, p);
+  try { return await p; } finally { _idInflight.delete(key); }
+}
+
+function instantDictSpeak(text, lang) {
+  try {
+    chrome.tts.stop();
+    chrome.tts.speak(String(text || '').slice(0, 120), { lang: lang || 'en-US', rate: 0.95 });
+  } catch (e) {}
+}
 
 // ========== 终端桥接客户端（TabU AI Bridge） ==========
 // 连接本地 bridge/server.js（ws://127.0.0.1:9527）。
