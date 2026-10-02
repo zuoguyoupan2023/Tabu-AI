@@ -170,10 +170,11 @@
     bindCard(rect, d.text || '', /[\u4e00-\u9fff]/.test(d.text || '') ? 'zh-CN' : 'en-US');
   }
 
-  function renderError(reason, rect) {
+  function renderError(reason, rect, detail) {
     ensureHost();
     const msg = reason === 'rate-limited' ? t('rateLimited') : reason === 'miss' ? t('notFound') : t('network');
-    const hint = reason === 'miss' ? `<small>${esc(t('notFoundHint'))}</small>` : '';
+    let hint = reason === 'miss' ? `<small>${esc(t('notFoundHint'))}</small>` : '';
+    if (detail) hint += `<small>${esc(detail)}</small>`;
     cardEl.innerHTML = `<div class="card"><div class="err">${esc(msg)}${hint}</div></div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
@@ -254,7 +255,7 @@
       });
     } catch (e) { resp = { ok: false, reason: 'network' }; }
     if (token !== lookupToken) return; // 已有更新的查询/已关闭
-    if (!resp || !resp.ok) { renderError((resp && resp.reason) || 'network', info.rect); return; }
+    if (!resp || !resp.ok) { renderError((resp && resp.reason) || 'network', info.rect, resp && resp.detail); return; }
     if (resp.kind === 'entry') renderEntry(resp, info.rect);
     else if (resp.kind === 'translation') renderTranslation(resp, info.rect);
     else renderError('miss', info.rect);

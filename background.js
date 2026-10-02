@@ -882,28 +882,45 @@ async function mymemoryTranslate(text, sl, tl) {
   return outs.join(' ');
 }
 
-async function idWord(text, targetLang) {
+// 用户蓝区所选翻译服务源（translateProvider：auto/mymemory/google，默认 auto）；弹层遵循同一设置
+async function idProvider() {
+  try {
+    const r = await chrome.storage.local.get('translateProvider');
+    return r.translateProvider || 'auto';
+  } catch (e) { return 'auto'; }
+}
+
+async function idWord(text, targetLang, prov) {
   const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
   const src = idDetectLang(text);
   const toZh = tl.startsWith('zh'), toEn = tl === 'en';
-  // 英文词：目标中文 → ECDICT 全卡（离线）；目标英文 → ECDICT 英英卡；miss → gtx 基础卡
+  // 英文词：目标中文 → ECDICT 全卡（离线）；目标英文 → ECDICT 英英卡；miss → gtx/MyMemory 基础卡
   if (src === 'en' && (toZh || toEn)) {
-    let hit = null;
-    try { hit = await ecdictLookup(text); } catch (e) { hit = null; } // 词典加载失败不致命 → 走在线兜底
+    let hit = null, dictErr = '';
+    try { hit = await ecdictLookup(text); } catch (e) { dictErr = e && e.message; } // 词典加载失败不致命 → 走在线兜底
     if (hit) {
       const [phonetic, defEn, defZh, , badge] = hit.e;
       return { ok: true, kind: 'entry', tier: 'ecdict', source: toZh ? text : '', headword: hit.word, phonetic, gloss: defEn, native: toZh ? defZh : '', extra: badge };
     }
-    return await gtxCard(text, 'en', tl);
+    const card = await gtxCard(text, 'en', tl);
+    if (card.ok || prov === 'google') return card;
+    // gtx 不可达 → MyMemory 兜底为译文卡（词典 miss + gtx 挂的最坏情况）
+    try {
+      const trans = await mymemoryTranslate(text, src, tl);
+      if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text, detail: dictErr };
+    } catch (e) {}
+    return { ...card, detail: card.detail || dictErr };
   }
-  // 中文词 → 英文：headword 顺序 gtx → 离线反向索引 → MyMemory；再 ECDICT 补音标/释义（离线）
+  // 中文词 → 英文：headword 顺序（prov=mymemory 时跳过 gtx）反向索引兜底离线精准命中
   if (src === 'zh' && toEn) {
     let head = '', roman = '', via = 'gtx';
-    try {
-      const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm');
-      head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
-      roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
-    } catch (e) {}
+    if (prov !== 'mymemory') {
+      try {
+        const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm');
+        head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
+        roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
+      } catch (e) {}
+    }
     if (!head) {
       const cands = await ecdictRevLookup(text).catch(() => []);
       if (cands.length) { head = cands[0]; via = 'ecdict'; }
@@ -919,21 +936,23 @@ async function idWord(text, targetLang) {
     return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '' };
   }
   // 中文词 → 中文目标（同语言）：改查英文对照（学习兜底）；其余语言对 → gtx 基础卡
-  if (src === 'zh' && toZh) return await idWord(text, 'en');
+  if (src === 'zh' && toZh) return await idWord(text, 'en', prov);
   return await gtxCard(text, 'auto', tl);
 }
 
-async function idSentence(text, targetLang) {
+async function idSentence(text, targetLang, prov) {
   const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
-  // 1) gtx（主源，熔断保护）
+  const sl = idDetectLang(text) === 'zh' ? 'zh-CN' : idDetectLang(text);
+  // 1) gtx（主源，熔断保护；用户显式选 mymemory 时跳过，不白等）
+  if (prov !== 'mymemory') {
+    try {
+      const j = await gtxFetch(text, 'auto', tl, 't');
+      const trans = (j.sentences || []).map((s) => s.trans || '').join('');
+      if (trans) return { ok: true, kind: 'translation', text: trans, via: 'google', source: text };
+    } catch (e) {}
+  }
+  // 2) MyMemory（用户显式选择时为主源；否则为 gtx 不可达兜底）
   try {
-    const j = await gtxFetch(text, 'auto', tl, 't');
-    const trans = (j.sentences || []).map((s) => s.trans || '').join('');
-    if (trans) return { ok: true, kind: 'translation', text: trans, via: 'google', source: text };
-  } catch (e) {}
-  // 2) MyMemory 兜底（源语言启发式检测；gtx 被熔断时零等待直连）
-  try {
-    const sl = idDetectLang(text) === 'zh' ? 'zh-CN' : idDetectLang(text);
     const trans = await mymemoryTranslate(text, sl, tl);
     if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text };
   } catch (e) {}
@@ -948,14 +967,17 @@ async function instantDictLookup(req) {
   if (_idInflight.has(key)) return _idInflight.get(key);
   const p = (async () => {
     try {
+      const prov = await idProvider();
       const resp = req.mode === 'word'
-        ? await idWord(String(req.text || ''), req.targetLang)
-        : await idSentence(String(req.text || ''), req.targetLang);
+        ? await idWord(String(req.text || ''), req.targetLang, prov)
+        : await idSentence(String(req.text || ''), req.targetLang, prov);
       if (resp && resp.ok) await idCacheSet(key, resp);
+      else console.warn('[instantDict] 查询失败:', JSON.stringify(resp), req.mode, JSON.stringify(req.text || '').slice(0, 60));
       return resp || { ok: false, reason: 'network' };
     } catch (e) {
       // 任何意外异常都返回结构化错误（否则会变成通用 {success:false}，前端误报"网络不可用"）
-      return { ok: false, reason: 'network' };
+      console.warn('[instantDict] 查询异常:', e && e.message);
+      return { ok: false, reason: 'network', detail: (e && e.message) || '' };
     }
   })();
   _idInflight.set(key, p);
