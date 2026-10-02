@@ -69,10 +69,10 @@
             <button class="chip" id="injectVoice" data-i18n="aiVoiceStart" data-i18n-title="aiVoiceStartTitle" title="语音输入（识别结果填入输入框，可编辑后再发送）">🎤 语音填入</button>
           </div>
 
-          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（布局可含 输入框，由顶栏三分段决定）；圆球居左，停止模式 switch 居右 -->
+          <!-- ▸ 语音圆球：识别 → LLM → 输出并朗读（话筒居左；停止模式 switch 右上；状态行悬浮行中，不占布局高度） -->
           <div class="chat-mode-body" id="chatVoiceBody">
-            <button class="voice-circle" id="voiceCircleBtn" data-i18n-title="voiceCircleTitle" title="点击说话：识别 → LLM → 输出并朗读">
-              <span class="voice-circle-ico">🎤</span>
+            <button class="voice-circle" id="voiceCircleBtn" data-tip="tipMic">
+              <span class="voice-circle-ico" data-icon="mic" data-icon-size="34"></span>
             </button>
             <!-- 状态提示：悬浮显示，不占布局高度，消失时不引起 UI 跳动 -->
             <div class="voice-circle-status" id="voiceCircleStatus" data-i18n="voiceCircleHint">点击说话：自动识别 → LLM 回答并朗读</div>
@@ -81,7 +81,7 @@
                 <span class="lbl-manual" data-i18n="voiceModeManualShort">手动停</span>
                 <span class="lbl-vad hidden" data-i18n="voiceModeVadShort">自动停</span>
               </span>
-              <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-i18n-title="voiceAutoStopTitle" title="开启：检测到说完话自动停止并发送；关闭：再次点击圆球停止录音"></span>
+              <span class="switch sm" id="voiceAutoStopSwitch" role="switch" aria-checked="false" tabindex="0" data-tip="tipStopMode"></span>
             </div>
           </div>
 
@@ -95,6 +95,14 @@
               <button class="chip" id="injectTranslateFree" data-i18n="aiFreeTranslate" data-i18n-title="aiFreeTranslateTitle" title="用免费翻译服务翻译输入框内容（当前：自动 MyMemory → Google，服务源在蓝区「🌐 翻译」卡选择）">🌐 免费翻译</button>
               <span id="injectStatus" class="tool-status inline"></span>
             </div>
+          </div>
+
+          <!-- 底部工具条（右下）：关联页面 / 思考显示 / 附件——线条图标开关，悬浮显示简短解释，移走即隐藏 -->
+          <div class="chat-bottom-bar" id="chatBottomBar">
+            <button class="icon-toggle on" id="chatPageContextBtn" aria-pressed="true" data-tip="tipPageCtx"><span data-icon="link"></span></button>
+            <button class="icon-toggle hidden" id="aiShowThinkingToggle" aria-pressed="false" data-tip="tipThink"><span data-icon="think"></span></button>
+            <button class="icon-toggle" id="injectAttach" data-tip="tipAttach"><span data-icon="paperclip"></span></button>
+            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
           </div>
 
           <!-- 当前对话（统一回答流）：位于输入区下方；最新的问答在最上方，旧内容向下溢出 -->
@@ -225,14 +233,6 @@
                 <button class="chip" data-selproc="explain" data-i18n="aiTplExplain">解释</button>
               </div>
             </div>
-          </div>
-
-          <!-- 底部：图标开关条（状态用亮暗区分，说明走 tooltip + 切换 toast）：关联页面 / 思考显示 / 附件 -->
-          <div class="chat-bottom-bar" id="chatBottomBar">
-            <button class="icon-toggle on" id="chatPageContextBtn" aria-pressed="true" data-i18n-title="chatPageContextTitle" title="开启后，每次发送自动把当前页正文作为上下文；关闭则纯聊天">🔗</button>
-            <button class="icon-toggle hidden" id="aiShowThinkingToggle" aria-pressed="false" data-i18n-title="aiShowThinkingTitle" title="是否在对话流中显示 AI 思考内容（默认隐藏；朗读是否含思考见蓝区「工作台朗读」）">💭</button>
-            <button class="icon-toggle" id="injectAttach" data-i18n-title="aiAttachTitle" title="添加图片（发送时自动粘贴到 AI 站点）或文件（文本/PDF 并入素材）">📎</button>
-            <input type="file" id="injectAttachFile" multiple accept="image/png,image/jpeg,image/webp,image/gif,.txt,.md,.csv,.json,.log,.pdf,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.ods,.odp,.epub" hidden />
           </div>
         </div><!-- /chatMain -->
 
@@ -763,6 +763,8 @@
   </div>
 
   <div id="toast"></div>
+  <!-- 悬浮解释：鼠标移入带 data-tip 的图标即显示，移走即隐藏 -->
+  <div id="hoverTip" class="hover-tip"></div>
 
   <!-- 截图预览浮层 -->
   <div id="shotOverlay" class="shot-overlay hidden">

@@ -607,24 +607,20 @@ input, select, textarea { font-family: var(--font); }
   flex: none;
 }
 .voice-circle:hover { transform: translateY(-2px); box-shadow: 0 9px 22px rgba(0,0,0,.34); }
-.voice-circle .voice-circle-ico { font-size: 34px; line-height: 1; }
+.voice-circle .voice-circle-ico { display: inline-flex; }
 .voice-circle.recording { background: #ef4444; color: #fff; animation: voiceCirclePulse 1s ease-in-out infinite; }
 @keyframes voiceCirclePulse { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.45); } 50% { box-shadow: 0 0 0 14px rgba(239,68,68,0); } }
-/* 状态提示：悬浮药丸，出现在圆球行正下方（不占布局高度，消失不引起 UI 跳动，也不挤压圆球行内的开关与图标） */
+/* 状态提示：悬浮于圆球行中部空白区（话筒与右上开关之间），不占布局高度，消失不引起 UI 跳动 */
 .voice-circle-status {
-  position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-  margin-top: 5px; padding: 3px 12px; border-radius: 999px;
-  background: rgba(15,20,30,.6); max-width: 88%;
-  font-size: 11px; opacity: .95; text-align: center;
+  position: absolute; top: 50%; transform: translateY(-50%);
+  left: 112px; right: 104px;
+  font-size: 11px; opacity: .85; text-align: center;
   pointer-events: none; z-index: 6;
 }
 .voice-circle-status.error { color: #f87171; opacity: 1; }
-/* 停止模式：圆球居左、switch 居右；标签随模式在 手动停/自动停 间切换（min-width 固定，切换不挪动开关） */
-.vc-stop-row { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+/* 停止模式：圆球居左、switch 右上（行顶对齐）；标签随模式在 手动停/自动停 间切换（min-width 固定，切换不挪动开关） */
+.vc-stop-row { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; margin-top: 8px; }
 .vc-stop-label { font-size: 10px; opacity: .65; user-select: none; min-width: 52px; text-align: right; }
-/* 图标条并入圆球行：紧随 switch 之后；并入素材行（仅输入布局）时推到最右 */
-#chatVoiceBody .chat-bottom-bar { margin-left: 8px; }
-#materialBar .chat-bottom-bar { margin-left: auto; }
 .voice-output-toggle { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: .85; cursor: pointer; }
 
 /* ===== 红区底部：运行日志（默认展开） ===== */
@@ -760,17 +756,26 @@ footer a { color: #fff; text-decoration: none; }
   transition: background .2s;
 }
 .chat-new-btn:hover { background: rgba(255,255,255,.3); }
-/* 底部工具条（🔗 关联页面 / 💭 思考 / 📎 附件）：图标开关，随布局由 JS 并入圆球行或素材行。
-   状态用亮暗区分，说明走 tooltip + 切换 toast，避免常驻文字 */
-.chat-bottom-bar { display: flex; align-items: center; gap: 6px; }
+/* 底部工具条（右下）：关联页面/思考/附件 线条图标开关。状态用亮暗区分，解释走悬浮 tooltip + 切换 toast */
+.chat-bottom-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 6px 0 2px; }
 .icon-toggle {
   width: 36px; height: 28px; border-radius: 8px; padding: 0; flex: none;
-  font-size: 14px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center;
   background: var(--glass); color: rgba(255,255,255,.5);
   transition: background .15s, color .15s;
 }
+.icon-toggle svg { display: block; }
 .icon-toggle:hover { background: var(--glass-strong); color: rgba(255,255,255,.85); }
 .icon-toggle.on { background: rgba(52,211,153,.26); color: #fff; box-shadow: inset 0 0 0 1px rgba(52,211,153,.4); }
+/* 悬浮解释（data-tip）：移入即显、移走即隐，替代原生 title 的延迟提示 */
+.hover-tip {
+  position: fixed; z-index: 9999; max-width: 260px; white-space: nowrap;
+  background: rgba(18,20,26,.97); color: #fff; font-size: 11px; line-height: 1.45;
+  padding: 5px 9px; border-radius: 7px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+  pointer-events: none; opacity: 0; transition: opacity .12s;
+  transform: translateX(-50%);
+}
+.hover-tip.show { opacity: 1; }
 /* 顶栏三分段布局切换：圆球 / 圆球+输入 / 仅输入 */
 .chat-layout-seg {
   display: inline-flex; flex: none; height: 30px; border-radius: 9px; overflow: hidden;
@@ -794,8 +799,8 @@ footer a { color: #fff; text-decoration: none; }
 .app[data-layer="blue"] .chat-i-btn.active { color: var(--blue-b); }
 
 .chat-mode-body { display: flex; flex-direction: column; }
-/* 圆球行：圆球居左；右簇 = 停止模式 switch + 图标开关条（flex-wrap 兜底窄面板）；状态行悬浮不占位 */
-#chatVoiceBody { position: relative; flex-direction: row; align-items: center; flex-wrap: wrap; padding: 4px 0 2px; }
+/* 圆球行：话筒居左、停止模式 switch 右上（行顶对齐）；状态行悬浮行中不占位；窄面板 flex-wrap 兜底 */
+#chatVoiceBody { position: relative; flex-direction: row; align-items: flex-start; flex-wrap: wrap; padding: 4px 0 2px; }
 #chatTextBody > .ops { margin-top: 6px; }
 
 /* i 展开：设置区（卡片式，横向标签页分区，避免单列长滚动） */

@@ -19,6 +19,34 @@ function showStatus(message, type = 'info') {
   showToast(message, 3000, type);
 }
 
+// ========== 悬浮解释（data-tip）：鼠标移入图标即显示简短说明，移走即隐藏（替代原生 title 的延迟提示） ==========
+let hoverTipEl = null;
+function initHoverTips() {
+  hoverTipEl = document.getElementById('hoverTip');
+  if (!hoverTipEl) return;
+  document.querySelectorAll('[data-tip]').forEach((el) => {
+    const text = I18N.t(el.dataset.tip);
+    if (text && text !== el.dataset.tip) el.setAttribute('aria-label', text); // 无障碍：同步可读名称
+    el.addEventListener('mouseenter', () => showHoverTip(el));
+    el.addEventListener('mouseleave', () => hoverTipEl.classList.remove('show'));
+    el.addEventListener('blur', () => hoverTipEl.classList.remove('show'));
+  });
+}
+function showHoverTip(el) {
+  if (!hoverTipEl) return;
+  const text = I18N.t(el.dataset.tip);
+  if (!text || text === el.dataset.tip) return;
+  hoverTipEl.textContent = text;
+  hoverTipEl.classList.add('show'); // 先显示以便测量尺寸
+  const r = el.getBoundingClientRect();
+  const tw = hoverTipEl.offsetWidth, th = hoverTipEl.offsetHeight;
+  const x = Math.min(Math.max(r.left + r.width / 2, tw / 2 + 6), window.innerWidth - tw / 2 - 6);
+  let y = r.bottom + 6;
+  if (y + th > window.innerHeight - 6) y = r.top - th - 6; // 下方放不下 → 显示在上方
+  hoverTipEl.style.left = x + 'px';
+  hoverTipEl.style.top = y + 'px';
+}
+
 // ========== favicon / 内部页面图标（tabler 风格内联 SVG，不用 emoji） ==========
 const TABU_ICONS = {
   puzzle: 'M4 12a3 3 0 0 1 3-3h2a1 1 0 0 0 1-1V6a2 2 0 0 1 2-2 2 2 0 0 1 2 2v2a1 1 0 0 0 1 1h2a3 3 0 0 1 3 3 3 3 0 0 1-3 3h-2a1 1 0 0 0-1 1v2a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-2a1 1 0 0 0-1-1H7a3 3 0 0 1-3-3z',
@@ -31,6 +59,11 @@ const TABU_ICONS = {
   browser: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 8h18"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   camera: '<path d="M4 8h2l2-3h8l2 3h2a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="12" r="4"/>',
+  // 红区工作台（feather/tabler 风格线条，替代 emoji）
+  mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v4"/><path d="M8 23h8"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  think: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>',
+  paperclip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
 };
 function svgIcon(inner, size = 16) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -3907,16 +3940,6 @@ function updateChatBodies() {
   // 「语音填入」仅在纯输入布局有意义（圆球在场时冗余）
   const voiceFill = document.getElementById('injectVoice');
   if (voiceFill) voiceFill.classList.toggle('hidden', chatLayout !== 'text');
-  // 底部图标条（🔗💭📎）随布局移动：圆球在场 → 并入圆球行右侧（与话筒同排，避免被隔开）；
-  // 仅输入框 → 并入素材行右侧（与「语音填入」同处顶部一行）
-  const bar = document.getElementById('chatBottomBar');
-  if (bar && voiceBody && textBody) {
-    if (chatLayout === 'text') {
-      document.getElementById('materialBar')?.appendChild(bar);
-    } else {
-      voiceBody.appendChild(bar);
-    }
-  }
 }
 
 function setChatLayout(layout) {
@@ -5532,6 +5555,14 @@ document.addEventListener('DOMContentLoaded', () => {
   if (aiBackendInject) aiBackendInject.addEventListener('click', () => setAiMode('inject'));
   const aiBackendApi = document.getElementById('aiBackendApi');
   if (aiBackendApi) aiBackendApi.addEventListener('click', () => setAiMode('api'));
+
+  // ===== 线条图标注入（data-icon → TABU_ICONS SVG，替代 emoji） =====
+  document.querySelectorAll('[data-icon]').forEach(el => {
+    const path = TABU_ICONS[el.dataset.icon];
+    if (path) el.innerHTML = svgIcon(path, parseInt(el.dataset.iconSize || '16', 10));
+  });
+  // ===== 悬浮解释绑定（data-tip：移入显示、移走隐藏） =====
+  initHoverTips();
 
   // ===== 顶部圆形语音工作台 + 输出栏 =====
   const voiceCircleBtn = document.getElementById('voiceCircleBtn');
