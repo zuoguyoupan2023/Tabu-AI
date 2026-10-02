@@ -6,18 +6,18 @@
   'use strict';
 
   // ===== 设置缓存 =====
-  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', uiLang: '', voice: '' };
+  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', uiLang: '' };
   function loadSettings() {
-    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'instantDictVoice', 'uiLang'], (r) => {
+    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'uiLang'], (r) => {
       S.enabled = r.instantDictEnabled !== false;
       S.sentence = r.instantDictSentence !== false;
       S.word = r.instantDictWord !== false;
       S.targetLang = r.instantDictTargetLang || 'system';
       S.uiLang = r.uiLang || (((navigator.language || 'en').toLowerCase().startsWith('zh')) ? 'zh' : 'en');
-      S.voice = r.instantDictVoice || '';
       if (!S.enabled) hidePopup();
     });
   }
+  try { if (window.TABU_TTS) TABU_TTS.loadConfig(); } catch (e) {}
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && /instantDict|^uiLang$/.test(Object.keys(changes).join('|'))) loadSettings();
   });
@@ -199,22 +199,24 @@
     });
   }
 
-  // 朗读：优先页面 Web Speech（可用设置里的音色名精确选中），失败回退后台 chrome.tts
+  // 朗读：优先页面 Web Speech，音色取「朗读槽位 · 划词即显」（'' = 该语言默认）；失败回退后台 chrome.tts
   function speak(text, lang) {
     if (!text) return;
+    const langCode = lang || (/[\u4e00-\u9fff]/.test(text) ? 'zh-CN' : 'en-US');
+    let voice = '';
+    try { if (window.TABU_TTS) voice = TABU_TTS.resolveVoice('dictWord', langCode) || ''; } catch (e) {}
     try {
       const synth = window.speechSynthesis;
       if (synth) {
         synth.cancel();
         const u = new SpeechSynthesisUtterance(text);
-        let v = null;
-        if (S.voice) v = (synth.getVoices() || []).find((x) => x.name === S.voice) || null;
-        if (v) { u.voice = v; u.lang = v.lang || lang || ''; } else if (lang) { u.lang = lang; }
+        let v = voice ? (synth.getVoices() || []).find((x) => x.name === voice) : null;
+        if (v) { u.voice = v; u.lang = v.lang || langCode; } else { u.lang = langCode; }
         synth.speak(u);
         return;
       }
     } catch (e) {}
-    chrome.runtime.sendMessage({ action: 'instantDictSpeak', text, lang, voice: S.voice }).catch(() => {});
+    chrome.runtime.sendMessage({ action: 'instantDictSpeak', text, lang: langCode, voice }).catch(() => {});
   }
   function fallbackCopy(text) {
     const ta = document.createElement('textarea');

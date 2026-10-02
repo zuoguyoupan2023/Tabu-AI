@@ -200,9 +200,6 @@
                   <option value="cosyvoice" data-i18n="ttsEngineCosyvoice">🔵 CosyVoice（独立协议）</option>
                 </select>
               </label>
-              <label class="cfg-row" id="chatTtsVoiceRow"><span data-i18n="ttsVoiceLabel">音色</span>
-                <select id="chatTtsVoice" class="row-select" style="flex:1;"></select>
-              </label>
               <div class="tts-sliders">
                 <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="chatTtsRate" min="0.1" max="10" step="0.1" value="1" /><b id="chatTtsRateLabel">1.0</b></label>
               </div>
@@ -460,16 +457,7 @@
                   <option value="ru">Русский</option>
                 </select>
               </label>
-              <label class="cfg-row"><span data-i18n="instantDictVoiceLabel">朗读音色</span>
-                <select id="instantDictVoice" class="row-select" style="flex:1;">
-                  <option value="" data-i18n="instantDictVoiceFollow">跟随系统语音</option>
-                </select>
-              </label>
-              <div class="cfg-row">
-                <button type="button" class="mini-btn" id="instantDictVoiceTest" data-i18n="instantDictVoiceTest">试听</button>
-                <span class="hint" style="margin:0;" data-i18n="instantDictVoiceHint">划词卡片点 🔊 朗读时使用的音色。</span>
-              </div>
-              <div class="hint" data-i18n="instantDictHint">中英词汇对照使用内置离线词典（ECDICT），不出网；划选的句子会发往翻译服务（蓝区「🌐 翻译」所选源）。</div>
+              <div class="hint" data-i18n="instantDictHint">中英词汇对照使用内置离线词典（ECDICT），不出网；划选的句子会发往翻译服务（蓝区「🌐 翻译」所选源）。朗读音色见蓝区「🗣 朗读」的朗读槽位。</div>
             </div>
           </div>
           <div class="cap-tab-bar">
@@ -550,23 +538,20 @@
               <div class="hint" data-i18n="ttsEngineHint">系统语音 = chrome.tts 即时；本地 = 走本地服务 /speak；云端 = 走云端语音服务（Base URL / Key / 模型 / 音色见下方）。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceSystemLabel">🔊 系统语音</div>
               <div class="hint" data-i18n="ttsSystemHint">chrome.tts 系统朗读，即时零配置，无需本地服务。</div>
-              <div class="voice-filter-row" id="ttsSysVoiceRowBlue" style="padding:0 4px;">
-                <label><span data-i18n="ttsLangFilterLabel">语言筛选</span> <select id="ttsLangFilterBlue"><option value="all" data-i18n="allLanguages">所有语言</option></select></label>
-                <label><span data-i18n="ttsVoiceLabel">语音</span> <select id="ttsVoiceBlue"></select></label>
+              <div class="voice-filter-row" id="ttsSysVoiceRowBlue" style="padding:0 4px;display:block;">
+                <div id="ttsSlotTable"></div>
+                <div class="hint" data-i18n="ttsSlotsHint">每个朗读场景可单独指定音色；「跟随该语言默认」会按朗读文本的语言自动选音色。列表来自系统音色，跨设备/浏览器自动适配。</div>
               </div>
               <div class="tts-sliders">
                 <label><span data-i18n="ttsRateLabel">语速</span> <input type="range" id="ttsRate" min="0.1" max="10" step="0.1" value="1" /><b id="ttsRateLabel">1.0</b></label>
                 <label><span data-i18n="ttsPitchLabel">音调</span> <input type="range" id="ttsPitch" min="0" max="2" step="0.1" value="1" /><b id="ttsPitchLabel">1.0</b></label>
                 <label><span data-i18n="ttsVolumeLabel">音量</span> <input type="range" id="ttsVolume" min="0" max="1" step="0.1" value="1" /><b id="ttsVolumeLabel">1.0</b></label>
               </div>
-              <div class="hint" data-i18n="ttsBlueVoiceHint">系统音色/语速/音调/音量在此设置；朗读动作在红区（选区条「朗读」、对话流「朗读回答」、i 设置里「朗读全文/输入框」）。</div>
+              <div class="hint" data-i18n="ttsBlueVoiceHint">系统音色按「朗读槽位」分别设置；语速/音调/音量对所有系统朗读生效。</div>
               <div class="ai-svc-sep" data-i18n="aiSpeakSectionLabel">🤖 LLM 回复朗读</div>
               <label class="cfg-row"><input type="checkbox" id="aiSpeakAnswerBlue" style="accent-color:var(--accent);width:auto;"> <span data-i18n="aiSpeakAnswerRow" style="opacity:.85;font-size:11px;">AI 回答后自动朗读（与工作台 🔊 开关同步）</span></label>
               <label class="cfg-row"><input type="checkbox" id="ttsStreamSpeakBlue" style="accent-color:var(--accent);width:auto;"> <span data-i18n="ttsStreamSpeakRow" style="opacity:.85;font-size:11px;">流式朗读（边生成边分句朗读，需先开启自动朗读）</span></label>
-              <label class="cfg-row"><span data-i18n="aiSpeakVoiceLabel">回复音色</span>
-                <select id="aiSpeakVoice" class="row-select" style="flex:1;"><option value="" data-i18n="aiSpeakVoiceFollow">跟随系统语音</option></select>
-              </label>
-              <div class="hint" data-i18n="aiSpeakVoiceHint">仅对系统朗读路径生效；本地/云端引擎使用各自已配置的音色。</div>
+              <div class="hint" data-i18n="aiSpeakVoiceHint">回复/对话朗读音色见上方「朗读槽位」（AI 回答 / 对话流每条），仅对系统朗读路径生效。</div>
               <div class="ai-svc-sep" data-i18n="ttsSourceLocalLabel">💻 本地</div>
               <div class="hint" data-i18n="ttsLocalHint">kokoro / qwen3 本地模型走 asr-server /speak；服务地址在「🎙 ASR 识别」卡，模型在「🧩 本地模型管理」安装。</div>
               <div class="ai-svc-sep" data-i18n="cloudTtsLabel">☁️ 云端</div>
@@ -846,6 +831,7 @@
   <script src="card.js"></script>
   <script src="ai-api.js"></script>
   <script src="capabilities.js"></script>
+  <script src="tts-voices.js"></script>
   <script src="sidepanel.js"></script>
 </body>
 </html>

@@ -489,165 +489,70 @@ function ttsLangLabel(code) {
   return key;
 }
 
-// 过滤不可用语音：Google 系列语音在部分网络极慢/不可用（外网慢、大陆网连不上），直接隐藏避免困扰。
-// 若全部语音都被过滤（如系统只有 Google TTS），回退展示全部，避免空列表。
-function usableVoices() {
-  const usable = allVoices.filter(v => !/^google[\s-]/i.test(String(v.voiceName || '').trim()));
-  return usable.length ? usable : allVoices;
+// ===== 朗读音色统一（docs/010 §5）：目录 / 语言默认 / 槽位由 tts-voices.js 提供 =====
+// 槽位表：列表同源、配置独立；voice='' = 跟随该语言默认（按朗读文本语言自动选）
+const TTS_SLOT_META = [
+  { slot: 'selection', labelKey: 'ttsSlotSelection' },
+  { slot: 'chatMessage', labelKey: 'ttsSlotChatMessage' },
+  { slot: 'aiAnswer', labelKey: 'ttsSlotAiAnswer' },
+  { slot: 'dictWord', labelKey: 'ttsSlotDictWord' },
+];
+
+function renderTtsSlots() {
+  const host = document.getElementById('ttsSlotTable');
+  if (!host || !window.TABU_TTS) return;
+  const voices = TABU_TTS.listVoices();
+  const groups = new Map();
+  for (const v of voices) {
+    const lang = v.lang || '';
+    if (!groups.has(lang)) groups.set(lang, []);
+    groups.get(lang).push(v);
+  }
+  host.innerHTML = '';
+  for (const meta of TTS_SLOT_META) {
+    const row = document.createElement('label');
+    row.className = 'cfg-row';
+    const name = document.createElement('span');
+    name.textContent = I18N.t(meta.labelKey);
+    name.style.opacity = '.85';
+    name.style.fontSize = '11px';
+    const sel = document.createElement('select');
+    sel.className = 'row-select';
+    sel.style.flex = '1';
+    sel.dataset.slot = meta.slot;
+    sel.appendChild(new Option(I18N.t('ttsVoiceFollowLang'), ''));
+    const langs = Array.from(groups.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+    for (const lang of langs) {
+      const og = document.createElement('optgroup');
+      og.label = lang || '—';
+      for (const v of groups.get(lang)) og.appendChild(new Option(v.name, v.id));
+      sel.appendChild(og);
+    }
+    const cfg = TABU_TTS.slotCfg(meta.slot);
+    sel.value = (cfg.voice && voices.some((v) => v.id === cfg.voice)) ? cfg.voice : '';
+    sel.addEventListener('change', () => TABU_TTS.setSlotVoice(meta.slot, sel.value));
+    row.appendChild(name);
+    row.appendChild(sel);
+    host.appendChild(row);
+  }
 }
 
 async function populateVoices() {
-  const select = document.getElementById('ttsVoiceBlue');
-  const langFilter = document.getElementById('ttsLangFilterBlue');
-  if (!select || !langFilter) return;
+  if (!window.TABU_TTS) return;
   try {
-    // 音色来源：优先 Web SpeechSynthesis（全浏览器通用，Edge 也支持；chrome.tts 在 Edge 不完整），
-    // 为空时回退 chrome.tts.getVoices
-    let voices = [];
-    try {
-      if (window.speechSynthesis) {
-        voices = (speechSynthesis.getVoices() || []).map(v => ({ voiceName: v.name, lang: v.lang }));
-      }
-    } catch (e) {}
-    if (!voices.length) {
-      voices = await new Promise((resolve) => {
-        try { chrome.tts.getVoices((v) => resolve(v || [])); } catch (e) { resolve([]); }
-      });
-    }
-    allVoices = voices;
-    populateInstantDictVoice();
-    // 语言筛选下拉：显示可读名称（随界面语言中/英切换），value 仍为 BCP-47 代码；Google 语音不参与
-    const langSet = new Set();
-    for (const v of usableVoices()) {
-      if (v.lang) langSet.add(v.lang);
-    }
-    const codes = Array.from(langSet);
-    const uiLang = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh') ? 'zh' : 'en';
-    const prev = langFilter.value;
-    langFilter.innerHTML = `<option value="all">${I18N.t('allLanguages')}</option>`;
-    codes.sort((a, b) => ttsLangLabel(a).localeCompare(ttsLangLabel(b), uiLang));
-    for (const code of codes) {
-      const opt = document.createElement('option');
-      opt.value = code;
-      opt.textContent = ttsLangLabel(code);
-      langFilter.appendChild(opt);
-    }
-    // 选中值：优先存储的用户选择；首次（无存储）按系统语言定默认；之后保留 DOM 状态。
-    // 注意：resolveDefaultFilterLang 返回小写 code，需映射回 option 的原始大小写（如 zh-CN），select 才能命中。
-    const mapToOption = (def) => (def === 'all' ? 'all' : (codes.find(c => c.toLowerCase() === def) || 'all'));
-    const st = await chrome.storage.local.get('ttsLangFilterSel').catch(() => ({}));
-    let val;
-    if (st.ttsLangFilterSel && (st.ttsLangFilterSel === 'all' || codes.some(c => c.toLowerCase() === String(st.ttsLangFilterSel).toLowerCase()))) {
-      val = mapToOption(st.ttsLangFilterSel); // 存储的用户选择优先（重开侧边栏后保持）
-      ttsLangFirstRender = false;
-    } else if (ttsLangFirstRender && codes.length > 0) {
-      // 首次拿到真实语音列表才应用系统语言默认（语音懒加载时首次可能为空，等 voiceschanged 再补）
-      val = mapToOption(resolveDefaultFilterLang(codes));
-      ttsLangFirstRender = false;
-    } else {
-      val = prev;
-    }
-    // 保留的值在当前列表里已不存在（语音列表变化）→ 按系统语言重算默认
-    if (val !== 'all' && !codes.some(c => c.toLowerCase() === String(val).toLowerCase())) {
-      val = mapToOption(resolveDefaultFilterLang(codes));
-    }
-    langFilter.value = val;
-    applyVoiceFilter();
-  } catch (e) {
-    console.warn('获取语音列表失败:', e);
-    select.innerHTML = `<option value="">${I18N.t('getVoicesFail')}</option>`;
-  }
+    await TABU_TTS.loadConfig();
+    renderTtsSlots();
+  } catch (e) { console.warn('朗读槽位初始化失败:', e); }
 }
 
-async function applyVoiceFilter() {
-  const select = document.getElementById('ttsVoiceBlue');
-  const langFilter = document.getElementById('ttsLangFilterBlue');
-  if (!select || !langFilter) return;
-  const filterLang = langFilter.value;
-  const pool = usableVoices();
-  const filtered = filterLang === 'all' ? pool : pool.filter(v => v.lang === filterLang);
-  const unique = [];
-  const seen = new Set();
-  for (const v of filtered) {
-    const key = v.voiceName || v.lang;
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(v);
-    }
-  }
-  unique.sort((a, b) => (a.voiceName || '').localeCompare(b.voiceName || ''));
-  select.innerHTML = '';
-  if (unique.length === 0) {
-    select.innerHTML = `<option value="">${I18N.t('noVoices')}</option>`;
-    return;
-  }
-  for (const v of unique) {
-    const opt = document.createElement('option');
-    opt.value = v.voiceName || '';
-    opt.textContent = `${v.voiceName || I18N.t('unnamed')} (${v.lang})${v.gender ? ' ' + v.gender : ''}`;
-    select.appendChild(opt);
-  }
-  // 应用存储的音色；存储音色不在当前列表（换设备/系统语音变化）→ 回退当前界面语言第一个音色 → 第一个
-  try {
-    const st = await chrome.storage.local.get('ttsVoiceSel');
-    const wanted = st.ttsVoiceSel;
-    if (wanted) {
-      const hit = Array.from(select.options).find(o => o.value === wanted);
-      if (hit) {
-        select.value = wanted;
-      } else {
-        const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
-        const wantLang = uiZh ? 'zh' : 'en';
-        const langHit = unique.find(v => String(v.lang || '').toLowerCase().startsWith(wantLang));
-        if (langHit && langHit.voiceName) select.value = langHit.voiceName;
-        logDebug('tts', '存储的音色不在可用列表，已回退: ' + (select.value || '系统默认'), true);
-      }
-    }
-  } catch (e) {}
-  if (select.options.length > 0 && !select.value) select.selectedIndex = 0;
-  mirrorVoiceExtras(select);
-}
-
-// 蓝区系统音色列表 → 同步到主对话面板 i 设置的「音色」与「回复音色」选项
-function mirrorVoiceExtras(voiceSel) {
-  if (!voiceSel) return;
-  const chatVoice = document.getElementById('chatTtsVoice');
-  if (chatVoice) {
-    const cur = chatVoice.value;
-    chatVoice.innerHTML = voiceSel.innerHTML;
-    chatVoice.value = cur;
-  }
-  // LLM 回复音色：首项"跟随系统语音"由 HTML 提供，需保留
-  const prefSel = document.getElementById('aiSpeakVoice');
-  if (prefSel) {
-    const cur = prefSel.value;
-    prefSel.innerHTML = voiceSel.innerHTML;
-    prefSel.insertBefore(new Option(I18N.t('aiSpeakVoiceFollow'), ''), prefSel.firstChild);
-    prefSel.value = cur;
-  }
-}
-
-// 划词即显「朗读音色」：独立于主朗读，列出全部可用系统音色（不随语言筛选收敛）
-function populateInstantDictVoice() {
-  const sel = document.getElementById('instantDictVoice');
-  if (!sel) return;
-  const pool = usableVoices().slice().sort((a, b) => (a.voiceName || '').localeCompare(b.voiceName || ''));
-  const seen = new Set();
-  sel.innerHTML = `<option value="">${I18N.t('instantDictVoiceFollow')}</option>`;
-  for (const v of pool) {
-    const key = v.voiceName || v.lang;
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    const o = document.createElement('option');
-    o.value = v.voiceName || '';
-    o.textContent = `${v.voiceName || I18N.t('unnamed')} (${v.lang})`;
-    sel.appendChild(o);
-  }
-  // 应用存储选择（语音列表可能在启动后才就绪，故每次填充后回填）
-  chrome.storage.local.get('instantDictVoice').then((st) => {
-    const wanted = st.instantDictVoice || '';
-    if (wanted && Array.from(sel.options).some((o) => o.value === wanted)) sel.value = wanted;
-  }).catch(() => {});
+// 文本语言粗判（供「跟随该语言默认」选择音色）
+function ttsLangForText(text) {
+  const s = String(text || '');
+  if (/[\u4e00-\u9fff]/.test(s)) return 'zh-CN';
+  if (/[\u3040-\u30ff]/.test(s)) return 'ja-JP';
+  if (/[\uac00-\ud7af]/.test(s)) return 'ko-KR';
+  if (/[\u0400-\u04ff]/.test(s)) return 'ru-RU';
+  return 'en-US';
 }
 
 // ===== 思维链（思考内容）处理 =====
@@ -758,26 +663,27 @@ function renderMarkdown(src) {
 
 // 系统 TTS 朗读：优先 Web SpeechSynthesis（全浏览器通用——chrome.tts 在 Edge 不完整，
 // 是"选了音色却不发声"的根因）；SpeechSynthesis 不可用/无音色时回退 chrome.tts。
-async function speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride, round) {
+async function speakSystemTtsSafe(text, statusEl, triggerBtn, slot, round) {
   if (round && activeSpeakRound !== round) { logDebug('tts', '#' + round + ' 系统朗读已被取代，跳过'); return; }
-  let voice = voiceOverride || document.getElementById('ttsVoiceBlue')?.value || '';
+  const lang = ttsLangForText(text);
+  const vObj = (window.TABU_TTS && TABU_TTS.resolveVoiceObj(slot || 'selection', lang)) || null;
+  const voice = vObj ? vObj.id : '';
   const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
   const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
   const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
-  const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
-  const wantLang = uiZh ? 'zh' : 'en';
+  const wantLang = String(lang).split('-')[0];
 
   // ① SpeechSynthesis 路径
   try {
     if (window.speechSynthesis) {
       const voices = speechSynthesis.getVoices() || [];
-      // 选中的音色名 → 语音对象；找不到 → 当前界面语言的第一个音色 → 系统默认
+      // 槽位音色（含语言默认）→ 语音对象；找不到 → 按文本语言找 → 系统默认
       let v = voice ? voices.find(x => x.name === voice) : null;
       if (!v) v = voices.find(x => String(x.lang || '').toLowerCase().startsWith(wantLang)) || null;
       if (voices.length && (v || voice)) {
         logDebug('tts', '系统朗读(SpeechSynthesis): voice=' + (v ? v.name : '(默认)') + ' · ' + text.length + ' 字');
         const u = new SpeechSynthesisUtterance(text);
-        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = uiZh ? 'zh-CN' : 'en-US'; }
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = lang; }
         u.rate = Math.max(0.1, Math.min(10, rate));
         u.pitch = Math.max(0, Math.min(2, pitch));
         u.volume = Math.max(0, Math.min(1, volume));
@@ -826,7 +732,7 @@ async function speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride, rou
   }
 }
 
-function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
+function doSpeak(text, statusEl, triggerBtn, forceSystem, slot) {
   if (!text || !text.trim()) {
     showStatus(I18N.t('noTextToSpeak'), 'info');
     if (statusEl) statusEl.textContent = I18N.t('noText');
@@ -864,7 +770,7 @@ function doSpeak(text, statusEl, triggerBtn, forceSystem, voiceOverride) {
         if (statusEl) statusEl.textContent = I18N.t('ttsLocalFallback');
       }
     }
-    await speakSystemTtsSafe(text, statusEl, triggerBtn, voiceOverride, round);
+    await speakSystemTtsSafe(text, statusEl, triggerBtn, slot || 'selection', round);
   });
   showStatus(I18N.t('startSpeaking'), 'success');
   if (statusEl) statusEl.textContent = I18N.t('speakStarting');
@@ -888,7 +794,7 @@ const AUTO_SPEAK_DEDUP_MS = 8000;
 
 // 自动朗读统一入口（工作台/语音管线共用）：按规范化文本 + 时间窗去重，避免双触发读两遍。
 // triggerBtn = 该回答消息底部的小喇叭按钮：传入后朗读期间会切换为「停止」，用户可点击中断。
-function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride, triggerBtn) {
+function autoSpeakAnswer(text, statusEl, forceSystem, slot, triggerBtn) {
   const key = String(text || '').trim();
   if (!key) return;
   const now = Date.now();
@@ -897,7 +803,7 @@ function autoSpeakAnswer(text, statusEl, forceSystem, voiceOverride, triggerBtn)
     return;
   }
   lastAutoSpeak = { key, at: now };
-  doSpeak(key, statusEl, triggerBtn || null, forceSystem, voiceOverride);
+  doSpeak(key, statusEl, triggerBtn || null, forceSystem, slot || 'aiAnswer');
 }
 
 // 当前对话流里最近一条 AI 回答的小喇叭按钮（供自动朗读显示「停止」态）
@@ -991,7 +897,7 @@ async function streamSpeakOne(sentence, token) {
   if (!streamSpeakIsCurrent(token)) return;
   _streamSpeaker.spoke = true;
   if (engine === 'system') {
-    await speakUtteranceOnce(text);
+    await speakUtteranceOnce(text, 'aiAnswer');
   } else {
     // 本地/云端：逐句请求 /speak 播放（顺序，避免重叠；quiet 抑制每句弹提示）
     await speakLocalTts(text, null, null, engine, 0, true);
@@ -1018,21 +924,22 @@ function splitStreamSentences(buf) {
   return { done: merged, rest: pending + rest };
 }
 // 系统 TTS 单句：Promise 于播完/出错/停止时 resolve（供流式队列顺序控制）
-function speakUtteranceOnce(text) {
+function speakUtteranceOnce(text, slot) {
   return new Promise((resolve) => {
     if (!window.speechSynthesis) return resolve();
     try {
+      const lang = ttsLangForText(text);
       const voices = speechSynthesis.getVoices() || [];
-      const voiceName = document.getElementById('ttsVoiceBlue')?.value || '';
-      const uiZh = (document.documentElement.lang || 'zh').toLowerCase().startsWith('zh');
-      const wantLang = uiZh ? 'zh' : 'en';
+      const vObj = (window.TABU_TTS && TABU_TTS.resolveVoiceObj(slot || 'aiAnswer', lang)) || null;
+      const voiceName = vObj ? vObj.id : '';
+      const wantLang = String(lang).split('-')[0];
       let v = voiceName ? voices.find(x => x.name === voiceName) : null;
       if (!v) v = voices.find(x => String(x.lang || '').toLowerCase().startsWith(wantLang)) || null;
       const rate = parseFloat(document.getElementById('ttsRate')?.value) || 1;
       const pitch = parseFloat(document.getElementById('ttsPitch')?.value) || 1;
       const volume = parseFloat(document.getElementById('ttsVolume')?.value) || 1;
       const u = new SpeechSynthesisUtterance(text);
-      if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = uiZh ? 'zh-CN' : 'en-US'; }
+      if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = lang; }
       u.rate = Math.max(0.1, Math.min(10, rate));
       u.pitch = Math.max(0, Math.min(2, pitch));
       u.volume = Math.max(0, Math.min(1, volume));
@@ -1225,7 +1132,7 @@ async function speakFullPage(triggerBtn) {
       if (statusEl) statusEl.textContent = I18N.t('noText');
       return;
     }
-    doSpeak(text, statusEl, triggerBtn || document.getElementById('ttsSpeakFull'));
+    doSpeak(text, statusEl, triggerBtn || document.getElementById('ttsSpeakFull'), false, 'selection');
   } catch (e) {
     showStatus(I18N.t('speakFail') + e.message, 'error');
     if (statusEl) statusEl.textContent = I18N.t('errorPrefix') + e.message;
@@ -2599,19 +2506,13 @@ async function saveThinkingModels() {
   if (statusEl) statusEl.textContent = I18N.t('thinkingListSaved', String(list.length));
   updateThinkingToggleVisibility();
 }
-// LLM 回复音色偏好（'' = 跟随系统语音；仅系统朗读路径生效）
-async function aiSpeakVoicePref() {
-  try {
-    const r = await chrome.storage.local.get('aiSpeakVoice');
-    return r.aiSpeakVoice || '';
-  } catch (e) { return ''; }
-}
+// LLM 回复朗读（音色见蓝区「朗读槽位 · AI 回答」）
 function maybeSpeakAnswer(text) {
   if (!text || !String(text).trim()) return;
-  Promise.all([aiSpeakAnswerEnabled(), aiSpeakVoicePref()]).then(([on, pref]) => {
+  aiSpeakAnswerEnabled().then((on) => {
     if (!on) { logDebug('tts', '自动朗读已关闭（工作台 🔊 开关或蓝区「LLM 回复朗读」）'); return; }
     logDebug('tts', '自动朗读 LLM 回答（' + String(text).length + ' 字）');
-    autoSpeakAnswer(String(text), document.getElementById('injectStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), pref, lastBotSpeakBtn());
+    autoSpeakAnswer(String(text), document.getElementById('injectStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), 'aiAnswer', lastBotSpeakBtn());
   }).catch(() => {});
 }
 function updateAiSpeakToggleUi(on) {
@@ -2738,7 +2639,7 @@ function injectClear() {
 // ========== 蓝层：系统设置 / 版本保留 / 数据管理 ==========
 function speakInputText() {
   const input = document.getElementById('injectInput');
-  doSpeak(input ? input.value : '', document.getElementById('ttsStatus'), document.getElementById('ttsSpeakInput'));
+  doSpeak(input ? input.value : '', document.getElementById('ttsStatus'), document.getElementById('ttsSpeakInput'), false, 'selection');
 }
 
 async function loadBridgeTokenSetting() {
@@ -3335,11 +3236,8 @@ function syncTtsEngineUi() {
   const selChat = voiceField('chatTtsEngine');
   if (selBlue) selBlue.value = engine;
   if (selChat) selChat.value = engine;
-  // i 设置里的音色行仅系统引擎适用（本地/云端音色各自在蓝区配置）
-  const chatVoiceRow = document.getElementById('chatTtsVoiceRow');
-  if (chatVoiceRow) chatVoiceRow.classList.toggle('hidden', engine !== 'system');
   const isLocal = LOCAL_TTS_ENGINES.includes(engine);   // 本地引擎 → 显示本地音色行
-  const isSys = engine === 'system';                     // 系统 → 显示系统音色行
+  const isSys = engine === 'system';                     // 系统 → 显示系统音色行（朗读槽位表）
   // 蓝区 TTS 卡：系统音色行 / 本地音色行 显隐
   const sysRow = document.getElementById('ttsSysVoiceRowBlue');
   const localRow = document.getElementById('ttsLocalVoiceRowBlue');
@@ -4155,7 +4053,7 @@ function toggleSelAiMenu() {
 async function selReadText() {
   const text = await TABU_CAPS.getSelectedText().catch(() => '');
   if (!text || !text.trim()) { showStatus(I18N.t('noSelectionAny'), 'info'); return; }
-  doSpeak(text, document.getElementById('injectStatus'), document.getElementById('selRead'));
+  doSpeak(text, document.getElementById('injectStatus'), document.getElementById('selRead'), false, 'selection');
 }
 // 把选中文本加入对话上下文（替代原素材行「选中文本」按钮）
 async function selAddToContext() {
@@ -4445,7 +4343,7 @@ async function runVoiceCirclePipeline(text) {
       // 工作台自动朗读：默认跟随朗读引擎（voiceCircleForceSystem=true 时固定系统 TTS 即时）
       // 流式朗读开启时：分句队列已随流式喂入，这里只收尾；否则整段朗读（autoSpeakAnswer 去重）
       if (streamOn) streamSpeakEnd(spToken);
-      else autoSpeakAnswer(spoken, document.getElementById('voiceCircleStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), undefined, lastBotSpeakBtn());
+      else autoSpeakAnswer(spoken, document.getElementById('voiceCircleStatus'), !!(currentVoiceConfig && currentVoiceConfig.voiceCircleForceSystem), 'aiAnswer', lastBotSpeakBtn());
       logDebug('voice#' + round, '输出→朗读发起 ' + (performance.now() - tSpk0).toFixed(0) + 'ms');
       logDebug('voice#' + round, '语音闭环总 ' + (performance.now() - tRound).toFixed(0) + 'ms（到发起朗读）');
     } else {
@@ -5299,22 +5197,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (ttsSpeakInput) ttsSpeakInput.addEventListener('click', () => {
     if (activeSpeakBtn === ttsSpeakInput) stopSpeaking(); else speakInputText();
   });
-  // 蓝区系统音色/语言筛选（红区朗读面板已移除，蓝区为唯一来源）
-  const blueLang = document.getElementById('ttsLangFilterBlue');
-  const blueVoice = document.getElementById('ttsVoiceBlue');
-  if (blueLang) blueLang.addEventListener('change', () => {
-    applyVoiceFilter();
-    chrome.storage.local.set({ ttsLangFilterSel: blueLang.value }).catch(() => {});
-  });
-  if (blueVoice) blueVoice.addEventListener('change', () => {
-    chrome.storage.local.set({ ttsVoiceSel: blueVoice.value }).catch(() => {});
-    mirrorVoiceExtras(blueVoice);
-  });
+  // 朗读槽位（音色）由 populateVoices → renderTtsSlots 渲染；此处不再有独立语言筛选
   // OS TTS 引擎常懒加载语音：等 voiceschanged 再补一次列表（首次可能返回空）
   if (window.speechSynthesis && speechSynthesis.addEventListener) {
     speechSynthesis.addEventListener('voiceschanged', () => { populateVoices(); });
   } else if (chrome.tts && chrome.tts.onVoicesChanged) {
-    chrome.tts.onVoicesChanged.addListener(() => { if (allVoices.length === 0) populateVoices(); });
+    chrome.tts.onVoicesChanged.addListener(() => { populateVoices(); });
   }
   // 滑块标签 + 持久化（语速/语调/音量；滑块现位于蓝区 TTS 卡）
   ['ttsRate', 'ttsPitch', 'ttsVolume'].forEach(id => {
@@ -5629,22 +5517,7 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.storage.local.get('instantDictTargetLang').then((r) => { idTarget.value = r.instantDictTargetLang || 'system'; }).catch(() => {});
       idTarget.addEventListener('change', () => chrome.storage.local.set({ instantDictTargetLang: idTarget.value }).catch(() => {}));
     }
-    // 朗读音色（独立于主朗读）：选项在 populateVoices 后由 populateInstantDictVoice 填充
-    populateInstantDictVoice();
-    const idVoice = document.getElementById('instantDictVoice');
-    if (idVoice) idVoice.addEventListener('change', () => chrome.storage.local.set({ instantDictVoice: idVoice.value }).catch(() => {}));
-    const idVoiceTest = document.getElementById('instantDictVoiceTest');
-    if (idVoiceTest) idVoiceTest.addEventListener('click', () => {
-      try {
-        if (!window.speechSynthesis) return;
-        const name = (idVoice && idVoice.value) || '';
-        const u = new SpeechSynthesisUtterance('wooden / 敏捷');
-        const v = name ? (speechSynthesis.getVoices() || []).find((x) => x.name === name) : null;
-        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'en-US'; }
-        speechSynthesis.cancel();
-        speechSynthesis.speak(u);
-      } catch (e) {}
-    });
+    // 划词朗读音色见蓝区「🗣 朗读」的「朗读槽位 · 划词即显」
   }
   // ===== 蓝层：AI 服务（P0-B） =====
   const aiSaveBtn = document.getElementById('aiSaveBtn');
@@ -5764,16 +5637,11 @@ document.addEventListener('DOMContentLoaded', () => {
       chrome.storage.local.set({ chatVoiceBehavior }).catch(() => {});
     });
   });
-  // i 设置：识别后端 / 朗读引擎 / 系统音色 / 语速（与红区面板、蓝区双向同步）
+  // i 设置：识别后端 / 朗读引擎 / 语速（与红区面板、蓝区双向同步；音色统一在蓝区「朗读槽位」）
   const chatAsrBackend = document.getElementById('chatAsrBackend');
   if (chatAsrBackend) chatAsrBackend.addEventListener('change', () => setAsrBackend(chatAsrBackend.value));
   const chatTtsEngine = document.getElementById('chatTtsEngine');
   if (chatTtsEngine) chatTtsEngine.addEventListener('change', () => setTtsEngine(chatTtsEngine.value));
-  const chatTtsVoice = document.getElementById('chatTtsVoice');
-  if (chatTtsVoice) chatTtsVoice.addEventListener('change', () => {
-    const blue = document.getElementById('ttsVoiceBlue');
-    if (blue) { blue.value = chatTtsVoice.value; blue.dispatchEvent(new Event('change')); }
-  });
   const chatTtsRate = document.getElementById('chatTtsRate');
   if (chatTtsRate) {
     const label = document.getElementById('chatTtsRateLabel');
@@ -5811,7 +5679,7 @@ document.addEventListener('DOMContentLoaded', () => {
     clone.querySelectorAll('b, .msg-actions').forEach((n) => n.remove());
     const text = (clone.innerText || clone.textContent || '').trim();
     if (!text) return;
-    doSpeak(text, document.getElementById('injectStatus'), btn);
+    doSpeak(text, document.getElementById('injectStatus'), btn, false, 'chatMessage');
   });
   // 蓝区「LLM 回复朗读」：自动朗读开关（与工作台 🔊 双向同步）+ 回复音色
   const speakAnswerBlue = document.getElementById('aiSpeakAnswerBlue');
@@ -5829,11 +5697,6 @@ document.addEventListener('DOMContentLoaded', () => {
     streamSpeakBlue.addEventListener('change', () => setStreamSpeakPref(streamSpeakBlue.checked));
   } else {
     loadStreamSpeakPref().catch(() => {});
-  }
-  const aiSpeakVoiceSel = document.getElementById('aiSpeakVoice');
-  if (aiSpeakVoiceSel) {
-    aiSpeakVoicePref().then((v) => { aiSpeakVoiceSel.value = v; }).catch(() => {});
-    aiSpeakVoiceSel.addEventListener('change', () => chrome.storage.local.set({ aiSpeakVoice: aiSpeakVoiceSel.value }).catch(() => {}));
   }
   if (voiceOutputClearBtn) voiceOutputClearBtn.addEventListener('click', voiceOutputClear);
   renderVoiceOutputState();

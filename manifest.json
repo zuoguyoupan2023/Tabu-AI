@@ -64,6 +64,7 @@
         "<all_urls>"
       ],
       "js": [
+        "tts-voices.js",
         "content/instant-dict.js"
       ],
       "run_at": "document_idle",
