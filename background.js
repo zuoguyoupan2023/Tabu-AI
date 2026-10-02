@@ -746,6 +746,32 @@ function loadEcdict() {
   _ecdictLoading.catch(() => { _ecdictLoading = null; _ecdictMap = null; });
   return _ecdictLoading;
 }
+// 中文反向索引（data/ecdict-zh-rev.json.gz）：中文释义词 → 英文词头，zh→en 离线对照用
+let _ecdictRev = null, _ecdictRevLoading = null;
+function loadEcdictRev() {
+  if (_ecdictRev) return Promise.resolve(_ecdictRev);
+  if (_ecdictRevLoading) return _ecdictRevLoading;
+  _ecdictRevLoading = (async () => {
+    const url = chrome.runtime.getURL('data/ecdict-zh-rev.json.gz');
+    const buf = await (await fetch(url)).arrayBuffer();
+    const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+    _ecdictRev = new Map(Object.entries(JSON.parse(text)));
+    return _ecdictRev;
+  })();
+  _ecdictRevLoading.catch(() => { _ecdictRevLoading = null; _ecdictRev = null; });
+  return _ecdictRev;
+}
+// 中文词 → 英文词头候选：尝试 原词 / 原词+「的」 / 去「的了地」三种形态
+async function ecdictRevLookup(text) {
+  const rev = await loadEcdictRev();
+  const t = text.trim();
+  for (const key of [t, t + '的', t.replace(/[的了地]$/, '')]) {
+    if (!key) continue;
+    const arr = rev.get(key);
+    if (arr && arr.length) return arr;
+  }
+  return [];
+}
 
 // 词形还原候选（-s/-es/-ed/-ing/-er/-est/-ly/'s + 双写辅音）
 function lemmaCandidates(word) {
@@ -780,19 +806,28 @@ function idDetectLang(text) {
   if (/[\uac00-\ud7af]/.test(text)) return 'ko';
   if (/[\u0400-\u04ff]/.test(text)) return 'ru';
   if (/[\u4e00-\u9fff]/.test(text)) return 'zh';
-  if (/^[a-zA-Z'’\-]+$/.test(text)) return 'en';
+  if (/^[a-zA-Z''\-]+$/.test(text)) return 'en';
   return 'en'; // 其他拉丁文默认按英文尝试（ECDICT miss 后仍有 gtx auto 兜底）
 }
 
 // Google gtx 通道：dt=t 翻译 / dt=bd 词典义 / dt=rm 罗马音（dj=1 返回 JSON 对象）
+// 熔断器：gtx 连续失败 2 次（如国内网络不可达）→ 5 分钟内直接跳过，避免每次白等超时
+let _gtxFails = 0, _gtxDownUntil = 0;
+function gtxAvailable() { return Date.now() >= _gtxDownUntil; }
 async function gtxFetch(text, sl, tl, dt) {
+  if (!gtxAvailable()) throw new Error('gtx circuit-open');
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl || 'auto')}&tl=${encodeURIComponent(tl)}&dt=${dt}&dj=1&q=${encodeURIComponent(text)}`;
   const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 8000);
+  const to = setTimeout(() => ctrl.abort(), 5000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
     if (!r.ok) throw new Error('gtx ' + r.status);
-    return await r.json();
+    const j = await r.json();
+    _gtxFails = 0;
+    return j;
+  } catch (e) {
+    if (++_gtxFails >= 2) _gtxDownUntil = Date.now() + 300000;
+    throw e;
   } finally { clearTimeout(to); }
 }
 async function gtxTranslate(text, sl, tl) {
@@ -814,35 +849,74 @@ async function gtxCard(text, sl, tl) {
   }
 }
 
+// MyMemory 兜底（gtx 不可达时；长文本按句切块，避开单请求长度限制）
+async function mymemoryFetch(text, sl, tl) {
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(sl + '|' + tl)}`;
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    const j = await r.json();
+    const out = j && j.responseData && j.responseData.translatedText;
+    if (!out || /MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID/i.test(out)) throw new Error('mymemory');
+    return out;
+  } finally { clearTimeout(to); }
+}
+async function mymemoryTranslate(text, sl, tl) {
+  const pieces = [];
+  let rest = String(text || '').trim();
+  if (!rest) return '';
+  // 先按句子边界切，超长块再硬切到 450 字符
+  const sentences = rest.split(/(?<=[.!?。！？])\s*/);
+  let buf = '';
+  const flush = () => { if (buf.trim()) pieces.push(buf.trim()); buf = ''; };
+  for (const sRaw of sentences) {
+    let s = sRaw;
+    while (s.length > 450) { flush(); pieces.push(s.slice(0, 450)); s = s.slice(450); }
+    if ((buf + ' ' + s).trim().length > 450) flush();
+    buf = (buf ? buf + ' ' : '') + s;
+  }
+  flush();
+  const outs = [];
+  for (const p of pieces) outs.push(await mymemoryFetch(p, sl, tl));
+  return outs.join(' ');
+}
+
 async function idWord(text, targetLang) {
   const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
   const src = idDetectLang(text);
   const toZh = tl.startsWith('zh'), toEn = tl === 'en';
-  // 英文词：目标中文 → ECDICT 全卡；目标英文 → ECDICT 英英卡；其他目标/miss → gtx 基础卡
+  // 英文词：目标中文 → ECDICT 全卡（离线）；目标英文 → ECDICT 英英卡；miss → gtx 基础卡
   if (src === 'en' && (toZh || toEn)) {
-    const hit = await ecdictLookup(text);
+    let hit = null;
+    try { hit = await ecdictLookup(text); } catch (e) { hit = null; } // 词典加载失败不致命 → 走在线兜底
     if (hit) {
       const [phonetic, defEn, defZh, , badge] = hit.e;
       return { ok: true, kind: 'entry', tier: 'ecdict', source: toZh ? text : '', headword: hit.word, phonetic, gloss: defEn, native: toZh ? defZh : '', extra: badge };
     }
-    return await gtxCard(text, 'auto', tl);
+    return await gtxCard(text, 'en', tl);
   }
-  // 中文词 → 英文：gtx 取 headword → ECDICT 补音标/英释义；miss → gtx 基础卡
+  // 中文词 → 英文：headword 顺序 gtx → 离线反向索引 → MyMemory；再 ECDICT 补音标/释义（离线）
   if (src === 'zh' && toEn) {
+    let head = '', roman = '', via = 'gtx';
     try {
       const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm');
-      const head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
-      if (!head) throw new Error('empty');
-      const roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
-      const hit = await ecdictLookup(head.split(/\s+/)[0].replace(/[^A-Za-z'’-]/g, '') || head);
-      if (hit) {
-        const [phonetic, defEn, defZh, , badge] = hit.e;
-        return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge };
-      }
-      return { ok: true, kind: 'entry', tier: 'gtx', source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '' };
-    } catch (e) {
-      return { ok: false, reason: 'network' };
+      head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
+      roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
+    } catch (e) {}
+    if (!head) {
+      const cands = await ecdictRevLookup(text).catch(() => []);
+      if (cands.length) { head = cands[0]; via = 'ecdict'; }
     }
+    if (!head) { try { head = (await mymemoryTranslate(text, 'zh-CN', 'en')).trim(); via = 'mymemory'; } catch (e) {} }
+    if (!head) return { ok: false, reason: 'network' };
+    let hit = null;
+    try { hit = await ecdictLookup(head.split(/\s+/)[0].replace(/[^A-Za-z''-]/g, '') || head); } catch (e) { hit = null; }
+    if (hit) {
+      const [phonetic, defEn, defZh, , badge] = hit.e;
+      return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge };
+    }
+    return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '' };
   }
   // 中文词 → 中文目标（同语言）：改查英文对照（学习兜底）；其余语言对 → gtx 基础卡
   if (src === 'zh' && toZh) return await idWord(text, 'en');
@@ -851,14 +925,19 @@ async function idWord(text, targetLang) {
 
 async function idSentence(text, targetLang) {
   const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
+  // 1) gtx（主源，熔断保护）
   try {
     const j = await gtxFetch(text, 'auto', tl, 't');
     const trans = (j.sentences || []).map((s) => s.trans || '').join('');
-    if (!trans) throw new Error('empty');
-    return { ok: true, kind: 'translation', text: trans, via: 'google', source: text };
-  } catch (e) {
-    return { ok: false, reason: 'network' };
-  }
+    if (trans) return { ok: true, kind: 'translation', text: trans, via: 'google', source: text };
+  } catch (e) {}
+  // 2) MyMemory 兜底（源语言启发式检测；gtx 被熔断时零等待直连）
+  try {
+    const sl = idDetectLang(text) === 'zh' ? 'zh-CN' : idDetectLang(text);
+    const trans = await mymemoryTranslate(text, sl, tl);
+    if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text };
+  } catch (e) {}
+  return { ok: false, reason: 'network' };
 }
 
 async function instantDictLookup(req) {
@@ -868,11 +947,16 @@ async function instantDictLookup(req) {
   if (cached) return cached;
   if (_idInflight.has(key)) return _idInflight.get(key);
   const p = (async () => {
-    const resp = req.mode === 'word'
-      ? await idWord(String(req.text || ''), req.targetLang)
-      : await idSentence(String(req.text || ''), req.targetLang);
-    if (resp && resp.ok) await idCacheSet(key, resp);
-    return resp;
+    try {
+      const resp = req.mode === 'word'
+        ? await idWord(String(req.text || ''), req.targetLang)
+        : await idSentence(String(req.text || ''), req.targetLang);
+      if (resp && resp.ok) await idCacheSet(key, resp);
+      return resp || { ok: false, reason: 'network' };
+    } catch (e) {
+      // 任何意外异常都返回结构化错误（否则会变成通用 {success:false}，前端误报"网络不可用"）
+      return { ok: false, reason: 'network' };
+    }
   })();
   _idInflight.set(key, p);
   try { return await p; } finally { _idInflight.delete(key); }

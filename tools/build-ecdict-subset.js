@@ -72,14 +72,34 @@ function main() {
   const json = JSON.stringify(dict);
   const gz = zlib.gzipSync(Buffer.from(json), { level: 9 });
 
+  // 反向索引：中文释义词 → 英文词头（zh→en 离线对照，docs/009 §3.1；频率序即权重序）
+  const zhRev = {};
+  for (const r of picked) {
+    if (!r.defZh) continue;
+    const terms = r.defZh.split('\n').join('，')
+      .replace(/(^|\s)[a-zA-Z.]+\s/g, '$1')   // 去行首词性标记（n. / v. / a. ...）
+      .split(/[，,；;、\s]+/).map(s => s.trim())
+      .filter(s => s.length >= 1 && s.length <= 4 && /^[\u4e00-\u9fff]+$/.test(s))
+      .slice(0, 6);
+    for (const term of terms) {
+      const arr = zhRev[term] || (zhRev[term] = []);
+      if (arr.length < 3 && !arr.includes(r.word.toLowerCase())) arr.push(r.word.toLowerCase());
+    }
+  }
+  const revJson = JSON.stringify(zhRev);
+  const revGz = zlib.gzipSync(Buffer.from(revJson), { level: 9 });
+
   fs.mkdirSync(path.join(__dirname, '..', 'data'), { recursive: true });
   const out = path.join(__dirname, '..', 'data', 'ecdict-top50k.json.gz');
   fs.writeFileSync(out, gz);
+  const outRev = path.join(__dirname, '..', 'data', 'ecdict-zh-rev.json.gz');
+  fs.writeFileSync(outRev, revGz);
 
   const mb = (n) => (n / 1048576).toFixed(2) + 'MB';
-  console.log(`[build] 全量 ${total} 条 → 入选 ${picked.length} 条`);
-  console.log(`[build] 原始 JSON ${mb(json.length)} → gzip ${mb(gz.length)} → ${out}`);
-  if (gz.length <= LIMIT_MB * 1048576) {
+  console.log(`[build] 全量 ${total} 条 → 入选 ${picked.length} 条，反向索引 ${Object.keys(zhRev).length} 个中文词`);
+  console.log(`[build] 词典原始 ${mb(json.length)} → gzip ${mb(gz.length)} → ${out}`);
+  console.log(`[build] 反向原始 ${mb(revJson.length)} → gzip ${mb(revGz.length)} → ${outRev}`);
+  if (gz.length <= LIMIT_MB * 1048576 && revGz.length <= LIMIT_MB * 1048576) {
     console.log(`[build] ✅ gzip 产物 ≤ ${LIMIT_MB}MB → 随扩展打包（docs/009 §3.1 体积规则）`);
   } else {
     console.log(`[build] ⚠️ gzip 产物 > ${LIMIT_MB}MB → 按 009 §3.1 应切 CDN 模式：产物上传 Release/jsDelivr，扩展首用时拉取缓存`);

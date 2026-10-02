@@ -145,7 +145,7 @@
   // 词条卡：source(原词)/sourceRoman + headword/phonetic + gloss(目标语释义) + native(中文释义)
   function renderEntry(d, rect) {
     ensureHost();
-    const via = d.tier === 'ecdict' ? t('viaEcdict') : d.tier === 'gtx' ? t('viaGoogle') : d.tier === 'llm' ? t('viaLlm') : '';
+    const via = d.tier === 'ecdict' ? t('viaEcdict') : d.tier === 'mymemory' ? t('viaMymemory') : d.tier === 'gtx' ? t('viaGoogle') : d.tier === 'llm' ? t('viaLlm') : '';
     const srcLine = (d.source && d.source !== d.headword)
       ? `<div class="src">${esc(d.source)}${d.sourceRoman ? `<i class="srcroman">${esc(d.sourceRoman)}</i>` : ''}</div>` : '';
     const hwLine = d.headword
