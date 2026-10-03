@@ -2752,11 +2752,114 @@ function initBsecFolds() {
   layer.addEventListener('change', scheduleBsecSummaries);
 }
 
+// ========== 蓝区粘性导航（docs/010 P2 §4.4）：锚点点击展开+滚动，滚动高亮当前分区 ==========
+function initBlueNav() {
+  const nav = document.getElementById('blueNav');
+  const layer = document.getElementById('layer-blue');
+  if (!nav || !layer) return;
+  nav.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.blue-nav-btn');
+    if (!btn) return;
+    const key = btn.dataset.nav;
+    const sec = layer.querySelector(`.bsec[data-bsec="${key}"]`);
+    if (!sec) return;
+    if (sec.classList.contains('folded')) {
+      sec.classList.remove('folded');
+      const head = sec.querySelector('.bsec-head');
+      if (head) head.setAttribute('aria-expanded', 'true');
+      setBlueFold(key, false);
+    }
+    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  // 当前分区高亮：滚动时找视口上缘所在分区（setTimeout 节流——后台/遮挡环境 rAF 可能冻结，010 P0 教训）
+  let navTick = 0;
+  layer.addEventListener('scroll', () => {
+    if (navTick) return;
+    navTick = setTimeout(() => {
+      navTick = 0;
+      const top = layer.getBoundingClientRect().top + 90;
+      let cur = null;
+      layer.querySelectorAll('.bsec').forEach((sec) => {
+        const r = sec.getBoundingClientRect();
+        if (r.top <= top && r.bottom > top) cur = sec.dataset.bsec;
+      });
+      nav.querySelectorAll('.blue-nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.nav === cur));
+    }, 120);
+  }, { passive: true });
+}
+
+// ========== 蓝区设置搜索（docs/010 P2 §4.5）：中英即时过滤，命中分区展开+行高亮，清空恢复原折叠 ==========
+let _blueSearchSavedFold = null;
+let _blueSearchTimer = 0;
+function initBlueSearch() {
+  const input = document.getElementById('blueSearchInput');
+  const clearBtn = document.getElementById('blueSearchClear');
+  const layer = document.getElementById('layer-blue');
+  if (!input || !layer) return;
+  const rowText = (el) => {
+    let t = el.textContent || '';
+    el.querySelectorAll('input[placeholder]').forEach((i) => { t += ' ' + (i.placeholder || ''); });
+    return t.toLowerCase();
+  };
+  const apply = () => {
+    const q = (input.value || '').trim().toLowerCase();
+    if (clearBtn) clearBtn.classList.toggle('hidden', !q);
+    layer.classList.toggle('searching', !!q);
+    const secs = [...layer.querySelectorAll('.bsec')];
+    if (!q) {
+      // 清空：恢复原折叠状态（含二级 fold），去掉命中高亮
+      secs.forEach((sec) => {
+        sec.classList.remove('search-hit');
+        sec.querySelectorAll('.search-hit-row').forEach((el) => el.classList.remove('search-hit-row'));
+      });
+      if (_blueSearchSavedFold) {
+        blueFold = { ...BSEC_DEFAULT_FOLD, ..._blueSearchSavedFold };
+        _blueSearchSavedFold = null;
+        applyBlueFold();
+      }
+      return;
+    }
+    if (!_blueSearchSavedFold) _blueSearchSavedFold = { ...blueFold };
+    secs.forEach((sec) => {
+      const hit = rowText(sec).includes(q);
+      sec.classList.toggle('search-hit', hit);
+      sec.classList.toggle('folded', !hit);
+      const head = sec.querySelector('.bsec-head');
+      if (head) head.setAttribute('aria-expanded', String(hit));
+      // 命中行高亮 + 命中行所在的二级折叠也展开（仅视觉；清空时 applyBlueFold 恢复）
+      sec.querySelectorAll('.fold[data-fold]').forEach((f) => {
+        const fHit = [...f.querySelectorAll('.cfg-row, .row-card, .hint, .ai-svc-sep')].some((el) => rowText(el).includes(q));
+        f.classList.toggle('folded', !fHit);
+        const fh = f.querySelector('.fold-head');
+        if (fh) fh.setAttribute('aria-expanded', String(fHit));
+        f.querySelectorAll('.cfg-row, .row-card, .hint, .ai-svc-sep').forEach((el) => {
+          el.classList.toggle('search-hit-row', rowText(el).includes(q));
+        });
+      });
+      sec.querySelectorAll(':scope > .bsec-body .cfg-row, :scope > .bsec-body .row-card, :scope > .bsec-body .hint').forEach((el) => {
+        el.classList.toggle('search-hit-row', rowText(el).includes(q));
+      });
+    });
+  };
+  input.addEventListener('input', () => {
+    if (_blueSearchTimer) clearTimeout(_blueSearchTimer);
+    _blueSearchTimer = setTimeout(() => { _blueSearchTimer = 0; apply(); }, 150);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { input.value = ''; apply(); input.blur(); }
+  });
+  if (clearBtn) clearBtn.addEventListener('click', () => { input.value = ''; apply(); input.focus(); });
+}
+
 // 摘要行：合并 120ms 内多次触发（logDebug 高频）；用 setTimeout 而非 rAF——后台/遮挡时 rAF 可能被节流不触发
 let _bsecSumTimer = 0;
 function scheduleBsecSummaries() {
   if (_bsecSumTimer) return;
-  _bsecSumTimer = setTimeout(() => { _bsecSumTimer = 0; updateBsecSummaries(); }, 120);
+  _bsecSumTimer = setTimeout(() => {
+    _bsecSumTimer = 0;
+    updateBsecSummaries();
+    updateRedStatusStrip(); // 识别/朗读引擎等变化时红区状态条跟随（mode 缺省→读当前渠道）
+  }, 120);
 }
 
 function updateBsecSummaries() {
@@ -5103,7 +5206,7 @@ async function syncAiBackendUi() {
     siteRow.classList.toggle('api-mode', mode === 'api');
     siteRow.classList.toggle('local-mode', mode === 'local');
   }
-  updateChannelBadge(mode);
+  updateRedStatusStrip(mode);
   if (hint) {
     if (mode === 'api') {
       if (apiConfigured) {
@@ -5133,14 +5236,21 @@ async function syncAiBackendUi() {
   updateThinkingToggleVisibility();
 }
 
-// ========== 顶栏渠道徽章：常显当前渠道·供应商，点击直达渠道设置（2026-10-03） ==========
-function updateChannelBadge(mode) {
-  const badge = document.getElementById('aiChannelBadge');
-  if (!badge) return;
-  let text = '';
+// ========== 红区底部状态条：常显 LLM 渠道·供应商 / 识别后端 / 朗读引擎（2026-10-03 反馈：重要但不占顶部视觉主区） ==========
+function updateRedStatusStrip(mode) {
+  const llm = document.getElementById('rsLlm');
+  const asr = document.getElementById('rsAsr');
+  const tts = document.getElementById('rsTts');
+  if (!llm || !asr || !tts) return;
+  if (!mode) {
+    getEffectiveAiMode().then((m) => updateRedStatusStrip(m)).catch(() => {});
+    return;
+  }
+  // LLM 段：渠道·供应商（原顶栏徽章逻辑下移）
+  let llmText = '';
   if (mode === 'inject') {
     const siteSel = document.getElementById('injectSite');
-    text = '🌐 ' + ((siteSel && siteSel.selectedOptions[0]) ? siteSel.selectedOptions[0].textContent.trim() : '');
+    llmText = '🌐 ' + ((siteSel && siteSel.selectedOptions[0]) ? siteSel.selectedOptions[0].textContent.trim() : '');
   } else if (mode === 'api') {
     let label = '';
     const prov = aiField('aiProvider');
@@ -5149,22 +5259,28 @@ function updateChannelBadge(mode) {
     } else if (prov.selectedOptions[0]) {
       label = prov.selectedOptions[0].textContent.trim();
     }
-    text = '🔑 ' + (label || 'API');
+    llmText = '🔑 ' + (label || 'API');
   } else {
-    text = '💻 ' + I18N.t('aiChannelLocal');
+    llmText = '💻 ' + I18N.t('aiChannelLocal');
   }
-  badge.textContent = text;
-  badge.classList.remove('warn');
-  badge.title = I18N.t('tipChannel');
-  badge.setAttribute('aria-label', badge.title);
+  llm.textContent = llmText;
+  llm.classList.remove('warn');
+  llm.title = I18N.t('tipChannel');
+  llm.setAttribute('aria-label', llm.title);
+  // 识别段：当前识别后端（显式选择）
+  const asrSel = document.getElementById('asrBackendBlue');
+  asr.textContent = '🎙 ' + ((asrSel && asrSel.selectedOptions[0]) ? asrSel.selectedOptions[0].textContent.trim() : '—');
+  // 朗读段：当前朗读引擎（显式选择）
+  const ttsSel = document.getElementById('ttsEngineBlue');
+  tts.textContent = '🗣 ' + ((ttsSel && ttsSel.selectedOptions[0]) ? ttsSel.selectedOptions[0].textContent.trim() : '—');
   if (mode === 'local') {
-    // 本地服务不可达 → ⚠️ 红色预警（localReachable 自带 5s 缓存）
+    // 本地服务不可达 → ⚠️（localReachable 自带 5s 缓存）
     localReachable().then((ok) => {
       if (ok) return;
-      badge.textContent = text + ' ⚠️';
-      badge.classList.add('warn');
-      badge.title = I18N.t('aiChannelLocalDown');
-      badge.setAttribute('aria-label', badge.title);
+      llm.textContent = llmText + ' ⚠️';
+      llm.classList.add('warn');
+      llm.title = I18N.t('aiChannelLocalDown');
+      llm.setAttribute('aria-label', llm.title);
     }).catch(() => {});
   }
 }
@@ -5413,6 +5529,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // ===== 蓝区折叠分区（docs/010 P0）：委托切换 + blueFold 恢复（尽早，不依赖后续初始化） =====
   initBsecFolds();
   loadBlueFold();
+  initBlueNav();
+  initBlueSearch();
 
   // ===== 红蓝层切换 =====
   document.querySelectorAll('.layer-btn').forEach(btn => {
@@ -5778,9 +5896,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (aiBackendInject) aiBackendInject.addEventListener('click', () => setAiMode('inject'));
   const aiBackendApi = document.getElementById('aiBackendApi');
   if (aiBackendApi) aiBackendApi.addEventListener('click', () => setAiMode('api'));
-  // 顶栏渠道徽章：点击直达渠道设置
-  const aiChannelBadge = document.getElementById('aiChannelBadge');
-  if (aiChannelBadge) aiChannelBadge.addEventListener('click', openChannelSettings);
+  // 红区底部状态条：LLM 段点击直达渠道设置
+  const rsLlmSeg = document.getElementById('rsLlm');
+  if (rsLlmSeg) rsLlmSeg.addEventListener('click', openChannelSettings);
 
   // ===== 线条图标注入（data-icon → TABU_ICONS SVG，替代 emoji） =====
   document.querySelectorAll('[data-icon]').forEach(el => {

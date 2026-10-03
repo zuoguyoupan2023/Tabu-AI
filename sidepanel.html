@@ -60,7 +60,6 @@
             </div>
             <button class="chip head-speak" id="aiSpeakToggle" data-i18n="aiSpeakOn" data-tip="tipSpeak">🔊 自动朗读</button>
             <button class="chat-new-btn" id="injectNewChat" data-i18n-title="aiNewChatTitle" title="关闭旧的 AI 页面并打开新对话">➕</button>
-            <button class="chip head-channel" id="aiChannelBadge" data-tip="tipChannel"></button>
             <span id="injectCapBadges" class="cap-badges"></span>
             <button class="chat-i-btn" id="chatSettingsToggle" data-i18n-title="chatSettingsTitle" title="设置">i</button>
           </div>
@@ -288,10 +287,35 @@
         </div>
 
         </div><!-- /upper-section -->
+
+        <!-- 红区底部状态条（2026-10-03 反馈：用哪个 LLM/识别/朗读 重要，但不占顶部视觉主区） -->
+        <div class="red-status-strip" id="redStatusStrip">
+          <button type="button" class="rs-seg rs-llm" id="rsLlm" data-i18n-title="tipChannel" title="当前 AI 渠道（点击修改）"></button>
+          <span class="rs-sep">·</span>
+          <span class="rs-seg" id="rsAsr"></span>
+          <span class="rs-sep">·</span>
+          <span class="rs-seg" id="rsTts"></span>
+        </div>
       </div>
 
       <!-- ================= 蓝层 ================= -->
       <div class="layer" id="layer-blue">
+
+        <!-- 蓝区顶部粘性导航 + 设置搜索（010 P2 §4.4/§4.5） -->
+        <div class="blue-topbar" id="blueTopbar">
+          <nav class="blue-nav" id="blueNav" role="navigation">
+            <button type="button" class="blue-nav-btn" data-nav="quick" data-i18n-title="bsecQuick" title="快速设置">⚡</button>
+            <button type="button" class="blue-nav-btn" data-nav="ai" data-i18n-title="bsecAi" title="AI 能力中心">💬</button>
+            <button type="button" class="blue-nav-btn" data-nav="card" data-i18n-title="bsecCard" title="卡片工具">💳</button>
+            <button type="button" class="blue-nav-btn" data-nav="log" data-i18n-title="bsecHistLog" title="历史与日志">📜</button>
+            <button type="button" class="blue-nav-btn" data-nav="data" data-i18n-title="bsecData" title="数据与备份">🗄️</button>
+            <button type="button" class="blue-nav-btn" data-nav="about" data-i18n-title="bsecAbout" title="关于">ℹ️</button>
+          </nav>
+          <div class="blue-search">
+            <input type="text" id="blueSearchInput" data-i18n-placeholder="blueSearchPh" placeholder="搜索设置：azure / 朗读 / 快照…" autocomplete="off" />
+            <button type="button" class="blue-search-clear hidden" id="blueSearchClear" data-i18n-title="blueSearchClearTitle" title="清空搜索">✕</button>
+          </div>
+        </div>
 
         <!-- ① 快速设置（010 P0：划词即显 / 注入输入 / 终端桥接） -->
         <section class="bsec" data-bsec="quick">
