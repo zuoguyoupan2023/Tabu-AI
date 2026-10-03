@@ -548,6 +548,20 @@ input, select, textarea { font-family: var(--font); }
 /* 运行日志体折叠（④ 内部，blueFold['log.body']）；头行可点 */
 .debug-log-head { cursor: pointer; }
 .debug-log.folded .fold-body { grid-template-rows: 0fr; }
+/* ===== 顶栏渠道徽章（2026-10-03 反馈：本地/浏览器/API 与站点供应商混淆）===== */
+.chip.head-channel { flex: 0 1 auto; padding: 8px 10px; white-space: nowrap; font-weight: 700; max-width: 42%; overflow: hidden; text-overflow: ellipsis; }
+.chip.head-channel.warn { background: rgba(239,68,68,.45); }
+/* 本地版下「发送到」站点不生效 → 置灰提示 */
+.cfg-row.local-mode { opacity: .45; }
+/* ===== 能力卡二级折叠（docs/010 P1）：凭据/高级层，状态并入 blueFold（key 如 ai.tts.cloud）===== */
+.fold { border: 1px solid var(--line); border-radius: 8px; margin: 8px 0 2px; background: rgba(0,0,0,.1); }
+.fold-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; background: none; border: none; color: inherit; font-size: 11px; font-weight: 700; letter-spacing: .4px; text-align: left; }
+.fold-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold-head .bsec-chevron { flex: none; }
+.fold.folded .fold-head .bsec-chevron { transform: rotate(-90deg); }
+/* ===== 危险区 + 确认弹窗（docs/010 P1 §4.3）===== */
+.danger-card { border-color: rgba(239,68,68,.4); }
+.confirm-actions { display: flex; gap: 8px; justify-content: flex-end; padding: 0 14px 14px; }
 .btn-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .btn-row button { background: var(--glass-strong); color: #fff; font-size: 12px; font-weight: 600; padding: 12px 0; border-radius: 7px; transition: background .2s; }
 .btn-row button:hover { background: rgba(255,255,255,.3); }

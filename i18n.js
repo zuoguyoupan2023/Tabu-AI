@@ -141,7 +141,7 @@ const I18N = (() => {
       chatThinking: '💭 思考：',
       ttsReadThinkingLabel: '朗读时包含 AI 思考内容（默认只读正文）',
       ttsLocalFallback: '⚠️ 本地/云端朗读引擎不可用，已回退系统 TTS',
-      capAutoTtsRow: '🔄 自动按可达性回退（本地在线→本地引擎，否则系统 TTS；朗读运行失败亦自动回退系统）',
+      capAutoTtsRow: '🔄 自动按可达性回退（本地在线→本地，否则系统）',
       capAutoAsrRow: '🔄 自动按可达性回退（本地在线→本地 asr-server，否则用下方所选后端）',
       capAutoLlmRow: '🔄 自动按可达性回退（本地在线→本地；否则 API 已配置→API；再否则页面注入）',
       ttsBlueVoiceHint: '系统音色/语速/音调/音量在此设置；朗读动作在红区（选区条「朗读」、对话流「朗读回答」、i 设置里「朗读全文/输入框」）。',
@@ -473,6 +473,29 @@ const I18N = (() => {
       bsecSumCard: '点开编辑',
       bsecSumLog: '最新 {0}',
       bsecSumData: '快照 {0} · 书签 {1} · 历史 {2} · {3} 天',
+
+      // 渠道徽章与本地版说明（2026-10-03 反馈：渠道/供应商混淆）
+      tipChannel: '当前 AI 渠道（点击修改）',
+      aiChannelLocal: '本地',
+      aiChannelLocalDown: '本地服务未运行（asr-server），发送会失败；点击打开渠道设置',
+      aiModeLocalHint: '💻 本地版：由本机 asr-server（{0}）的本地 LLM 直接回答，不经网页注入；「发送到」站点在本地版下不生效。',
+      aiModeLocalDown: '⚠️ 本地版：asr-server（{0}）未运行，发送会失败——请启动本地服务，或切换到「浏览器版」。',
+      aiSiteInjectOnlyTitle: '仅浏览器版渠道使用；本地/API 渠道下不生效',
+
+      // 能力卡二级折叠（docs/010 P1）
+      foldCredsAsr: '☁️ 云端凭据（Azure / OpenAI / 阿里云）',
+      foldCredsLlm: '🔐 访问权限（允许任意域名）',
+      foldAdvLlm: '💭 思考模式名单',
+      foldCredsTts: '☁️ 云端凭据（OpenAI 兼容 / Azure / CosyVoice）',
+      foldAdvTts: '⚙️ 回复朗读 · 工作台 · 全局滑块',
+
+      // 危险区确认（docs/010 P1 §4.3）
+      confirmTitle: '⚠️ 确认操作',
+      confirmCancel: '取消',
+      confirmYes: '确认清空',
+      clearSnapshotsCnt: '清空快照（{0}）',
+      clearBmVersionsCnt: '清空书签版本（{0}）',
+      clearHistVersionsCnt: '清空历史版本（{0}）',
 
       // 蓝层：系统 / 设置
       secSystem: '⚙️ 系统 / 设置',
@@ -812,11 +835,11 @@ const I18N = (() => {
       injectSwitchOff: '注入输入开关：关',
       bmMaxSaved: '书签版本保留数已保存',
       histMaxSaved: '历史版本保留数已保存',
-      confirmClearSnapshots: '确定清空所有快照吗？此操作不可撤销。',
+      confirmClearSnapshots: '确定清空全部 {0} 条快照吗？此操作不可撤销。',
       clearedAllSnapshots: '已清空所有快照',
-      confirmClearBmVersions: '确定清空书签版本吗？此操作不可撤销。',
+      confirmClearBmVersions: '确定清空全部 {0} 条书签版本吗？此操作不可撤销。',
       clearedBmVersions: '已清空书签版本',
-      confirmClearHistVersions: '确定清空历史版本吗？此操作不可撤销。',
+      confirmClearHistVersions: '确定清空全部 {0} 条历史版本吗？此操作不可撤销。',
       clearedHistVersions: '已清空历史版本',
       clearFail: '清空失败',
       importing: '正在导入…',
@@ -1093,7 +1116,7 @@ const I18N = (() => {
       chatThinking: '💭 Thinking:',
       ttsReadThinkingLabel: 'Read AI thinking aloud (body only by default)',
       ttsLocalFallback: '⚠️ Local/cloud TTS engine unavailable — fell back to system TTS',
-      capAutoTtsRow: '🔄 Auto fallback by reachability (local engine when server is up, else system TTS; runtime failures also fall back)',
+      capAutoTtsRow: '🔄 Auto fallback by reachability (local when server is up, else system)',
       capAutoAsrRow: '🔄 Auto fallback by reachability (local asr-server when up, else the backend selected below)',
       capAutoLlmRow: '🔄 Auto fallback by reachability (local when up; else API if configured; else page injection)',
       ttsBlueVoiceHint: 'Set system voice/rate/pitch/volume here; reading actions live in the red zone (selection bar "Read", stream "Read answer", i settings "Read page/input").',
@@ -1425,6 +1448,29 @@ const I18N = (() => {
       bsecSumCard: 'Click to edit',
       bsecSumLog: 'Last {0}',
       bsecSumData: 'Snaps {0} · Bm {1} · Hist {2} · {3}d',
+
+      // Channel badge & local-mode notes (2026-10-03 feedback)
+      tipChannel: 'Current AI channel (click to change)',
+      aiChannelLocal: 'Local',
+      aiChannelLocalDown: 'Local server not running (asr-server); sending will fail. Click to open channel settings',
+      aiModeLocalHint: '💻 Local: answered by your machine\'s asr-server LLM ({0}), no page injection. The "Send to" site has no effect in Local mode.',
+      aiModeLocalDown: '⚠️ Local: asr-server ({0}) is not running; sending will fail — start it or switch to Browser mode.',
+      aiSiteInjectOnlyTitle: 'Only used by the Browser channel; ignored in Local/API modes',
+
+      // Capability-card secondary folds (docs/010 P1)
+      foldCredsAsr: '☁️ Cloud credentials (Azure / OpenAI / Aliyun)',
+      foldCredsLlm: '🔐 Access permissions',
+      foldAdvLlm: '💭 Thinking model list',
+      foldCredsTts: '☁️ Cloud credentials (OpenAI-compatible / Azure / CosyVoice)',
+      foldAdvTts: '⚙️ Reply reading · workbench · sliders',
+
+      // Danger-zone confirm (docs/010 P1 §4.3)
+      confirmTitle: '⚠️ Confirm',
+      confirmCancel: 'Cancel',
+      confirmYes: 'Confirm clear',
+      clearSnapshotsCnt: 'Clear snapshots ({0})',
+      clearBmVersionsCnt: 'Clear bookmark versions ({0})',
+      clearHistVersionsCnt: 'Clear history versions ({0})',
 
       // Blue: system / settings
       secSystem: '⚙️ System / Settings',
@@ -1764,11 +1810,11 @@ const I18N = (() => {
       injectSwitchOff: 'Input injection: off',
       bmMaxSaved: 'Bookmark version limit saved',
       histMaxSaved: 'History version limit saved',
-      confirmClearSnapshots: 'Clear all snapshots? This cannot be undone.',
+      confirmClearSnapshots: 'Clear all {0} snapshots? This cannot be undone.',
       clearedAllSnapshots: 'All snapshots cleared',
-      confirmClearBmVersions: 'Clear all bookmark versions? This cannot be undone.',
+      confirmClearBmVersions: 'Clear all {0} bookmark versions? This cannot be undone.',
       clearedBmVersions: 'Bookmark versions cleared',
-      confirmClearHistVersions: 'Clear all history versions? This cannot be undone.',
+      confirmClearHistVersions: 'Clear all {0} history versions? This cannot be undone.',
       clearedHistVersions: 'History versions cleared',
       clearFail: 'Clear failed',
       importing: 'Importing…',

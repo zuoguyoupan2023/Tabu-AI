@@ -136,6 +136,7 @@ async function loadStats() {
     const daysEl = document.getElementById('statDays');
     if (daysEl) daysEl.textContent = days;
     _bsecStats = { snapshots: (stats && stats.snapshots) || 0, bookmarkVersions: (stats && stats.bookmarkVersions) || 0, historyVersions: (stats && stats.historyVersions) || 0, days };
+    updateDangerButtons();
     scheduleBsecSummaries();
   } catch (e) {
     console.warn('加载统计失败', e);
@@ -2680,6 +2681,13 @@ function applyBlueFold() {
     const head = sec.querySelector('.bsec-head');
     if (head) head.setAttribute('aria-expanded', String(!folded));
   });
+  // 能力卡二级折叠（docs/010 P1）：key 如 ai.tts.cloud；未记录=默认收起
+  document.querySelectorAll('#layer-blue .fold[data-fold]').forEach((f) => {
+    const folded = blueFold[f.dataset.fold] !== false;
+    f.classList.toggle('folded', folded);
+    const head = f.querySelector('.fold-head');
+    if (head) head.setAttribute('aria-expanded', String(!folded));
+  });
   const dbg = document.getElementById('debugLog');
   if (dbg) {
     const folded = blueFold['log.body'] !== false;
@@ -2708,6 +2716,18 @@ function initBsecFolds() {
       const folded = !sec.classList.contains('folded');
       sec.classList.toggle('folded', folded);
       bsecHead.setAttribute('aria-expanded', String(!folded));
+      setBlueFold(key, folded);
+      return;
+    }
+    // 二级折叠（能力卡凭据/高级层，docs/010 P1）
+    const foldHead = ev.target.closest('.fold-head');
+    if (foldHead) {
+      const fold = foldHead.closest('.fold');
+      const key = fold && fold.dataset.fold;
+      if (!key) return;
+      const folded = !fold.classList.contains('folded');
+      fold.classList.toggle('folded', folded);
+      foldHead.setAttribute('aria-expanded', String(!folded));
       setBlueFold(key, folded);
       return;
     }
@@ -5079,7 +5099,11 @@ async function syncAiBackendUi() {
   const siteSelEl = document.getElementById('injectSite');
   const siteRow = siteSelEl ? siteSelEl.closest('.cfg-row') : null;
   const apiConfigured = !!currentAiConfig.aiBaseUrl;
-  if (siteRow) siteRow.classList.toggle('api-mode', mode === 'api');
+  if (siteRow) {
+    siteRow.classList.toggle('api-mode', mode === 'api');
+    siteRow.classList.toggle('local-mode', mode === 'local');
+  }
+  updateChannelBadge(mode);
   if (hint) {
     if (mode === 'api') {
       if (apiConfigured) {
@@ -5097,10 +5121,59 @@ async function syncAiBackendUi() {
       hint.textContent = I18N.t('aiBackendInjectHint', siteName);
       hint.classList.remove('hidden');
     } else {
-      hint.classList.add('hidden');
+      // 本地版也常显说明（2026-10-03 反馈：本地/浏览器/API 与站点供应商混淆导致误发不自知）
+      const server = (currentVoiceConfig && currentVoiceConfig.voiceLocalServer) || 'http://127.0.0.1:9528';
+      hint.textContent = I18N.t('aiModeLocalHint', server);
+      hint.classList.remove('hidden');
+      localReachable().then((ok) => {
+        if (!ok) hint.textContent = I18N.t('aiModeLocalDown', server);
+      }).catch(() => {});
     }
   }
   updateThinkingToggleVisibility();
+}
+
+// ========== 顶栏渠道徽章：常显当前渠道·供应商，点击直达渠道设置（2026-10-03） ==========
+function updateChannelBadge(mode) {
+  const badge = document.getElementById('aiChannelBadge');
+  if (!badge) return;
+  let text = '';
+  if (mode === 'inject') {
+    const siteSel = document.getElementById('injectSite');
+    text = '🌐 ' + ((siteSel && siteSel.selectedOptions[0]) ? siteSel.selectedOptions[0].textContent.trim() : '');
+  } else if (mode === 'api') {
+    let label = '';
+    const prov = aiField('aiProvider');
+    if (!prov || currentAiConfig.aiProvider === 'custom') {
+      try { label = new URL(currentAiConfig.aiBaseUrl).host; } catch (e) {}
+    } else if (prov.selectedOptions[0]) {
+      label = prov.selectedOptions[0].textContent.trim();
+    }
+    text = '🔑 ' + (label || 'API');
+  } else {
+    text = '💻 ' + I18N.t('aiChannelLocal');
+  }
+  badge.textContent = text;
+  badge.classList.remove('warn');
+  badge.title = I18N.t('tipChannel');
+  badge.setAttribute('aria-label', badge.title);
+  if (mode === 'local') {
+    // 本地服务不可达 → ⚠️ 红色预警（localReachable 自带 5s 缓存）
+    localReachable().then((ok) => {
+      if (ok) return;
+      badge.textContent = text + ' ⚠️';
+      badge.classList.add('warn');
+      badge.title = I18N.t('aiChannelLocalDown');
+      badge.setAttribute('aria-label', badge.title);
+    }).catch(() => {});
+  }
+}
+
+// 点渠道徽章 → 打开 i 设置并定位到「🌐 渠道」tab
+function openChannelSettings() {
+  const el = document.getElementById('chatSettings');
+  if (el && el.classList.contains('hidden')) toggleChatSettings();
+  setChatSettingsTab('channel');
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
@@ -5247,37 +5320,74 @@ function closeAboutModal() {
   if (modal) modal.classList.add('hidden');
 }
 
-async function clearSnapshotsData() {
-  if (!confirm(I18N.t('confirmClearSnapshots'))) return;
-  const r = await sendMessage('clearAllSnapshots');
-  if (r && r.success) {
-    showStatus(I18N.t('clearedAllSnapshots'), 'success');
-    await loadStats();
-  } else {
-    showStatus(I18N.t('clearFail'), 'error');
+// ========== 通用确认弹窗（docs/010 P1 §4.3：危险操作先确认，弹窗内显示条数） ==========
+let _confirmOkCb = null;
+function confirmModal(msg, onOk) {
+  const m = document.getElementById('confirmModal');
+  if (!m) { // 兜底：弹窗缺失时保持原有 window.confirm 行为
+    if (!window.confirm(msg)) return;
+    if (typeof onOk === 'function') onOk();
+    return;
   }
+  const msgEl = document.getElementById('confirmModalMsg');
+  if (msgEl) msgEl.textContent = msg;
+  _confirmOkCb = onOk;
+  m.classList.remove('hidden');
+}
+function closeConfirmModal() {
+  const m = document.getElementById('confirmModal');
+  if (m) m.classList.add('hidden');
+  _confirmOkCb = null;
+}
+
+// 危险区按钮标签带条数（docs/010 §4.3「清空快照（12）」）；loadStats 后刷新
+function updateDangerButtons() {
+  const s = _bsecStats || {};
+  [['clearSnapshots', 'clearSnapshotsCnt', s.snapshots],
+   ['clearBookmarkVersions', 'clearBmVersionsCnt', s.bookmarkVersions],
+   ['clearHistoryVersions', 'clearHistVersionsCnt', s.historyVersions]].forEach(([id, key, n]) => {
+    const b = document.getElementById(id);
+    if (b) b.textContent = I18N.t(key, n || 0);
+  });
+}
+
+async function clearSnapshotsData() {
+  const n = (_bsecStats && _bsecStats.snapshots) || 0;
+  confirmModal(I18N.t('confirmClearSnapshots', n), async () => {
+    const r = await sendMessage('clearAllSnapshots');
+    if (r && r.success) {
+      showStatus(I18N.t('clearedAllSnapshots'), 'success');
+      await loadStats();
+    } else {
+      showStatus(I18N.t('clearFail'), 'error');
+    }
+  });
 }
 
 async function clearBookmarkVersionsData() {
-  if (!confirm(I18N.t('confirmClearBmVersions'))) return;
-  const r = await sendMessage('clearAllBookmarkVersions');
-  if (r && r.success) {
-    showStatus(I18N.t('clearedBmVersions'), 'success');
-    await loadStats();
-  } else {
-    showStatus(I18N.t('clearFail'), 'error');
-  }
+  const n = (_bsecStats && _bsecStats.bookmarkVersions) || 0;
+  confirmModal(I18N.t('confirmClearBmVersions', n), async () => {
+    const r = await sendMessage('clearAllBookmarkVersions');
+    if (r && r.success) {
+      showStatus(I18N.t('clearedBmVersions'), 'success');
+      await loadStats();
+    } else {
+      showStatus(I18N.t('clearFail'), 'error');
+    }
+  });
 }
 
 async function clearHistoryVersionsData() {
-  if (!confirm(I18N.t('confirmClearHistVersions'))) return;
-  const r = await sendMessage('clearAllHistoryVersions');
-  if (r && r.success) {
-    showStatus(I18N.t('clearedHistVersions'), 'success');
-    await loadStats();
-  } else {
-    showStatus(I18N.t('clearFail'), 'error');
-  }
+  const n = (_bsecStats && _bsecStats.historyVersions) || 0;
+  confirmModal(I18N.t('confirmClearHistVersions', n), async () => {
+    const r = await sendMessage('clearAllHistoryVersions');
+    if (r && r.success) {
+      showStatus(I18N.t('clearedHistVersions'), 'success');
+      await loadStats();
+    } else {
+      showStatus(I18N.t('clearFail'), 'error');
+    }
+  });
 }
 
 // 从 JSON 文件导入备份
@@ -5668,6 +5778,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (aiBackendInject) aiBackendInject.addEventListener('click', () => setAiMode('inject'));
   const aiBackendApi = document.getElementById('aiBackendApi');
   if (aiBackendApi) aiBackendApi.addEventListener('click', () => setAiMode('api'));
+  // 顶栏渠道徽章：点击直达渠道设置
+  const aiChannelBadge = document.getElementById('aiChannelBadge');
+  if (aiChannelBadge) aiChannelBadge.addEventListener('click', openChannelSettings);
 
   // ===== 线条图标注入（data-icon → TABU_ICONS SVG，替代 emoji） =====
   document.querySelectorAll('[data-icon]').forEach(el => {
@@ -5938,6 +6051,19 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && aboutModal && !aboutModal.classList.contains('hidden')) closeAboutModal();
+  });
+
+  // ===== 危险操作确认弹窗（docs/010 P1 §4.3） =====
+  const confirmCloseBtn = document.getElementById('confirmClose');
+  if (confirmCloseBtn) confirmCloseBtn.addEventListener('click', closeConfirmModal);
+  const confirmCancelBtn = document.getElementById('confirmCancel');
+  if (confirmCancelBtn) confirmCancelBtn.addEventListener('click', closeConfirmModal);
+  const confirmOkBtn = document.getElementById('confirmOk');
+  if (confirmOkBtn) confirmOkBtn.addEventListener('click', () => { const cb = _confirmOkCb; closeConfirmModal(); if (typeof cb === 'function') cb(); });
+  const confirmModalEl = document.getElementById('confirmModal');
+  if (confirmModalEl) confirmModalEl.addEventListener('click', (e) => { if (e.target === confirmModalEl) closeConfirmModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeConfirmModal();
   });
 
   // ===== 语言切换（汉/EN） =====
