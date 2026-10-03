@@ -528,6 +528,26 @@ input, select, textarea { font-family: var(--font); }
 /* ===== 蓝层通用 ===== */
 .sec { margin: 14px 0; }
 .sec-title { font-size: 11px; font-weight: 600; opacity: .8; letter-spacing: .5px; margin-bottom: 8px; }
+/* ===== 蓝区折叠分区（docs/010 P0）：button + div 自定义折叠（需 blueFold 持久化 + 摘要行，不用 <details>）===== */
+.bsec { margin: 12px 0; }
+.bsec-head { display: flex; align-items: center; gap: 6px; width: 100%; height: 34px; padding: 0 10px;
+  background: rgba(0,0,0,.14); border: none; border-radius: 8px; color: inherit; text-align: left; }
+.bsec-head:focus-visible { outline: 1px solid rgba(255,255,255,.5); }
+.bsec-ico { font-size: 14px; flex: none; }
+.bsec-title { font-size: 12px; font-weight: 700; letter-spacing: .5px; white-space: nowrap; }
+.bsec-sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 10px; opacity: .6; text-align: right; }
+.bsec-chevron { font-size: 10px; opacity: .8; flex: none; transition: transform .2s ease; }
+.bsec.folded .bsec-chevron { transform: rotate(-90deg); }
+/* 折叠动画：grid 0fr/1fr 过渡（子容器需 min-height:0 + overflow:hidden 才能塌缩） */
+.fold-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .2s ease; }
+.fold-body > .fold-inner { min-height: 0; overflow: hidden; }
+.folded > .fold-body { grid-template-rows: 0fr; }
+/* 分区体与头之间留 8px 间距（折叠塌缩后不占位） */
+.bsec > .fold-body > .fold-inner { padding-top: 8px; }
+/* 运行日志体折叠（④ 内部，blueFold['log.body']）；头行可点 */
+.debug-log-head { cursor: pointer; }
+.debug-log.folded .fold-body { grid-template-rows: 0fr; }
 .btn-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .btn-row button { background: var(--glass-strong); color: #fff; font-size: 12px; font-weight: 600; padding: 12px 0; border-radius: 7px; transition: background .2s; }
 .btn-row button:hover { background: rgba(255,255,255,.3); }

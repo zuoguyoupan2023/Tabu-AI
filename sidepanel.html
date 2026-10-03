@@ -291,151 +291,15 @@
 
       <!-- ================= 蓝层 ================= -->
       <div class="layer" id="layer-blue">
-        <section class="sec">
-          <div class="sec-title" data-i18n="secDataTools">🧰 数据工具</div>
-          <div class="btn-row">
-            <button id="blueScreenshot" data-i18n="blueScreenshot" data-i18n-title="blueScreenshotTitle" title="截取当前页面视窗">📸 截图</button>
-            <button id="bluePrint" data-i18n="bluePrint" data-i18n-title="bluePrintTitle" title="打印当前页为PDF">🖨 打印</button>
-            <button id="blueMail" data-i18n="blueMail" data-i18n-title="blueMailTitle" title="导出并发送邮件">📧 邮件</button>
-            <button id="blueImport" data-i18n="blueImport" data-i18n-title="blueImportTitle" title="从 JSON 备份导入">⬆ 导入</button>
-            <button id="blueExport" data-i18n="blueExport" data-i18n-title="blueExportTitle" title="导出 JSON 备份">⬇ 导出</button>
-            <input type="file" id="blueImportFile" accept=".json,application/json" hidden />
-          </div>
-        </section>
 
-        <!-- 卡片工具（从红区迁入蓝区） -->
-        <section class="sec">
-          <div class="sec-title" data-i18n="secCard">💳 卡片工具</div>
-          <div class="card">
-            <div class="tool-panel" id="panel-card">
-              <textarea id="cardInput" class="input" rows="3" data-i18n-placeholder="cardPlaceholder" placeholder="输入文本，即卡片正文…">生活明朗，万物可爱。
-人间值得，未来可期。</textarea>
-              <div class="card-actions">
-                <button class="op" id="cardImportSel" data-i18n="cardImportSel" data-i18n-title="cardImportSelTitle" title="抓取当前网页选中文本进入输入框">导入选中</button>
-                <button class="op primary" id="cardDownload" data-i18n="cardDownload">下载</button>
-                <button class="op" id="cardPaste" data-i18n="cardPaste" data-i18n-title="cardPasteTitle" title="读取剪贴板内容进入输入框">粘贴</button>
-                <button class="op" id="cardCopyText" data-i18n="cardCopyText">复制</button>
-              </div>
-              <!-- 预览缩放容器：卡片逻辑宽度可达 800，容器按可用宽度等比缩放整卡显示，避免横向溢出 -->
-              <div class="ec-stage" id="ecStage">
-                <div class="elegant-card" id="elegantCard">
-                  <div class="ec-fit" id="ecFit">
-                    <div class="ec-text" id="cardText">生活明朗，万物可爱。
-人间值得，未来可期。</div>
-                  </div>
-                  <div class="ec-title" data-i18n="cardTitle">TabU AI 摘录卡片</div>
-                </div>
-              </div>
-              <div class="card-controls">
-                <div class="card-tabs">
-                  <button type="button" class="card-tab active" data-ctab="font" data-i18n="cardTabFont">字体</button>
-                  <button type="button" class="card-tab" data-ctab="layout" data-i18n="cardTabLayout">样式</button>
-                  <button type="button" class="card-tab" data-ctab="pos" data-i18n="cardTabPos">位置</button>
-                  <button type="button" class="card-tab" data-ctab="color" data-i18n="cardTabColor">颜色</button>
-                </div>
-                <!-- 字体：字号 + 字体（分类 + 搜索 + 下拉）+ 语言（可折叠，折叠时仅标题行） -->
-                <div class="card-ctab" data-ctab="font">
-                  <div class="ctrl font-ctrl"><label><span data-i18n="cardFontSizeLabel">字号</span> <b id="ctlFontSizeV">60</b></label>
-                    <input type="range" id="ctlFontSize" min="12" max="96" step="1" value="60" />
-                  </div>
-                  <div class="ctrl font-ctrl"><label data-i18n="cardFontLabel">字体</label>
-                    <div class="font-cats" id="ctlFontCats"></div>
-                    <button type="button" class="font-field" id="ctlFontField">…</button>
-                    <input id="ctlFontSearch" class="font-search" type="text" data-i18n-placeholder="cardFontSearch" placeholder="🔎 搜索字体（名称 / 拼音 / 分类）…" />
-                    <div class="font-list" id="ctlFontList"></div>
-                    <div class="font-note" data-i18n="cardFontNote">字体来自 zeoseven 免费商用库，个别字体请核对 license</div>
-                  </div>
-                  <div class="ctrl font-ctrl font-lang-fold">
-                    <details class="font-lang-details">
-                      <summary><span data-i18n="cardLangLabel">语言</span><span class="font-lang-summary" id="ctlLangSummary"></span></summary>
-                      <div class="font-langs" id="ctlFontLangs"></div>
-                    </details>
-                  </div>
-                </div>
-                <!-- 样式：比例 + 宽度 + 圆角 + 边距 -->
-                <div class="card-ctab hidden" data-ctab="layout">
-                  <div class="ctrl"><label data-i18n="cardRatioLabel">卡片比例</label>
-                    <select id="ctlRatio">
-                      <option value="auto" data-i18n="cardRatioAuto">自动（随内容）</option>
-                      <option value="1:1">1:1</option>
-                      <option value="2:3">2:3</option>
-                      <option value="3:2">3:2</option>
-                      <option value="4:3">4:3</option>
-                      <option value="16:9" selected>16:9</option>
-                      <option value="9:16">9:16</option>
-                    </select>
-                  </div>
-                  <div class="ctrl"><label><span data-i18n="cardWidthLabel">卡片宽度</span> <b id="ctlCardWV">800</b></label>
-                    <input type="range" id="ctlCardW" min="100" max="1000" step="10" value="800" />
-                  </div>
-                  <div class="ctrl"><label><span data-i18n="cardRadiusLabel">圆角</span> <b id="ctlRadiusV">8</b></label>
-                    <input type="range" id="ctlRadius" min="0" max="28" value="8" />
-                  </div>
-                  <div class="ctrl"><label><span data-i18n="cardPadLabel">文本框边距</span> <b id="ctlPadV">18</b></label>
-                    <input type="range" id="ctlPad" min="6" max="40" value="18" />
-                  </div>
-                </div>
-                <!-- 位置：X/Y + 归零 -->
-                <div class="card-ctab hidden" data-ctab="pos">
-                  <div class="ctrl pos-ctrl"><label><span data-i18n="cardPosLabel">文本框位置</span> <b id="ctlPosV">0, 0</b>
-                      <button type="button" id="ctlPosReset" class="pos-reset" data-i18n="cardPosReset">归零</button></label>
-                    <div class="pos-grid"><span class="pos-axis">X</span>
-                      <input type="range" id="ctlPosX" min="-100" max="100" step="1" value="0" /></div>
-                    <div class="pos-grid"><span class="pos-axis">Y</span>
-                      <input type="range" id="ctlPosY" min="-100" max="100" step="1" value="0" /></div>
-                    <div class="pos-hint" data-i18n="cardPosHint">提示：也可在卡片预览里直接拖拽文本框</div>
-                  </div>
-                </div>
-                <!-- 颜色：背景 + 文本 -->
-                <div class="card-ctab hidden" data-ctab="color">
-                  <div class="ctrl color-ctrl"><label data-i18n="cardBgLabel">背景色</label>
-                    <div class="swatches" id="ctlBg">
-                      <span class="swatch sel" data-c="#f6f5f2"></span><span class="swatch" data-c="#fde68a"></span>
-                      <span class="swatch" data-c="#bfdbfe"></span><span class="swatch" data-c="#f5d0fe"></span>
-                    </div>
-                    <div class="color-tools">
-                      <input type="color" id="ctlBgColor" value="#f6f5f2" />
-                      <button type="button" class="palette-btn" data-which="bg" data-i18n="cardPaletteBtn">🎨 配色方案</button>
-                    </div>
-                  </div>
-                  <div class="ctrl color-ctrl"><label data-i18n="cardColorLabel">文本色</label>
-                    <div class="swatches" id="ctlColor">
-                      <span class="swatch sel" data-c="#1a1a1a"></span><span class="swatch" data-c="#7f1d1d"></span><span class="swatch" data-c="#1e3a8a"></span>
-                    </div>
-                    <div class="color-tools">
-                      <input type="color" id="ctlTextColor" value="#1a1a1a" />
-                      <button type="button" class="palette-btn" data-which="text" data-i18n="cardPaletteBtn">🎨 配色方案</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section class="sec">
-          <div class="sec-title" data-i18n="secSystem">⚙️ 系统 / 设置</div>
-          <div class="card">
-            <div class="card-title" data-i18n="statOverview">统计概览</div>
-            <div class="stats">
-              <div class="stat"><b id="statCurrent">0</b><span data-i18n="statCurrentLabel">当前标签</span></div>
-              <div class="stat"><b id="statSnapshots">0</b><span data-i18n="statSnapshotsLabel">快照</span></div>
-              <div class="stat"><b id="statBookmarks">0</b><span data-i18n="statBookmarksLabel">书签版本</span></div>
-              <div class="stat"><b id="statHistory">0</b><span data-i18n="statHistoryLabel">历史版本</span></div>
-              <div class="stat"><b id="statDays">0</b><span data-i18n="statDaysLabel">已用天数</span></div>
-            </div>
-          </div>
-          <div class="card row-card">
-            <span class="lbl" data-i18n="bridgeTokenLabel">🔌 终端桥接 Token</span>
-            <div class="row-actions">
-              <input id="bridgeTokenInput" data-i18n-placeholder="bridgeTokenPlaceholder" placeholder="粘贴 Token…" />
-              <button class="mini-btn" id="bridgeTokenSave" data-i18n="saveBtn" style="flex:none;">保存</button>
-            </div>
-          </div>
-          <div class="card row-card">
-            <span class="lbl" data-i18n="injectSwitchLabel">⌨️ 注入输入开关</span>
-            <span class="switch" id="injectSwitch" data-i18n-title="injectSwitchTitle" title="点击切换注入输入工具开关"></span>
-          </div>
+        <!-- ① 快速设置（010 P0：划词即显 / 注入输入 / 终端桥接） -->
+        <section class="bsec" data-bsec="quick">
+          <button type="button" class="bsec-head" aria-expanded="true">
+            <span class="bsec-ico">⚡</span><span class="bsec-title" data-i18n="bsecQuick">快速设置</span>
+            <span class="bsec-sum" data-bsec-sum="quick"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
           <div class="card row-card">
             <span class="lbl" data-i18n="instantDictLabel">✨ 划词即显</span>
             <span class="switch" id="instantDictSwitch" data-i18n-title="instantDictTitle" title="在网页中划选文字，原地浮出词典对照/译文"></span>
@@ -460,6 +324,28 @@
               <div class="hint" data-i18n="instantDictHint">中英词汇对照使用内置离线词典（ECDICT），不出网；划选的句子会发往翻译服务（蓝区「🌐 翻译」所选源）。朗读音色见蓝区「🗣 朗读」的朗读槽位。</div>
             </div>
           </div>
+          <div class="card row-card">
+            <span class="lbl" data-i18n="injectSwitchLabel">⌨️ 注入输入开关</span>
+            <span class="switch" id="injectSwitch" data-i18n-title="injectSwitchTitle" title="点击切换注入输入工具开关"></span>
+          </div>
+          <div class="card row-card">
+            <span class="lbl" data-i18n="bridgeTokenLabel">🔌 终端桥接 Token</span>
+            <div class="row-actions">
+              <input id="bridgeTokenInput" data-i18n-placeholder="bridgeTokenPlaceholder" placeholder="粘贴 Token…" />
+              <button class="mini-btn" id="bridgeTokenSave" data-i18n="saveBtn" style="flex:none;">保存</button>
+            </div>
+          </div>
+          </div></div>
+        </section>
+
+        <!-- ② AI 能力中心（010 P0：能力 4 tab + 本地模型管理；统计概览压缩为 ⑤ 摘要行） -->
+        <section class="bsec" data-bsec="ai">
+          <button type="button" class="bsec-head" aria-expanded="false">
+            <span class="bsec-ico">💬</span><span class="bsec-title" data-i18n="bsecAi">AI 能力中心</span>
+            <span class="bsec-sum" data-bsec-sum="ai"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
           <div class="cap-tab-bar">
             <button type="button" class="cap-tab active" data-captab="asr" data-i18n="capTabAsr">🎙 识别</button>
             <button type="button" class="cap-tab" data-captab="llm" data-i18n="capTabLlm">💬 LLM</button>
@@ -694,10 +580,133 @@
               </div>
             </div>
           </div>
+          </div></div>
         </section>
 
-        <section class="sec">
-          <div class="sec-title" data-i18n="secAiHistory">🚀 AI 会话历史</div>
+        <!-- ③ 卡片工具（010 P0） -->
+        <section class="bsec" data-bsec="card">
+          <button type="button" class="bsec-head" aria-expanded="false">
+            <span class="bsec-ico">💳</span><span class="bsec-title" data-i18n="bsecCard">卡片工具</span>
+            <span class="bsec-sum" data-bsec-sum="card"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
+          <div class="card">
+            <div class="tool-panel" id="panel-card">
+              <textarea id="cardInput" class="input" rows="3" data-i18n-placeholder="cardPlaceholder" placeholder="输入文本，即卡片正文…">生活明朗，万物可爱。
+人间值得，未来可期。</textarea>
+              <div class="card-actions">
+                <button class="op" id="cardImportSel" data-i18n="cardImportSel" data-i18n-title="cardImportSelTitle" title="抓取当前网页选中文本进入输入框">导入选中</button>
+                <button class="op primary" id="cardDownload" data-i18n="cardDownload">下载</button>
+                <button class="op" id="cardPaste" data-i18n="cardPaste" data-i18n-title="cardPasteTitle" title="读取剪贴板内容进入输入框">粘贴</button>
+                <button class="op" id="cardCopyText" data-i18n="cardCopyText">复制</button>
+              </div>
+              <!-- 预览缩放容器：卡片逻辑宽度可达 800，容器按可用宽度等比缩放整卡显示，避免横向溢出 -->
+              <div class="ec-stage" id="ecStage">
+                <div class="elegant-card" id="elegantCard">
+                  <div class="ec-fit" id="ecFit">
+                    <div class="ec-text" id="cardText">生活明朗，万物可爱。
+人间值得，未来可期。</div>
+                  </div>
+                  <div class="ec-title" data-i18n="cardTitle">TabU AI 摘录卡片</div>
+                </div>
+              </div>
+              <div class="card-controls">
+                <div class="card-tabs">
+                  <button type="button" class="card-tab active" data-ctab="font" data-i18n="cardTabFont">字体</button>
+                  <button type="button" class="card-tab" data-ctab="layout" data-i18n="cardTabLayout">样式</button>
+                  <button type="button" class="card-tab" data-ctab="pos" data-i18n="cardTabPos">位置</button>
+                  <button type="button" class="card-tab" data-ctab="color" data-i18n="cardTabColor">颜色</button>
+                </div>
+                <!-- 字体：字号 + 字体（分类 + 搜索 + 下拉）+ 语言（可折叠，折叠时仅标题行） -->
+                <div class="card-ctab" data-ctab="font">
+                  <div class="ctrl font-ctrl"><label><span data-i18n="cardFontSizeLabel">字号</span> <b id="ctlFontSizeV">60</b></label>
+                    <input type="range" id="ctlFontSize" min="12" max="96" step="1" value="60" />
+                  </div>
+                  <div class="ctrl font-ctrl"><label data-i18n="cardFontLabel">字体</label>
+                    <div class="font-cats" id="ctlFontCats"></div>
+                    <button type="button" class="font-field" id="ctlFontField">…</button>
+                    <input id="ctlFontSearch" class="font-search" type="text" data-i18n-placeholder="cardFontSearch" placeholder="🔎 搜索字体（名称 / 拼音 / 分类）…" />
+                    <div class="font-list" id="ctlFontList"></div>
+                    <div class="font-note" data-i18n="cardFontNote">字体来自 zeoseven 免费商用库，个别字体请核对 license</div>
+                  </div>
+                  <div class="ctrl font-ctrl font-lang-fold">
+                    <details class="font-lang-details">
+                      <summary><span data-i18n="cardLangLabel">语言</span><span class="font-lang-summary" id="ctlLangSummary"></span></summary>
+                      <div class="font-langs" id="ctlFontLangs"></div>
+                    </details>
+                  </div>
+                </div>
+                <!-- 样式：比例 + 宽度 + 圆角 + 边距 -->
+                <div class="card-ctab hidden" data-ctab="layout">
+                  <div class="ctrl"><label data-i18n="cardRatioLabel">卡片比例</label>
+                    <select id="ctlRatio">
+                      <option value="auto" data-i18n="cardRatioAuto">自动（随内容）</option>
+                      <option value="1:1">1:1</option>
+                      <option value="2:3">2:3</option>
+                      <option value="3:2">3:2</option>
+                      <option value="4:3">4:3</option>
+                      <option value="16:9" selected>16:9</option>
+                      <option value="9:16">9:16</option>
+                    </select>
+                  </div>
+                  <div class="ctrl"><label><span data-i18n="cardWidthLabel">卡片宽度</span> <b id="ctlCardWV">800</b></label>
+                    <input type="range" id="ctlCardW" min="100" max="1000" step="10" value="800" />
+                  </div>
+                  <div class="ctrl"><label><span data-i18n="cardRadiusLabel">圆角</span> <b id="ctlRadiusV">8</b></label>
+                    <input type="range" id="ctlRadius" min="0" max="28" value="8" />
+                  </div>
+                  <div class="ctrl"><label><span data-i18n="cardPadLabel">文本框边距</span> <b id="ctlPadV">18</b></label>
+                    <input type="range" id="ctlPad" min="6" max="40" value="18" />
+                  </div>
+                </div>
+                <!-- 位置：X/Y + 归零 -->
+                <div class="card-ctab hidden" data-ctab="pos">
+                  <div class="ctrl pos-ctrl"><label><span data-i18n="cardPosLabel">文本框位置</span> <b id="ctlPosV">0, 0</b>
+                      <button type="button" id="ctlPosReset" class="pos-reset" data-i18n="cardPosReset">归零</button></label>
+                    <div class="pos-grid"><span class="pos-axis">X</span>
+                      <input type="range" id="ctlPosX" min="-100" max="100" step="1" value="0" /></div>
+                    <div class="pos-grid"><span class="pos-axis">Y</span>
+                      <input type="range" id="ctlPosY" min="-100" max="100" step="1" value="0" /></div>
+                    <div class="pos-hint" data-i18n="cardPosHint">提示：也可在卡片预览里直接拖拽文本框</div>
+                  </div>
+                </div>
+                <!-- 颜色：背景 + 文本 -->
+                <div class="card-ctab hidden" data-ctab="color">
+                  <div class="ctrl color-ctrl"><label data-i18n="cardBgLabel">背景色</label>
+                    <div class="swatches" id="ctlBg">
+                      <span class="swatch sel" data-c="#f6f5f2"></span><span class="swatch" data-c="#fde68a"></span>
+                      <span class="swatch" data-c="#bfdbfe"></span><span class="swatch" data-c="#f5d0fe"></span>
+                    </div>
+                    <div class="color-tools">
+                      <input type="color" id="ctlBgColor" value="#f6f5f2" />
+                      <button type="button" class="palette-btn" data-which="bg" data-i18n="cardPaletteBtn">🎨 配色方案</button>
+                    </div>
+                  </div>
+                  <div class="ctrl color-ctrl"><label data-i18n="cardColorLabel">文本色</label>
+                    <div class="swatches" id="ctlColor">
+                      <span class="swatch sel" data-c="#1a1a1a"></span><span class="swatch" data-c="#7f1d1d"></span><span class="swatch" data-c="#1e3a8a"></span>
+                    </div>
+                    <div class="color-tools">
+                      <input type="color" id="ctlTextColor" value="#1a1a1a" />
+                      <button type="button" class="palette-btn" data-which="text" data-i18n="cardPaletteBtn">🎨 配色方案</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div></div>
+        </section>
+
+        <!-- ④ 历史与日志（010 P0；日志体默认收起 log.body） -->
+        <section class="bsec" data-bsec="log">
+          <button type="button" class="bsec-head" aria-expanded="false">
+            <span class="bsec-ico">📜</span><span class="bsec-title" data-i18n="bsecHistLog">历史与日志</span>
+            <span class="bsec-sum" data-bsec-sum="log"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
           <div class="card">
             <div class="hist-head"><span data-i18n="aiHistoryRecent">最近记录</span><button id="injectClearHistory" class="mini-btn" data-i18n="aiClearHistory">清空</button></div>
             <div id="injectHistory"></div>
@@ -707,19 +716,34 @@
             <input type="text" id="injectCustomTpl" class="row-select" style="width:100%;" data-i18n-placeholder="aiCustomTplPlaceholder" placeholder="自定义模板，{text} 占位（作用于输入框+素材）" />
             <div class="hint" data-i18n="aiCustomTplHint">填写后，主界面「🚀 发送」会自动套用该模板；{text} 替换为输入框+素材内容。</div>
           </div>
-        </section>
-
-        <section class="sec">
           <div class="debug-log" id="debugLog">
-            <div class="debug-log-head">
+            <div class="debug-log-head" role="button" tabindex="0" aria-expanded="false">
               <span data-i18n="debugLogTitle">📋 运行日志</span>
               <button class="mini-btn" id="debugLogClear" data-i18n="debugLogClear">清空</button>
             </div>
-            <div id="debugLogBody" class="debug-log-body"><div class="debug-log-empty">—</div></div>
+            <div class="fold-body"><div class="fold-inner">
+              <div id="debugLogBody" class="debug-log-body"><div class="debug-log-empty">—</div></div>
+            </div></div>
           </div>
+          </div></div>
         </section>
 
-        <section class="sec">
+        <!-- ⑤ 数据与备份（010 P0：数据工具 / 定时快照 / 版本保留 / 数据管理） -->
+        <section class="bsec" data-bsec="data">
+          <button type="button" class="bsec-head" aria-expanded="false">
+            <span class="bsec-ico">🗄️</span><span class="bsec-title" data-i18n="bsecData">数据与备份</span>
+            <span class="bsec-sum" data-bsec-sum="data"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
+          <div class="btn-row">
+            <button id="blueScreenshot" data-i18n="blueScreenshot" data-i18n-title="blueScreenshotTitle" title="截取当前页面视窗">📸 截图</button>
+            <button id="bluePrint" data-i18n="bluePrint" data-i18n-title="bluePrintTitle" title="打印当前页为PDF">🖨 打印</button>
+            <button id="blueMail" data-i18n="blueMail" data-i18n-title="blueMailTitle" title="导出并发送邮件">📧 邮件</button>
+            <button id="blueImport" data-i18n="blueImport" data-i18n-title="blueImportTitle" title="从 JSON 备份导入">⬆ 导入</button>
+            <button id="blueExport" data-i18n="blueExport" data-i18n-title="blueExportTitle" title="导出 JSON 备份">⬇ 导出</button>
+            <input type="file" id="blueImportFile" accept=".json,application/json" hidden />
+          </div>
           <div class="sec-title" data-i18n="secAutoSave">⏰ 定时保存快照</div>
           <div class="card row-card">
             <span class="lbl" data-i18n="autoSaveIntervalLabel">自动保存周期</span>
@@ -742,9 +766,6 @@
             <span class="lbl-val" id="autoSaveLastAt">—</span>
           </div>
           <div class="hint" data-i18n="autoSaveHint">📌 自动存档不会关闭标签页；若错过保存时间，下次打开浏览器会自动补存。</div>
-        </section>
-
-        <section class="sec">
           <div class="sec-title" data-i18n="secVersions">⚙️ 版本保留设置</div>
           <div class="card row-card">
             <span class="lbl" data-i18n="bmMaxVersionsLabel">📑 书签版本最大保留数</span>
@@ -760,9 +781,6 @@
               <button class="mini-btn" id="histMaxVersionsSave" data-i18n="saveBtn" style="flex:none;">保存</button>
             </div>
           </div>
-        </section>
-
-        <section class="sec">
           <div class="sec-title" data-i18n="secDataMgmt">🗑 数据管理</div>
           <div class="card">
             <div class="danger-row">
@@ -772,9 +790,17 @@
             </div>
             <div class="hint" data-i18n="dangerHint">⚠️ 清空操作不可撤销</div>
           </div>
+          </div></div>
         </section>
 
-        <section class="sec">
+        <!-- ⑥ 关于（010 P0） -->
+        <section class="bsec" data-bsec="about">
+          <button type="button" class="bsec-head" aria-expanded="false">
+            <span class="bsec-ico">ℹ️</span><span class="bsec-title" data-i18n="bsecAbout">关于</span>
+            <span class="bsec-sum" data-bsec-sum="about"></span>
+            <span class="bsec-chevron">▾</span>
+          </button>
+          <div class="fold-body"><div class="fold-inner">
           <div class="sec-title" data-i18n="secAbout">ℹ️ 关于</div>
           <div class="card">
             <div class="card-title">TabU AI<span class="about-ver">v0.5.0</span></div>
@@ -785,6 +811,7 @@
             <button class="about-act" id="aboutFeedback" data-i18n="aboutFeedback">反馈</button>
             <button class="about-act" id="aboutReview" data-i18n="aboutReview">评价</button>
           </div>
+          </div></div>
         </section>
       </div>
     </div>

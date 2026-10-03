@@ -135,6 +135,8 @@ async function loadStats() {
     const days = await getInstallDays();
     const daysEl = document.getElementById('statDays');
     if (daysEl) daysEl.textContent = days;
+    _bsecStats = { snapshots: (stats && stats.snapshots) || 0, bookmarkVersions: (stats && stats.bookmarkVersions) || 0, historyVersions: (stats && stats.historyVersions) || 0, days };
+    scheduleBsecSummaries();
   } catch (e) {
     console.warn('加载统计失败', e);
   }
@@ -2656,11 +2658,129 @@ async function saveBridgeToken() {
   showStatus(I18N.t(v ? 'bridgeTokenSaved' : 'bridgeTokenCleared'), 'success');
 }
 
+// ========== 蓝区折叠分区（docs/010 P0）：blueFold 扁平点号键持久化 + 分区摘要行 ==========
+// 一级=裸名（quick/ai/card/log/data/about），二级=父.子（如 log.body）；true=收起。
+// 默认态按 010 §9 拍板：仅 ① 快速设置展开，其余（含日志体）收起。
+const BSEC_DEFAULT_FOLD = { quick: false, ai: true, card: true, log: true, data: true, about: true, 'log.body': true };
+let blueFold = { ...BSEC_DEFAULT_FOLD };
+let _bsecStats = null; // loadStats 缓存（⑤ 摘要用：快照/书签/历史/天数）
+
+async function loadBlueFold() {
+  try {
+    const r = await chrome.storage.local.get('blueFold');
+    if (r && r.blueFold && typeof r.blueFold === 'object') blueFold = { ...BSEC_DEFAULT_FOLD, ...r.blueFold };
+  } catch (e) { /* 存储不可用时保持默认 */ }
+  applyBlueFold();
+}
+
+function applyBlueFold() {
+  document.querySelectorAll('#layer-blue .bsec').forEach((sec) => {
+    const folded = !!blueFold[sec.dataset.bsec];
+    sec.classList.toggle('folded', folded);
+    const head = sec.querySelector('.bsec-head');
+    if (head) head.setAttribute('aria-expanded', String(!folded));
+  });
+  const dbg = document.getElementById('debugLog');
+  if (dbg) {
+    const folded = blueFold['log.body'] !== false;
+    dbg.classList.toggle('folded', folded);
+    const h = dbg.querySelector('.debug-log-head');
+    if (h) h.setAttribute('aria-expanded', String(!folded));
+  }
+  updateBsecSummaries();
+}
+
+function setBlueFold(key, folded) {
+  blueFold[key] = folded;
+  chrome.storage.local.set({ blueFold }).catch(() => {});
+}
+
+// 折叠切换：事件委托挂在蓝层（bsec-head 点击 / 运行日志头行点击，后者放过内部按钮）
+function initBsecFolds() {
+  const layer = document.getElementById('layer-blue');
+  if (!layer) return;
+  layer.addEventListener('click', (ev) => {
+    const bsecHead = ev.target.closest('.bsec-head');
+    if (bsecHead) {
+      const sec = bsecHead.closest('.bsec');
+      const key = sec && sec.dataset.bsec;
+      if (!key) return;
+      const folded = !sec.classList.contains('folded');
+      sec.classList.toggle('folded', folded);
+      bsecHead.setAttribute('aria-expanded', String(!folded));
+      setBlueFold(key, folded);
+      return;
+    }
+    const dbgHead = ev.target.closest('#debugLog .debug-log-head');
+    if (dbgHead && !ev.target.closest('button')) {
+      const dbg = document.getElementById('debugLog');
+      const folded = !dbg.classList.contains('folded');
+      dbg.classList.toggle('folded', folded);
+      dbgHead.setAttribute('aria-expanded', String(!folded));
+      setBlueFold('log.body', folded);
+    }
+  });
+  // 键盘可达：日志头行 Enter/Space（bsec-head 是原生 button，无需处理）
+  layer.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' && ev.key !== ' ') return;
+    const dbgHead = ev.target.closest && ev.target.closest('#debugLog .debug-log-head');
+    if (!dbgHead || ev.target.closest('button')) return;
+    ev.preventDefault();
+    dbgHead.click();
+  });
+  // 蓝层内任意下拉/勾选变化（引擎、槽位音色等）→ 摘要行跟随
+  layer.addEventListener('change', scheduleBsecSummaries);
+}
+
+// 摘要行：合并 120ms 内多次触发（logDebug 高频）；用 setTimeout 而非 rAF——后台/遮挡时 rAF 可能被节流不触发
+let _bsecSumTimer = 0;
+function scheduleBsecSummaries() {
+  if (_bsecSumTimer) return;
+  _bsecSumTimer = setTimeout(() => { _bsecSumTimer = 0; updateBsecSummaries(); }, 120);
+}
+
+function updateBsecSummaries() {
+  if (typeof I18N === 'undefined' || !I18N.t) return;
+  const set = (k, text) => {
+    const el = document.querySelector(`.bsec-sum[data-bsec-sum="${k}"]`);
+    if (el && el.textContent !== text) el.textContent = text;
+  };
+  // ① 快速设置：划词即显/注入输入 开或关
+  const idOn = document.getElementById('instantDictSwitch')?.classList.contains('on');
+  const injOn = document.getElementById('injectSwitch')?.classList.contains('on');
+  set('quick', I18N.t('bsecSumQuick', I18N.t(idOn ? 'bsecOn' : 'bsecOff'), I18N.t(injOn ? 'bsecOn' : 'bsecOff')));
+  // ② AI 能力中心：识别/朗读引擎现状 + 已 pin 槽位数
+  const optText = (id) => {
+    const sel = document.getElementById(id);
+    const o = sel && sel.selectedOptions && sel.selectedOptions[0];
+    return o ? o.textContent.trim() : '';
+  };
+  let pinned = 0;
+  try {
+    if (window.TABU_TTS) TABU_TTS.SLOTS.forEach((s) => { if ((TABU_TTS.slotCfg(s) || {}).voice) pinned++; });
+  } catch (e) { /* 目录未就绪时忽略 */ }
+  let aiSum = I18N.t('bsecSumAi', optText('asrBackendBlue'), optText('ttsEngineBlue'));
+  if (pinned > 0) aiSum += I18N.t('bsecSumAiPinned', pinned);
+  set('ai', aiSum);
+  // ③ 卡片工具：静态提示
+  set('card', I18N.t('bsecSumCard'));
+  // ④ 历史与日志：最新一条日志时间
+  const last = document.querySelector('#debugLogBody .debug-log-line:last-child .dl-time');
+  set('log', last ? I18N.t('bsecSumLog', last.textContent) : '');
+  // ⑤ 数据与备份：快照/书签/历史/天数（原统计概览卡压缩至此，010 §9.2）
+  set('data', _bsecStats
+    ? I18N.t('bsecSumData', _bsecStats.snapshots || 0, _bsecStats.bookmarkVersions || 0, _bsecStats.historyVersions || 0, _bsecStats.days || 0)
+    : '');
+  // ⑥ 关于：版本号
+  try { set('about', 'v' + (chrome.runtime.getManifest ? chrome.runtime.getManifest().version : '')); } catch (e) { /* noop */ }
+}
+
 async function loadInjectSwitchState() {
   const sw = document.getElementById('injectSwitch');
   if (!sw) return;
   const r = await chrome.storage.local.get('inputInjectEnabled');
   sw.classList.toggle('on', !!r.inputInjectEnabled);
+  scheduleBsecSummaries();
 }
 
 async function toggleInjectSwitch() {
@@ -2670,6 +2790,7 @@ async function toggleInjectSwitch() {
   const next = !r.inputInjectEnabled;
   await chrome.storage.local.set({ inputInjectEnabled: next });
   sw.classList.toggle('on', next);
+  scheduleBsecSummaries();
   showStatus(I18N.t(next ? 'injectSwitchOn' : 'injectSwitchOff'), next ? 'success' : 'info');
 }
 
@@ -3789,10 +3910,12 @@ function logDebug(scope, msg, isErr) {
   body.appendChild(line);
   while (body.children.length > DEBUG_LOG_MAX) body.removeChild(body.firstChild);
   body.scrollTop = body.scrollHeight;
+  scheduleBsecSummaries();
 }
 function debugLogClear() {
   const body = document.getElementById('debugLogBody');
   if (body) body.innerHTML = '<div class="debug-log-empty">—</div>';
+  scheduleBsecSummaries();
 }
 
 // 语音状态行：非错误提示显示数秒后自动隐藏（避免 UI 一直堆着一行字）
@@ -5177,6 +5300,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const yearEl = document.getElementById('year');
   if (yearEl) yearEl.textContent = new Date().getFullYear();
 
+  // ===== 蓝区折叠分区（docs/010 P0）：委托切换 + blueFold 恢复（尽早，不依赖后续初始化） =====
+  initBsecFolds();
+  loadBlueFold();
+
   // ===== 红蓝层切换 =====
   document.querySelectorAll('.layer-btn').forEach(btn => {
     btn.addEventListener('click', () => switchLayer(btn.dataset.layer));
@@ -5495,7 +5622,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const idSwitch = document.getElementById('instantDictSwitch');
   if (idSwitch) {
     const idOpts = document.getElementById('instantDictOpts');
-    const setIdUi = (on) => { idSwitch.classList.toggle('on', on); if (idOpts) idOpts.classList.toggle('disabled', !on); };
+    const setIdUi = (on) => { idSwitch.classList.toggle('on', on); if (idOpts) idOpts.classList.toggle('disabled', !on); scheduleBsecSummaries(); };
     chrome.storage.local.get('instantDictEnabled').then((r) => setIdUi(r.instantDictEnabled !== false)).catch(() => {});
     idSwitch.addEventListener('click', async () => {
       const cur = await new Promise((res) => chrome.storage.local.get('instantDictEnabled', (r) => res(r.instantDictEnabled !== false)));
@@ -5847,5 +5974,5 @@ function refreshAll() {
     loadCapabilityAutos().catch(e => console.error(e)),
     loadAutoSaveSettings().catch(e => console.error(e)),
     initCardFonts().catch(e => console.error(e))
-  ]).then(() => { console.log('所有数据加载完成'); });
+  ]).then(() => { console.log('所有数据加载完成'); scheduleBsecSummaries(); });
 }

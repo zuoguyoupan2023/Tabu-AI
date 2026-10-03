@@ -458,6 +458,22 @@ const I18N = (() => {
       blueExport: '⬇ 导出',
       blueExportTitle: '导出 JSON 备份',
 
+      // 蓝层：折叠分区标题与摘要（docs/010 P0）
+      bsecQuick: '快速设置',
+      bsecAi: 'AI 能力中心',
+      bsecCard: '卡片工具',
+      bsecHistLog: '历史与日志',
+      bsecData: '数据与备份',
+      bsecAbout: '关于',
+      bsecOn: '开',
+      bsecOff: '关',
+      bsecSumQuick: '划词即显 {0} · 注入输入 {1}',
+      bsecSumAi: '识别 {0} · 朗读 {1}',
+      bsecSumAiPinned: ' · {0} 槽已定',
+      bsecSumCard: '点开编辑',
+      bsecSumLog: '最新 {0}',
+      bsecSumData: '快照 {0} · 书签 {1} · 历史 {2} · {3} 天',
+
       // 蓝层：系统 / 设置
       secSystem: '⚙️ 系统 / 设置',
       statOverview: '统计概览',
@@ -1393,6 +1409,22 @@ const I18N = (() => {
       blueImportTitle: 'Import from a JSON backup',
       blueExport: '⬇ Export',
       blueExportTitle: 'Export a JSON backup',
+
+      // Blue: fold sections (docs/010 P0)
+      bsecQuick: 'Quick setup',
+      bsecAi: 'AI capability hub',
+      bsecCard: 'Card tool',
+      bsecHistLog: 'History & logs',
+      bsecData: 'Data & backup',
+      bsecAbout: 'About',
+      bsecOn: 'on',
+      bsecOff: 'off',
+      bsecSumQuick: 'Instant dict {0} · Input inject {1}',
+      bsecSumAi: 'ASR {0} · TTS {1}',
+      bsecSumAiPinned: ' · {0} pinned',
+      bsecSumCard: 'Click to edit',
+      bsecSumLog: 'Last {0}',
+      bsecSumData: 'Snaps {0} · Bm {1} · Hist {2} · {3}d',
 
       // Blue: system / settings
       secSystem: '⚙️ System / Settings',
