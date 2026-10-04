@@ -156,8 +156,8 @@
       ? `<div class="src">${esc(d.source)}${d.sourceRoman ? `<i class="srcroman">${esc(d.sourceRoman)}</i>` : ''}</div>` : '';
     const hwLine = d.headword
       ? `<div class="hw">${esc(d.headword)}${d.phonetic ? `<i class="phon">/${esc(d.phonetic)}/</i>` : ''}</div>` : '';
-    // 基础卡（gtx）挂「AI 详解」（docs/009 P3-1 §9.7：基础卡随 P3 上线按钮）
-    const aiRow = d.tier === 'gtx' ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
+    // 基础卡（gtx）/ 词典 miss 兜底译文卡（aiEligible）挂「AI 详解」（docs/009 P3-1）
+    const aiRow = (d.tier === 'gtx' || d.aiEligible) ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card">
       <div class="hd">${d.extra ? `<span class="badge">${esc(d.extra)}</span>` : ''}<span class="via">${esc(via)}</span>${actionsHtml()}</div>
       ${srcLine}${hwLine}
@@ -173,12 +173,16 @@
   function renderTranslation(d, rect) {
     ensureHost();
     const via = d.via === 'google' ? t('viaGoogle') : d.via === 'mymemory' ? t('viaMymemory') : '';
+    // 词汇模式词典 miss 的 MyMemory 译文兜底也挂「AI 详解」（docs/009 P3-1；句子翻译不挂）
+    const aiRow = d.aiEligible ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card">
       <div class="hd"><span class="via">🌐 ${esc(via)}</span>${actionsHtml()}</div>
       <div class="native">${esc(d.text || '')}</div>
       ${d.source ? `<div class="src">${esc(t('srcLabel'))}：${esc(d.source)}</div>` : ''}
+      ${aiRow}
     </div>`;
     bindCard(rect, d.text || '', /[\u4e00-\u9fff]/.test(d.text || '') ? 'zh-CN' : 'en-US');
+    cardEl.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
   }
 
   function renderError(reason, rect, detail) {

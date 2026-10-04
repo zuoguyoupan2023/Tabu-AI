@@ -945,7 +945,7 @@ async function idWord(text, targetLang, prov) {
     // gtx 不可达 → MyMemory 兜底为译文卡（词典 miss + gtx 挂的最坏情况）
     try {
       const trans = await mymemoryTranslate(text, src, tl);
-      if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text, detail: dictErr };
+      if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text, detail: dictErr, aiEligible: true };
     } catch (e) {}
     return { ...card, detail: card.detail || dictErr };
   }
@@ -973,7 +973,7 @@ async function idWord(text, targetLang, prov) {
       const [phonetic, defEn, defZh, , badge] = hit.e;
       return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge };
     }
-    return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '' };
+    return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '', aiEligible: true };
   }
   // 中文词 → 中文目标（同语言）：改查英文对照（学习兜底）；其余语言对 → gtx 基础卡
   if (src === 'zh' && toZh) return await idWord(text, 'en', prov);
