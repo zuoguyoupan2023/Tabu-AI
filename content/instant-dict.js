@@ -25,8 +25,8 @@
 
   // ===== 文案（zh/en） =====
   const STR = {
-    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI' },
-    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI' },
+    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', audio: '真人发音', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI 详解', aiLoading: 'AI 详解中…（页面注入约 10–60 秒）', aiFail: 'AI 详解失败' },
+    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', audio: 'Real voice', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI detail', aiLoading: 'Asking AI… (page injection may take 10–60s)', aiFail: 'AI detail failed' },
   };
   const t = (k) => (STR[S.uiLang === 'en' ? 'en' : 'zh'] || STR.zh)[k] || k;
 
@@ -50,6 +50,7 @@
 
   // ===== 浮层宿主（Shadow DOM 隔离） =====
   let host = null, shadow = null, cardEl = null, scrollAnchor = null, lookupToken = 0;
+  let lastSel = null; // 最近一次选区（AI 详解重试用）
   function ensureHost() {
     if (host && host.isConnected) return;
     host = document.createElement('div');
@@ -98,6 +99,9 @@
   .arrow { position: fixed; width: 10px; height: 10px; transform: rotate(45deg); display: none;
     background: inherit; border: 1px solid rgba(255,255,255,.12); }
   .copied { font-size: 11px; opacity: .8; }
+  .airow { margin-top: 4px; }
+  .aibtn { all: unset; cursor: pointer; font-size: 11px; padding: 2px 8px; border-radius: 6px; background: rgba(127,140,170,.25); color: inherit; }
+  .aibtn:hover { background: rgba(127,140,170,.4); }
   `;
 
   // ===== 显示/定位 =====
@@ -131,6 +135,7 @@
   // ===== 渲染器 =====
   const ICONS = {
     speak: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg>',
+    audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>',
     copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>',
   };
@@ -151,13 +156,18 @@
       ? `<div class="src">${esc(d.source)}${d.sourceRoman ? `<i class="srcroman">${esc(d.sourceRoman)}</i>` : ''}</div>` : '';
     const hwLine = d.headword
       ? `<div class="hw">${esc(d.headword)}${d.phonetic ? `<i class="phon">/${esc(d.phonetic)}/</i>` : ''}</div>` : '';
+    // 基础卡（gtx）挂「AI 详解」（docs/009 P3-1 §9.7：基础卡随 P3 上线按钮）
+    const aiRow = d.tier === 'gtx' ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card">
       <div class="hd">${d.extra ? `<span class="badge">${esc(d.extra)}</span>` : ''}<span class="via">${esc(via)}</span>${actionsHtml()}</div>
       ${srcLine}${hwLine}
       ${d.gloss ? `<div class="gloss">${esc(d.gloss)}</div>` : ''}
       ${d.native ? `<div class="native">${esc(d.native)}</div>` : ''}
+      ${aiRow}
     </div>`;
     bindCard(rect, d.headword || d.source || '', d.headword ? (S.uiLang === 'en' ? 'en-US' : 'en-US') : 'zh-CN');
+    cardEl.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
+    maybeAttachAudio(d);
   }
 
   function renderTranslation(d, rect) {
@@ -173,14 +183,17 @@
 
   function renderError(reason, rect, detail) {
     ensureHost();
-    const msg = reason === 'rate-limited' ? t('rateLimited') : reason === 'miss' ? t('notFound') : t('network');
+    const msg = reason === 'rate-limited' ? t('rateLimited') : reason === 'miss' ? t('notFound') : reason === 'ai' ? t('aiFail') : t('network');
     let hint = reason === 'miss' ? `<small>${esc(t('notFoundHint'))}</small>` : '';
     if (detail) hint += `<small>${esc(detail)}</small>`;
-    cardEl.innerHTML = `<div class="card"><div class="err">${esc(msg)}${hint}</div></div>`;
+    // miss / AI 失败 → 「AI 详解」按钮（重试）
+    const aiRow = (reason === 'miss' || reason === 'ai') ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
+    cardEl.innerHTML = `<div class="card"><div class="err">${esc(msg)}${hint}</div>${aiRow}</div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
     positionCard(rect);
     bindCard(rect, '', '');
+    card.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
   }
 
   function bindCard(rect, speakText, speakLang) {
@@ -217,6 +230,56 @@
       }
     } catch (e) {}
     chrome.runtime.sendMessage({ action: 'instantDictSpeak', text, lang: langCode, voice }).catch(() => {});
+  }
+
+  // AI 详解（docs/009 P3-1）：词典 miss / 基础卡 → 当前 LLM 渠道（API 优先，否则页面注入 10–60s）
+  async function aiDetail(info) {
+    if (!info || !info.text) return;
+    const token = ++lookupToken;
+    ensureHost();
+    cardEl.innerHTML = `<div class="card"><div class="loading">🤖 ${esc(t('aiLoading'))}</div></div>`;
+    const card = cardEl.firstElementChild;
+    card.style.display = 'block';
+    positionCard(info.rect);
+    host.style.pointerEvents = 'none';
+    let resp = null;
+    try {
+      resp = await chrome.runtime.sendMessage({ action: 'instantDictAI', word: info.text, targetLang: resolveTarget() });
+    } catch (e) { resp = { ok: false, reason: 'network' }; }
+    if (token !== lookupToken) return; // 已有更新的查询/已关闭
+    if (resp && resp.ok) {
+      renderEntry({ ok: true, kind: 'entry', tier: 'llm', headword: info.text, gloss: resp.text, native: '', source: '', extra: '' }, info.rect);
+    } else {
+      renderError('ai', info.rect, (resp && resp.detail) || '');
+    }
+  }
+
+  // 真人发音（docs/009 P3-2，dictionaryapi.dev 可选源）：词条卡渲染后异步补充 🔉 按钮/音标/例句；失败静默（TTS 照常）
+  function maybeAttachAudio(d) {
+    const word = String(d.headword || '').trim();
+    if (!/^[a-zA-Z][a-zA-Z'’\- ]{0,40}$/.test(word)) return;
+    const token = lookupToken;
+    chrome.runtime.sendMessage({ action: 'instantDictAudio', word }).then((resp) => {
+      if (token !== lookupToken || !resp || !resp.ok) return;
+      if (!host || !host.isConnected) return;
+      const card = cardEl && cardEl.firstElementChild;
+      if (!card || !card.isConnected) return;
+      if (resp.phonetic) {
+        const hw = card.querySelector('.hw');
+        if (hw && !hw.querySelector('.phon')) hw.insertAdjacentHTML('beforeend', `<i class="phon">/${esc(resp.phonetic)}/</i>`);
+      }
+      if (resp.example) {
+        const gl = card.querySelector('.gloss');
+        if (gl && !gl.dataset.eg) { gl.dataset.eg = '1'; gl.insertAdjacentHTML('beforeend', `\n${esc(resp.example)}`); }
+      }
+      const acts = card.querySelector('.acts');
+      if (resp.audioDataUrl && acts && !acts.querySelector('[data-act="audio"]')) {
+        acts.insertAdjacentHTML('afterbegin', `<button data-act="audio" title="${esc(t('audio'))}">${ICONS.audio}</button>`);
+        acts.querySelector('[data-act="audio"]').addEventListener('click', () => {
+          try { new Audio(resp.audioDataUrl).play(); } catch (e) { speak(word, 'en-US'); }
+        });
+      }
+    }).catch(() => {});
   }
   function fallbackCopy(text) {
     const ta = document.createElement('textarea');
@@ -255,6 +318,7 @@
     const info = currentSelection();
     if (!info) { hidePopup(); return; }
     if (!S.enabled) return;
+    lastSel = info; // AI 详解重试保留最近选区
     let mode = detectMode(info.text);
     if (!mode) { hidePopup(); return; }
     // 路由 + 回落（docs/009 §2.2，审阅决定④）：词汇对照关、句子翻译开 → 词按句子（译文）处理

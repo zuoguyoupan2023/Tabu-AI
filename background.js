@@ -684,6 +684,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         // 划词即显（docs/009）：词典/翻译查询 + 发音
         case 'instantDictLookup': result = await instantDictLookup(request); break;
         case 'instantDictSpeak': instantDictSpeak(request.text, request.lang, request.voice); result = { ok: true }; break;
+        case 'instantDictAI': result = await instantDictAI(request); break;
+        case 'instantDictAudio': result = await instantDictAudio(request); break;
         default: result = { success: false, message: '未知操作' };
       }
       sendResponse(result);
@@ -1029,6 +1031,93 @@ function instantDictSpeak(text, lang, voice) {
     if (voice) opts.voiceName = voice;
     chrome.tts.speak(String(text || '').slice(0, 120), opts);
   } catch (e) {}
+}
+
+// ========== 划词 AI 详解（docs/009 P3-1）：词典 miss / 基础卡 → 当前 LLM 渠道解释（API 优先，否则页面注入） ==========
+function idLangName(tl) {
+  return ({ 'zh-CN': '简体中文', zh: '简体中文', en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', de: 'Deutsch', es: 'Español', ru: 'Русский' })[tl] || '简体中文';
+}
+
+async function instantDictAI(req) {
+  const word = String(req.word || '').trim().slice(0, 80);
+  if (!word) return { ok: false, reason: 'ai-empty' };
+  const targetLang = req.targetLang || 'zh-CN';
+  const key = `ai:${targetLang}:${word.toLowerCase()}`;
+  const cached = await idCacheGet(key);
+  if (cached) return cached;
+  if (_idInflight.has(key)) return _idInflight.get(key);
+  const p = (async () => {
+    try {
+      const cfg = await getAiConfig();
+      const tlName = idLangName(targetLang);
+      const prompt = [
+        `你是词典助手。请解释词汇「${word}」，面向${tlName}使用者。`,
+        `要求：1) 用${tlName}简明解释含义（不超过 80 字）；2) 标注常见词性；3) 给 1 个含翻译的例句。`,
+        '只输出解释正文，不要标题和客套话。若不是已知词汇，按最可能的含义解释并注明。',
+      ].join('\n');
+      let resp;
+      if (cfg.aiBaseUrl) {
+        resp = await askViaApi(prompt, cfg, []); // 无历史：词典解释不受对话上下文污染
+      } else {
+        const site = await new Promise((res) => chrome.storage.local.get('injectSite', (r) => res(r.injectSite || 'chatgpt')));
+        resp = await injectAskWithSave(site, prompt, { save: false }); // 页面注入（免费）；词典查询不进 AI 会话历史
+      }
+      const text = resp && resp.answer;
+      if (text) {
+        const out = { ok: true, kind: 'ai', tier: 'llm', text: String(text).trim(), headword: word };
+        await idCacheSet(key, out);
+        return out;
+      }
+      return { ok: false, reason: 'ai-fail', detail: (resp && resp.error) || '' };
+    } catch (e) {
+      return { ok: false, reason: 'ai-fail', detail: (e && e.message) || '' };
+    }
+  })();
+  _idInflight.set(key, p);
+  try { return await p; } finally { _idInflight.delete(key); }
+}
+
+// ========== 划词真人发音（docs/009 P3-2，dictionaryapi.dev 可选源）：音标 + 音频（data URL）+ 例句；3s 超时静默降级 ==========
+const _idAudioCache = new Map(); // word → { ok, phonetic, audioDataUrl, example }
+async function instantDictAudio(req) {
+  const word = String(req.word || '').trim().toLowerCase();
+  if (!/^[a-z][a-z'’\- ]{0,40}$/.test(word)) return { ok: false };
+  const hit = _idAudioCache.get(word);
+  if (hit) return hit;
+  try {
+    const res = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word), { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return { ok: false };
+    const entries = await res.json();
+    const e0 = Array.isArray(entries) && entries[0];
+    if (!e0) return { ok: false };
+    let phonetic = String(e0.phonetic || (e0.phonetics || []).find((x) => x.text)?.text || '');
+    let audioUrl = '';
+    for (const ph of e0.phonetics || []) { if (ph.audio) { audioUrl = ph.audio; if (ph.text && !phonetic) phonetic = ph.text; break; } }
+    let example = '';
+    for (const m of e0.meanings || []) {
+      for (const d of m.definitions || []) { if (!example && d.example) example = d.example; }
+    }
+    let audioDataUrl = '';
+    if (audioUrl) {
+      try {
+        const a = await fetch(audioUrl.startsWith('//') ? 'https:' + audioUrl : audioUrl, { signal: AbortSignal.timeout(5000) });
+        if (a.ok) {
+          const buf = new Uint8Array(await a.arrayBuffer());
+          if (buf.length <= 400000) { // 音频过大直接放弃（真人发音是增强项，不卡浮层）
+            let bin = '';
+            for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+            audioDataUrl = 'data:audio/mpeg;base64,' + btoa(bin);
+          }
+        }
+      } catch (e) {}
+    }
+    const out = (audioDataUrl || phonetic || example) ? { ok: true, phonetic, audioDataUrl, example } : { ok: false };
+    if (_idAudioCache.size > 200) _idAudioCache.clear();
+    _idAudioCache.set(word, out);
+    return out;
+  } catch (e) {
+    return { ok: false }; // 静默降级：dictionaryapi 不可达/超时 → 无真人发音，TTS 照常
+  }
 }
 
 // SW 启动即预热离线词典（首查免解压等待）；错误静默，不影响未启用该功能的用户
@@ -1382,11 +1471,11 @@ async function injectAskWithSave(site, prompt, opts = {}) {
       const session = await getOrCreateAiSession();
       const history = await buildAiHistory(session);
       const r = await askViaApi(prompt, cfg, history);
-      if (r.answer) await saveConversation({ site: 'api', session, prompt, answer: r.answer });
+      if (r.answer && opts.save !== false) await saveConversation({ site: 'api', session, prompt, answer: r.answer });
       return r;
     }
     const r = await injectAsk(site, prompt, { allowCreate: true, images: opts.images || [], requestId: opts.requestId || '' });
-    if (r.answer) {
+    if (r.answer && opts.save !== false) {
       await saveConversation({ site, prompt, answer: r.answer });
     }
     return r;
@@ -1778,15 +1867,56 @@ function askInSite(question, adapter, requestId, images) {
         return new File([arr], name || 'file', { type: m[1] || 'application/octet-stream' });
       } catch (e) { return null; }
     };
-    // 站点文件 input 选择器池（适配器可扩展 uploads；否则通用候选）
+    // 站点文件 input 选择器池（005 P2 完善：适配器可扩展 uploads；通用候选 + 附件按钮唤醒 + 动态插入兜底）
     const uploadSelectors = (cfg.uploads && cfg.uploads.length) ? cfg.uploads
-      : ['input[type=file]', 'input[type="file"]', '[class*="upload" i] input[type=file]'];
-    const findFileInput = () => {
-      for (const sel of uploadSelectors) {
-        const el = document.querySelector(sel);
-        if (el) return el;
+      : ['input[type=file]', 'input[type="file"]', '[class*="upload" i] input[type=file]',
+         'input[accept*="pdf" i]', 'input[accept*="image" i]',
+         '[data-testid*="file" i] input[type=file]', '[data-testid*="upload" i] input[type=file]',
+         'div[role="dialog"] input[type=file]'];
+    // 附件按钮（部分站点点了才往 DOM 插 file input）
+    const attachBtnSelectors = ['button[aria-label*="attach" i]', 'button[title*="attach" i]', 'button[aria-label*="上传" i]',
+      'button[aria-label*="附件" i]', 'button[aria-label*="Add file" i]', 'button[title*="上传" i]', '[data-testid*="attach" i]'];
+    const tryRevealFileInput = async () => {
+      for (const sel of attachBtnSelectors) {
+        let btn = null;
+        try { btn = document.querySelector(sel); } catch (e) {}
+        if (btn) { try { btn.click(); } catch (e) {} await new Promise(r => setTimeout(r, 350)); return true; }
       }
-      return null;
+      return false;
+    };
+    const findFileInput = async () => {
+      const scan = () => {
+        for (const sel of uploadSelectors) {
+          try { const el = document.querySelector(sel); if (el) return el; } catch (e) {}
+        }
+        return null;
+      };
+      let el = scan();
+      if (el) return el;
+      await tryRevealFileInput(); // 点附件按钮唤醒隐藏 input
+      el = scan();
+      if (!el) {
+        try { el = [...document.querySelectorAll('input[type=file]')].pop() || null; } catch (e) {} // 动态插入兜底：取最后一个
+      }
+      return el;
+    };
+    // 上传完成判定（005 P2）：轮询附件缩略图出现且无进行中进度；未命中信号 → 调用方退回固定等待
+    const attachHintSelectors = ['[data-testid*="attachment" i]', '[class*="attachment" i]', '[class*="attached" i]',
+      '[class*="thumbnail" i]', '[class*="file-preview" i]', 'img[alt*="upload" i]'];
+    const uploadingSelectors = ['[class*="uploading" i]', '[role="progressbar"]'];
+    const waitForUploadSettled = async (isImage) => {
+      const cap = isImage ? 4000 : 8000, t0 = Date.now();
+      let sawUploading = false;
+      const has = (sels) => sels.some((s) => { try { return document.querySelector(s); } catch (e) { return false; } });
+      while (Date.now() - t0 < cap) {
+        await new Promise(r => setTimeout(r, 200));
+        const uploading = has(uploadingSelectors);
+        if (uploading) sawUploading = true;
+        const hasChip = has(attachHintSelectors);
+        if (hasChip && !uploading) return true;                                                  // 缩略图在、进度结束
+        if (hasChip && !sawUploading && Date.now() - t0 > (isImage ? 1200 : 2000)) return true;  // 有缩略图且从未见进度
+      }
+      return false;
     };
     const injectAttachments = async () => {
       for (const item of (images || []).slice(0, 6)) {
@@ -1805,7 +1935,7 @@ function askInSite(question, adapter, requestId, images) {
         }
         if (!delivered) {
           try {
-            const fi = findFileInput();
+            const fi = await findFileInput();
             if (fi) {
               const dt2 = new DataTransfer();
               dt2.items.add(f);
@@ -1824,8 +1954,9 @@ function askInSite(question, adapter, requestId, images) {
           } catch (e) {}
         }
         if (delivered) diag.images++;
-        // 等待上传生效：图片 1.5s；文件 2.5s（文档解析/缩略图更慢）
-        await new Promise(r => setTimeout(r, isImage ? 1500 : 2500));
+        // 等待上传生效（005 P2）：先轮询完成信号（缩略图/进度），未命中再退回固定等待（图片 1.5s；文件 2.5s）
+        const settled = await waitForUploadSettled(isImage).catch(() => false);
+        if (!settled) await new Promise(r => setTimeout(r, isImage ? 1500 : 2500));
       }
     };
 
