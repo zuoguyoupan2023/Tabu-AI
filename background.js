@@ -1077,13 +1077,25 @@ async function instantDictAI(req) {
   try { return await p; } finally { _idInflight.delete(key); }
 }
 
-// ========== 划词真人发音（docs/009 P3-2，dictionaryapi.dev 可选源）：音标 + 音频（data URL）+ 例句；3s 超时静默降级 ==========
+// ========== 划词真人发音（docs/009 P3-2）：多源兜底链 ==========
+// 优先级：① dictionaryapi.dev 真人录音（英文，质量最好，3s 超时）→ ② 有道 dictvoice（国内可达，type=2 美音，中/英/多语都支持）
+// 都失败 → 弹层回退 TTS（chrome.tts / Web Speech）。音频统一在 SW 内转 data URL（规避页面 CSP 差异），LRU 缓存。
 const _idAudioCache = new Map(); // word → { ok, phonetic, audioDataUrl, example }
-async function instantDictAudio(req) {
-  const word = String(req.word || '').trim().toLowerCase();
-  if (!/^[a-z][a-z'’\- ]{0,40}$/.test(word)) return { ok: false };
-  const hit = _idAudioCache.get(word);
-  if (hit) return hit;
+
+async function idAudioFetchDataUrl(url, timeoutMs) {
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!res.ok) return null;
+  const ct = res.headers.get('content-type') || '';
+  if (ct && !/audio|octet/i.test(ct)) return null; // 防把错误页当音频
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (!buf.length || buf.length > 400000) return null;
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
+  return 'data:audio/mpeg;base64,' + btoa(bin);
+}
+
+// ① dictionaryapi.dev：真人录音 + 音标 + 例句（仅英文；3s API / 5s 音频超时）
+async function idAudioFromDictionaryapi(word) {
   try {
     const res = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word), { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return { ok: false };
@@ -1097,27 +1109,43 @@ async function instantDictAudio(req) {
     for (const m of e0.meanings || []) {
       for (const d of m.definitions || []) { if (!example && d.example) example = d.example; }
     }
-    let audioDataUrl = '';
-    if (audioUrl) {
-      try {
-        const a = await fetch(audioUrl.startsWith('//') ? 'https:' + audioUrl : audioUrl, { signal: AbortSignal.timeout(5000) });
-        if (a.ok) {
-          const buf = new Uint8Array(await a.arrayBuffer());
-          if (buf.length <= 400000) { // 音频过大直接放弃（真人发音是增强项，不卡浮层）
-            let bin = '';
-            for (let i = 0; i < buf.length; i += 8192) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 8192));
-            audioDataUrl = 'data:audio/mpeg;base64,' + btoa(bin);
-          }
-        }
-      } catch (e) {}
-    }
-    const out = (audioDataUrl || phonetic || example) ? { ok: true, phonetic, audioDataUrl, example } : { ok: false };
-    if (_idAudioCache.size > 200) _idAudioCache.clear();
-    _idAudioCache.set(word, out);
-    return out;
+    let audioDataUrl = audioUrl ? (await idAudioFetchDataUrl(audioUrl.startsWith('//') ? 'https:' + audioUrl : audioUrl, 5000)) || '' : '';
+    return (audioDataUrl || phonetic || example) ? { ok: true, phonetic, audioDataUrl, example } : { ok: false };
   } catch (e) {
-    return { ok: false }; // 静默降级：dictionaryapi 不可达/超时 → 无真人发音，TTS 照常
+    return { ok: false };
   }
+}
+
+// ② 有道 dictvoice：国内可达，英文 type=2 美音，中文/其他语言直接 audio=词
+async function idAudioFromYoudao(word) {
+  try {
+    const audioDataUrl = await idAudioFetchDataUrl('https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(word), 3000);
+    return audioDataUrl ? { ok: true, phonetic: '', audioDataUrl, example: '' } : { ok: false };
+  } catch (e) {
+    return { ok: false };
+  }
+}
+
+async function instantDictAudio(req) {
+  const word = String(req.word || '').trim();
+  const isEn = /^[a-zA-Z][a-zA-Z'’\- ]{0,40}$/.test(word);
+  const isZh = /^[\u4e00-\u9fff]{1,8}$/.test(word);
+  if (!isEn && !isZh) return { ok: false };
+  const key = word.toLowerCase();
+  const hit = _idAudioCache.get(key);
+  if (hit) return hit;
+  let out = { ok: false };
+  if (isEn) {
+    out = await idAudioFromDictionaryapi(word.toLowerCase()); // ① 真人录音（可达时优先）
+    if (!out.ok) out = await idAudioFromYoudao(word);          // ② 有道 dictvoice（国内稳定兜底）
+  } else {
+    out = await idAudioFromYoudao(word);                       // 中文词：dictionaryapi 仅英文 → 直接有道
+  }
+  if (out.ok) {
+    if (_idAudioCache.size > 200) _idAudioCache.clear();
+    _idAudioCache.set(key, out);
+  }
+  return out;
 }
 
 // SW 启动即预热离线词典（首查免解压等待）；错误静默，不影响未启用该功能的用户

@@ -258,10 +258,13 @@
     }
   }
 
-  // 真人发音（docs/009 P3-2，dictionaryapi.dev 可选源）：词条卡渲染后异步补充 🔉 按钮/音标/例句；失败静默（TTS 照常）
+  // 真人发音（docs/009 P3-2 多源兜底：dictionaryapi 真人录音 → 有道 dictvoice → TTS）：词条卡渲染后异步补充
+  // 🔉 按钮/音标/例句；全部失败静默（TTS 照常）
   function maybeAttachAudio(d) {
     const word = String(d.headword || '').trim();
-    if (!/^[a-zA-Z][a-zA-Z'’\- ]{0,40}$/.test(word)) return;
+    const isEn = /^[a-zA-Z][a-zA-Z'’\- ]{0,40}$/.test(word);
+    const isZh = /^[\u4e00-\u9fff]{1,8}$/.test(word);
+    if (!isEn && !isZh) return;
     const token = lookupToken;
     chrome.runtime.sendMessage({ action: 'instantDictAudio', word }).then((resp) => {
       if (token !== lookupToken || !resp || !resp.ok) return;
