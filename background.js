@@ -1081,6 +1081,7 @@ async function instantDictAI(req) {
 // 优先级：① dictionaryapi.dev 真人录音（英文，质量最好，3s 超时）→ ② 有道 dictvoice（国内可达，type=2 美音，中/英/多语都支持）
 // 都失败 → 弹层回退 TTS（chrome.tts / Web Speech）。音频统一在 SW 内转 data URL（规避页面 CSP 差异），LRU 缓存。
 const _idAudioCache = new Map(); // word → { ok, phonetic, audioDataUrl, example }
+let _idDictapiFails = 0, _idDictapiSkipUntil = 0; // dictionaryapi 熔断：连败 2 次 → 5 分钟跳过（源宕机不拖慢每个新词）
 
 async function idAudioFetchDataUrl(url, timeoutMs) {
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
@@ -1136,7 +1137,12 @@ async function instantDictAudio(req) {
   if (hit) return hit;
   let out = { ok: false };
   if (isEn) {
-    out = await idAudioFromDictionaryapi(word.toLowerCase()); // ① 真人录音（可达时优先）
+    // ① dictionaryapi 真人录音（可达时优先）；连败 2 次熔断 5 分钟——沿用 gtx 熔断模式
+    if (Date.now() >= _idDictapiSkipUntil) {
+      out = await idAudioFromDictionaryapi(word.toLowerCase());
+      if (out.ok) _idDictapiFails = 0;
+      else if (++_idDictapiFails >= 2) { _idDictapiSkipUntil = Date.now() + 300000; console.warn('[instantDict] dictionaryapi 连败熔断 5 分钟'); }
+    }
     if (!out.ok) out = await idAudioFromYoudao(word);          // ② 有道 dictvoice（国内稳定兜底）
   } else {
     out = await idAudioFromYoudao(word);                       // 中文词：dictionaryapi 仅英文 → 直接有道
