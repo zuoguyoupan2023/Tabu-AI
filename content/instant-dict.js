@@ -246,7 +246,7 @@
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
     positionCard(info.rect);
-    host.style.pointerEvents = 'none';
+    host.style.pointerEvents = ''; // 等待卡可命中（不穿透点击到页面，避免选区被顶掉引发隐藏/重查）
     let resp = null;
     try {
       resp = await chrome.runtime.sendMessage({ action: 'instantDictAI', word: info.text, targetLang: resolveTarget() });
@@ -299,7 +299,10 @@
 
   // ===== 选区监听 =====
   let debounceTimer = 0;
-  function scheduleLookup() {
+  function scheduleLookup(ev) {
+    // 浮层内的鼠标事件不触发重新查询：否则点击按钮（朗读/复制/AI 详解）的 mouseup 会冒泡到 window 监听，
+    // 触发缓存命中的重新渲染把 AI 详解等待/结果卡顶回旧卡（2026-10-03 真机反馈）
+    if (ev && host && (ev.target === host || host.contains(ev.target))) return;
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(handleSelection, 300);
   }
