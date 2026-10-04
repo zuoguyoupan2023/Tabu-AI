@@ -941,8 +941,8 @@ async function idWord(text, targetLang, prov) {
       return { ok: true, kind: 'entry', tier: 'ecdict', source: toZh ? text : '', headword: hit.word, phonetic, gloss: defEn, native: toZh ? defZh : '', extra: badge };
     }
     const card = await gtxCard(text, 'en', tl);
-    if (card.ok || prov === 'google') return card;
-    // gtx 不可达 → MyMemory 兜底为译文卡（词典 miss + gtx 挂的最坏情况）
+    if (card.ok) return card;
+    // gtx 不可达 → MyMemory 兜底为译文卡（词典 miss + gtx 挂的最坏情况，无论服务源选择——via 标注如实显示）
     try {
       const trans = await mymemoryTranslate(text, src, tl);
       if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text, detail: dictErr, aiEligible: true };

@@ -190,8 +190,9 @@
     const msg = reason === 'rate-limited' ? t('rateLimited') : reason === 'miss' ? t('notFound') : reason === 'ai' ? t('aiFail') : t('network');
     let hint = reason === 'miss' ? `<small>${esc(t('notFoundHint'))}</small>` : '';
     if (detail) hint += `<small>${esc(detail)}</small>`;
-    // miss / AI 失败 → 「AI 详解」按钮（重试）
-    const aiRow = (reason === 'miss' || reason === 'ai') ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
+    // miss / AI 失败 / 词汇模式网络不可用 → 「AI 详解」按钮（AI 渠道走 API/页面注入，不依赖词典与翻译源的网络）
+    const canAi = !!(lastSel && lastSel.mode === 'word');
+    const aiRow = (reason === 'miss' || reason === 'ai' || (reason === 'network' && canAi)) ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card"><div class="err">${esc(msg)}${hint}</div>${aiRow}</div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
@@ -325,13 +326,13 @@
     const info = currentSelection();
     if (!info) { hidePopup(); return; }
     if (!S.enabled) return;
-    lastSel = info; // AI 详解重试保留最近选区
     let mode = detectMode(info.text);
     if (!mode) { hidePopup(); return; }
     // 路由 + 回落（docs/009 §2.2，审阅决定④）：词汇对照关、句子翻译开 → 词按句子（译文）处理
     if (mode === 'word' && !S.word) mode = S.sentence ? 'sentence' : null;
     if (mode === 'sentence' && !S.sentence) mode = null;
     if (!mode) { hidePopup(); return; }
+    lastSel = { ...info, mode }; // AI 详解重试保留最近选区（词汇模式网络错误也挂按钮）
 
     const token = ++lookupToken;
     showLoading(info.rect, mode);
