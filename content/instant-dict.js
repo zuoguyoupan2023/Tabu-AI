@@ -6,13 +6,14 @@
   'use strict';
 
   // ===== 设置缓存 =====
-  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', uiLang: '' };
+  const S = { enabled: true, sentence: true, word: true, targetLang: 'system', aiAuto: true, uiLang: '' };
   function loadSettings() {
-    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'uiLang'], (r) => {
+    chrome.storage.local.get(['instantDictEnabled', 'instantDictSentence', 'instantDictWord', 'instantDictTargetLang', 'instantDictAiAuto', 'uiLang'], (r) => {
       S.enabled = r.instantDictEnabled !== false;
       S.sentence = r.instantDictSentence !== false;
       S.word = r.instantDictWord !== false;
       S.targetLang = r.instantDictTargetLang || 'system';
+      S.aiAuto = r.instantDictAiAuto !== false; // docs/012 ①：划词 AI 详解自动展开开关（默认开）
       S.uiLang = r.uiLang || (((navigator.language || 'en').toLowerCase().startsWith('zh')) ? 'zh' : 'en');
       if (!S.enabled) hidePopup();
     });
@@ -51,6 +52,7 @@
   // ===== 浮层宿主（Shadow DOM 隔离） =====
   let host = null, shadow = null, cardEl = null, scrollAnchor = null, lookupToken = 0;
   let lastSel = null; // 最近一次选区（AI 详解重试用）
+  let _hoverPopup = false; // 鼠标悬停浮层（docs/012 ②：悬停期间不因页面滚动/选区离开而关闭）
   function ensureHost() {
     if (host && host.isConnected) return;
     host = document.createElement('div');
@@ -60,6 +62,8 @@
     shadow.innerHTML = `<style>${CSS_TEXT}</style><div class="wrap" part="wrap"></div>`;
     cardEl = shadow.querySelector('.wrap');
     (document.documentElement || document.body).appendChild(host);
+    host.addEventListener('pointerenter', () => { _hoverPopup = true; });
+    host.addEventListener('pointerleave', () => { _hoverPopup = false; });
   }
 
   const CSS_TEXT = `
@@ -100,6 +104,7 @@
     background: inherit; border: 1px solid rgba(255,255,255,.12); }
   .copied { font-size: 11px; opacity: .8; }
   .airow { margin-top: 4px; }
+  .airow.ai-busy { font-size: 11px; opacity: .8; }
   .aibtn { all: unset; cursor: pointer; font-size: 11px; padding: 2px 8px; border-radius: 6px; background: rgba(127,140,170,.25); color: inherit; }
   .aibtn:hover { background: rgba(127,140,170,.4); }
   `;
@@ -238,7 +243,8 @@
   }
 
   // AI 详解（docs/009 P3-1）：词典 miss / 基础卡 → 当前 LLM 渠道（API 优先，否则页面注入 10–60s）
-  async function aiDetail(info) {
+  // opts.missText：合并状态卡（docs/012 ④）——「未查询到 · 🤖 AI 详解中…」一次渲染无跳变
+  async function aiDetail(info, opts = {}) {
     if (!info || !info.text) return;
     const token = ++lookupToken;
     ensureHost();
@@ -248,7 +254,10 @@
       const r = await chrome.storage.local.get('aiBaseUrl');
       if (r.aiBaseUrl) chanKey = 'aiLoadingApi';
     } catch (e) {}
-    cardEl.innerHTML = `<div class="card"><div class="loading">🤖 ${esc(t(chanKey))}</div></div>`;
+    const merged = opts.missText != null;
+    cardEl.innerHTML = merged
+      ? `<div class="card"><div class="err">${esc(opts.missText)}${opts.detail ? `<small>${esc(opts.detail)}</small>` : ''}</div><div class="airow ai-busy">🤖 ${esc(t(chanKey))}</div></div>`
+      : `<div class="card"><div class="loading">🤖 ${esc(t(chanKey))}</div></div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
     positionCard(info.rect);
@@ -334,8 +343,8 @@
   async function handleSelection() {
     const info = currentSelection();
     if (!info) {
-      // 浮层内交互（按住卡片/选中卡片文本复制片段）不算离开：保持浮层
-      if (_popupPressing) return;
+      // docs/012 ②：悬停浮层或按住/选中卡片文本 → 不算离开，保持浮层（可框选复制片段）
+      if (_hoverPopup || _popupPressing) return;
       try { const ss = shadow && shadow.getSelection ? shadow.getSelection() : null; if (ss && !ss.isCollapsed) return; } catch (e) {}
       hidePopup();
       return;
@@ -358,13 +367,14 @@
         text: info.text,
         mode,
         targetLang: resolveTarget(),
+        aiAuto: S.aiAuto, // docs/012 ④：AI 自动详解开启时词典 miss 由 AI 接管
       });
     } catch (e) { resp = { ok: false, reason: 'network', detail: '后台未连接：' + ((e && e.message) || '扩展需重新加载') }; }
     if (token !== lookupToken) return; // 已有更新的查询/已关闭
     // P3-1 自动 AI 详解（2026-10-03 反馈）：词典 miss / 网络失败 / 裸兜底卡（aiEligible）→ 免点击自动展开（两渠道都自动）；
     // 限流时不自动（防风暴）；gtx 基础卡与离线完整卡仍为手动按钮（已有可用结果，不覆盖）
     const autoAi = lastSel.mode === 'word' && resp && resp.reason !== 'rate-limited' && (!resp.ok || !!resp.aiEligible);
-    if (autoAi) { aiDetail(lastSel); return; }
+    if (autoAi) { aiDetail(lastSel, { missText: resp.reason === 'miss' ? t('notFound') : t('network'), detail: resp.detail }); return; }
     if (!resp.ok) { renderError(resp.reason || 'network', info.rect, resp.detail); return; }
     if (resp.kind === 'entry') renderEntry(resp, info.rect);
     else if (resp.kind === 'translation') renderTranslation(resp, info.rect);
@@ -386,6 +396,7 @@
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePopup(); }, true);
   window.addEventListener('scroll', () => {
     if (!host || !host.isConnected || !scrollAnchor) return;
+    if (_hoverPopup) return; // docs/012 ②：鼠标悬停浮层时页面滚动不关闭
     if (Math.abs(window.scrollX - scrollAnchor.x) > 24 || Math.abs(window.scrollY - scrollAnchor.y) > 24) hidePopup();
   }, { capture: true, passive: true });
   window.addEventListener('pagehide', hidePopup, true);

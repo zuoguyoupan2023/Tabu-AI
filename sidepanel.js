@@ -5867,6 +5867,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     bindIdChk('instantDictSentence');
     bindIdChk('instantDictWord');
+    bindIdChk('instantDictAiAuto');
     const idTarget = document.getElementById('instantDictTargetLang');
     if (idTarget) {
       chrome.storage.local.get('instantDictTargetLang').then((r) => { idTarget.value = r.instantDictTargetLang || 'system'; }).catch(() => {});

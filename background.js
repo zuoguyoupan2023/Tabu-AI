@@ -852,11 +852,11 @@ function idDetectLang(text) {
 // 熔断器：gtx 连续失败 2 次（如国内网络不可达）→ 5 分钟内直接跳过，避免每次白等超时
 let _gtxFails = 0, _gtxDownUntil = 0;
 function gtxAvailable() { return Date.now() >= _gtxDownUntil; }
-async function gtxFetch(text, sl, tl, dt) {
+async function gtxFetch(text, sl, tl, dt, timeoutMs) {
   if (!gtxAvailable()) throw new Error('gtx circuit-open');
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sl || 'auto')}&tl=${encodeURIComponent(tl)}&dt=${dt}&dj=1&q=${encodeURIComponent(text)}`;
   const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 5000);
+  const to = setTimeout(() => ctrl.abort(), timeoutMs || 5000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
     if (!r.ok) throw new Error('gtx ' + r.status);
@@ -874,7 +874,7 @@ async function gtxTranslate(text, sl, tl) {
 }
 async function gtxCard(text, sl, tl) {
   try {
-    const j = await gtxFetch(text, sl || 'auto', tl, 't&dt=bd&dt=rm');
+    const j = await gtxFetch(text, sl || 'auto', tl, 't&dt=bd&dt=rm', 3000); // docs/012 ③：词查收紧 3s
     const trans = (j.sentences || []).map((s) => s.trans || '').join('');
     if (!trans) throw new Error('empty');
     const dict = Array.isArray(j.dict)
@@ -888,10 +888,10 @@ async function gtxCard(text, sl, tl) {
 }
 
 // MyMemory 兜底（gtx 不可达时；长文本按句切块，避开单请求长度限制）
-async function mymemoryFetch(text, sl, tl) {
+async function mymemoryFetch(text, sl, tl, timeoutMs) {
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${encodeURIComponent(sl + '|' + tl)}`;
   const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 10000);
+  const to = setTimeout(() => ctrl.abort(), timeoutMs || 10000);
   try {
     const r = await fetch(url, { signal: ctrl.signal });
     const j = await r.json();
@@ -900,7 +900,7 @@ async function mymemoryFetch(text, sl, tl) {
     return out;
   } finally { clearTimeout(to); }
 }
-async function mymemoryTranslate(text, sl, tl) {
+async function mymemoryTranslate(text, sl, tl, timeoutMs) {
   const pieces = [];
   let rest = String(text || '').trim();
   if (!rest) return '';
@@ -916,7 +916,7 @@ async function mymemoryTranslate(text, sl, tl) {
   }
   flush();
   const outs = [];
-  for (const p of pieces) outs.push(await mymemoryFetch(p, sl, tl));
+  for (const p of pieces) outs.push(await mymemoryFetch(p, sl, tl, timeoutMs));
   return outs.join(' ');
 }
 
@@ -928,7 +928,7 @@ async function idProvider() {
   } catch (e) { return 'auto'; }
 }
 
-async function idWord(text, targetLang, prov) {
+async function idWord(text, targetLang, prov, aiAuto) {
   const tl = targetLang === 'zh' ? 'zh-CN' : (targetLang || 'zh-CN');
   const src = idDetectLang(text);
   const toZh = tl.startsWith('zh'), toEn = tl === 'en';
@@ -940,11 +940,14 @@ async function idWord(text, targetLang, prov) {
       const [phonetic, defEn, defZh, , badge] = hit.e;
       return { ok: true, kind: 'entry', tier: 'ecdict', source: toZh ? text : '', headword: hit.word, phonetic, gloss: defEn, native: toZh ? defZh : '', extra: badge };
     }
+    // docs/012 ④：AI 自动详解开启时，词典 miss 立即交由 AI 接管（不再阻塞等 gtx/MyMemory 的慢超时；
+    // AI 答案有词级缓存；AI 关闭时维持原链供手动兜底）
+    if (aiAuto) return { ok: false, reason: 'miss', detail: dictErr, aiTakeover: true };
     const card = await gtxCard(text, 'en', tl);
     if (card.ok) return card;
     // gtx 不可达 → MyMemory 兜底为译文卡（词典 miss + gtx 挂的最坏情况，无论服务源选择——via 标注如实显示）
     try {
-      const trans = await mymemoryTranslate(text, src, tl);
+      const trans = await mymemoryTranslate(text, src, tl, 5000); // docs/012 ③：词查收紧 5s
       if (trans) return { ok: true, kind: 'translation', text: trans, via: 'mymemory', source: text, detail: dictErr, aiEligible: true };
     } catch (e) {}
     return { ...card, detail: card.detail || dictErr };
@@ -954,7 +957,7 @@ async function idWord(text, targetLang, prov) {
     let head = '', roman = '', via = 'gtx';
     if (prov !== 'mymemory') {
       try {
-        const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm');
+        const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm', 3000);
         head = (j.sentences || []).map((s) => s.trans || '').join('').trim();
         roman = (j.sentences || []).map((s) => s.src_translit || '').filter(Boolean).join(' ');
       } catch (e) {}
@@ -963,7 +966,7 @@ async function idWord(text, targetLang, prov) {
       const cands = await ecdictRevLookup(text).catch(() => []);
       if (cands.length) { head = cands[0]; via = 'ecdict'; }
     }
-    if (!head) { try { head = (await mymemoryTranslate(text, 'zh-CN', 'en')).trim(); via = 'mymemory'; } catch (e) {} }
+    if (!head) { try { head = (await mymemoryTranslate(text, 'zh-CN', 'en', 5000)).trim(); via = 'mymemory'; } catch (e) {} }
     if (!head) return { ok: false, reason: 'network' };
     // gtx dt=rm 未给出罗马音（不可达/熔断）→ 离线拼音索引补 sourceRoman
     if (!roman) roman = await ecdictPinyinLookup(text);
@@ -1009,7 +1012,7 @@ async function instantDictLookup(req) {
     try {
       const prov = await idProvider();
       const resp = req.mode === 'word'
-        ? await idWord(String(req.text || ''), req.targetLang, prov)
+        ? await idWord(String(req.text || ''), req.targetLang, prov, req.aiAuto === true)
         : await idSentence(String(req.text || ''), req.targetLang, prov);
       if (resp && resp.ok) await idCacheSet(key, resp);
       else console.warn('[instantDict] 查询失败:', JSON.stringify(resp), req.mode, JSON.stringify(req.text || '').slice(0, 60));
