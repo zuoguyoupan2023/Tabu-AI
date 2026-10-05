@@ -25,8 +25,8 @@
 
   // ===== 文案（zh/en） =====
   const STR = {
-    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', audio: '真人发音', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI 详解', aiLoading: 'AI 详解中…（页面注入约 10–60 秒）', aiFail: 'AI 详解失败' },
-    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', audio: 'Real voice', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI detail', aiLoading: 'Asking AI… (page injection may take 10–60s)', aiFail: 'AI detail failed' },
+    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', audio: '真人发音', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI 详解', aiLoadingApi: 'AI 详解中…（API 渠道，通常几秒）', aiLoadingInject: 'AI 详解中…（页面注入约 10–60 秒）', aiFail: 'AI 详解失败' },
+    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', audio: 'Real voice', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI detail', aiLoadingApi: 'Asking AI… (API channel, usually seconds)', aiLoadingInject: 'Asking AI… (page injection, 10–60s)', aiFail: 'AI detail failed' },
   };
   const t = (k) => (STR[S.uiLang === 'en' ? 'en' : 'zh'] || STR.zh)[k] || k;
 
@@ -66,7 +66,7 @@
   :host { all: initial; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   .card {
-    pointer-events: auto; position: fixed; display: none; max-width: 320px;
+    pointer-events: auto; position: fixed; display: none; max-width: 320px; user-select: text;
     font: 13px/1.55 -apple-system, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
     background: rgba(18,20,26,.97); color: #e8ecf2; border-radius: 10px;
     padding: 8px 10px 7px; box-shadow: 0 8px 28px rgba(0,0,0,.45);
@@ -242,7 +242,13 @@
     if (!info || !info.text) return;
     const token = ++lookupToken;
     ensureHost();
-    cardEl.innerHTML = `<div class="card"><div class="loading">🤖 ${esc(t('aiLoading'))}</div></div>`;
+    // loading 文案按渠道区分：API 已配置 → 通常几秒；否则页面注入 10–60s
+    let chanKey = 'aiLoadingInject';
+    try {
+      const r = await chrome.storage.local.get('aiBaseUrl');
+      if (r.aiBaseUrl) chanKey = 'aiLoadingApi';
+    } catch (e) {}
+    cardEl.innerHTML = `<div class="card"><div class="loading">🤖 ${esc(t(chanKey))}</div></div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
     positionCard(info.rect);
@@ -327,7 +333,13 @@
 
   async function handleSelection() {
     const info = currentSelection();
-    if (!info) { hidePopup(); return; }
+    if (!info) {
+      // 浮层内交互（按住卡片/选中卡片文本复制片段）不算离开：保持浮层
+      if (_popupPressing) return;
+      try { const ss = shadow && shadow.getSelection ? shadow.getSelection() : null; if (ss && !ss.isCollapsed) return; } catch (e) {}
+      hidePopup();
+      return;
+    }
     if (!S.enabled) return;
     let mode = detectMode(info.text);
     if (!mode) { hidePopup(); return; }
@@ -349,7 +361,11 @@
       });
     } catch (e) { resp = { ok: false, reason: 'network', detail: '后台未连接：' + ((e && e.message) || '扩展需重新加载') }; }
     if (token !== lookupToken) return; // 已有更新的查询/已关闭
-    if (!resp || !resp.ok) { renderError((resp && resp.reason) || 'network', info.rect, resp && resp.detail); return; }
+    // P3-1 自动 AI 详解（2026-10-03 反馈）：词典 miss / 网络失败 / 裸兜底卡（aiEligible）→ 免点击自动展开（两渠道都自动）；
+    // 限流时不自动（防风暴）；gtx 基础卡与离线完整卡仍为手动按钮（已有可用结果，不覆盖）
+    const autoAi = lastSel.mode === 'word' && resp && resp.reason !== 'rate-limited' && (!resp.ok || !!resp.aiEligible);
+    if (autoAi) { aiDetail(lastSel); return; }
+    if (!resp.ok) { renderError(resp.reason || 'network', info.rect, resp.detail); return; }
     if (resp.kind === 'entry') renderEntry(resp, info.rect);
     else if (resp.kind === 'translation') renderTranslation(resp, info.rect);
     else renderError('miss', info.rect);
@@ -361,6 +377,10 @@
   }
 
   // 事件：选区变化 / 抬起 → 防抖查询；滚动/键盘/页面离开 → 关闭
+  // 浮层内按压跟踪：按住卡片拖选文本时不判「选区离开」
+  let _popupPressing = false;
+  window.addEventListener('mousedown', (e) => { _popupPressing = !!(host && (e.target === host || host.contains(e.target))); }, true);
+  window.addEventListener('mouseup', () => { setTimeout(() => { _popupPressing = false; }, 0); }, true);
   document.addEventListener('selectionchange', scheduleLookup, true);
   window.addEventListener('mouseup', scheduleLookup, true);
   window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hidePopup(); }, true);
