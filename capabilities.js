@@ -349,6 +349,17 @@ function splitTextIntoChunks(text, maxLength) {
   return chunks;
 }
 
+// 按文本自动检测源语言（与 sidepanel transSrcCode 同规则）：日/韩文字 → 中文主导 → 兜底 en。
+// MyMemory 不接受 'Autodetect' 源（403），免费链的 auto 必须先落成具体语言。
+function detectSourceLang(text) {
+  const s = String(text || '');
+  if (/[\u3040-\u30ff]/.test(s)) return 'ja'; // 日文假名
+  if (/[\uac00-\ud7af]/.test(s)) return 'ko'; // 韩文谚文
+  const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length;
+  if (cjk >= 1 && cjk / Math.max(1, s.replace(/\s/g, '').length) >= 0.4) return 'zh-CN'; // 中文主导
+  return 'en';
+}
+
 // 单段 · Google（免费、无 Key；'auto' 为其合法源语言；超时收紧 6s——失败快速落 LLM 兜底）
 async function translateChunkGoogle(text, sourceLang, targetLang, retries = 0) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
@@ -373,7 +384,7 @@ async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 1)
     finalText = text.substring(0, MAX_LENGTH);
   }
 
-  const langpair = `${sourceLang === 'auto' ? 'Autodetect' : sourceLang}|${targetLang}`;
+  const langpair = `${sourceLang === 'auto' ? detectSourceLang(finalText) : sourceLang}|${targetLang}`;
   const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(finalText)}&langpair=${langpair}`;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -389,15 +400,18 @@ async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 1)
       } catch (e) {
         throw new Error(I18N.t('apiFormatError'));
       }
-      if (data.responseData && data.responseData.translatedText) {
-        return data.responseData.translatedText;
-      }
-      if (data.responseStatus === 403 || data.responseStatus === 429) {
+      const out = data.responseData && data.responseData.translatedText;
+      // 403/429/配额耗尽时错误文案也在 responseData.translatedText 里（如 PLEASE SELECT TWO DISTINCT
+      // LANGUAGES），必须先拦下抛错，否则错误串会被当译文返回（与 background mymemoryFetch 同防御）
+      if (data.responseStatus === 403 || data.responseStatus === 429
+        || (out && /MYMEMORY WARNING|QUERY LENGTH LIMIT|PLEASE SELECT TWO DISTINCT|INVALID LANGUAGE PAIR/i.test(out))) {
         if (attempt < retries) {
           await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
           continue;
         }
+        throw new Error(data.responseDetails || out || I18N.t('translateFail'));
       }
+      if (out) return out;
       throw new Error(data.responseDetails || I18N.t('translateFail'));
     } catch (e) {
       if (attempt < retries) {
@@ -486,8 +500,15 @@ async function translateLongText(text, sourceLang, targetLang, onProgress, provi
 // 翻译动作核心：返回 { text, provider, viaFallback }（provider = 实际服务的来源）；超长自动分段
 // 兜底链（docs/013）：MyMemory → Google → 当前 LLM 渠道（API 优先，否则页面注入）
 async function translateText(text, opts = {}) {
-  const source = opts.source || 'en';
-  const target = opts.target || 'zh-CN';
+  // 源语言 auto → 按文本检测（MyMemory 不支持 'Autodetect'）；zh 归一为 zh-CN
+  let source = opts.source === 'auto' ? detectSourceLang(text) : (opts.source || 'en');
+  let target = opts.target || 'zh-CN';
+  if (source === 'zh') source = 'zh-CN';
+  if (target === 'zh') target = 'zh-CN';
+  // 同语言守卫：MyMemory 拒绝同语言对（403 PLEASE SELECT TWO DISTINCT LANGUAGES），Google gtx 国内
+  // 常态不可达 → 免费链必败直落 LLM。与划词 idWord 的学习兜底一致：zh→zh 改译英文，其余同对改译中文。
+  // （zh-CN→zh-TW 简繁转换是合法语言对，不在此列）
+  if (source === target) target = target.startsWith('zh') ? 'en' : 'zh-CN';
   const provider = TRANSLATE_PROVIDERS[opts.provider] ? opts.provider : 'auto';
   const onProgress = opts.onProgress;
   const MAX_SINGLE = 500;
@@ -840,6 +861,7 @@ const TABU_CAPS = {
   readClipboard,
   readInputBox,
   translateText,
+  detectSourceLang,
   speakText,
   sendToAI,
   askApiStream,

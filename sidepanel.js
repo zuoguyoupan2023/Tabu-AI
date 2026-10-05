@@ -4354,15 +4354,11 @@ async function selRunProcessor(type) {
 
 // 目标/源语言代码（供免费翻译）
 // 源语言 auto → 按文本自动检测（此前硬编码 'en'：中文文本 + auto → en|zh-CN 语言对必然翻译失败）
+// 检测规则统一收敛在 capabilities.detectSourceLang（日/韩 → 中文主导 → en）
 function transSrcCode(text) {
   const v = document.getElementById('selSrcLang')?.value;
   if (v && v !== 'auto') return v;
-  const s = String(text || '');
-  if (/[\u3040-\u30ff]/.test(s)) return 'ja'; // 日文假名
-  if (/[\uac00-\ud7af]/.test(s)) return 'ko'; // 韩文谚文
-  const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length;
-  if (cjk >= 1 && cjk / Math.max(1, s.replace(/\s/g, '').length) >= 0.4) return 'zh-CN'; // 中文主导
-  return 'en';
+  return (typeof TABU_CAPS !== 'undefined' && TABU_CAPS.detectSourceLang) ? TABU_CAPS.detectSourceLang(text) : 'en';
 }
 function transTgtCode() {
   return document.getElementById('selTgtLang')?.value || 'zh-CN';
