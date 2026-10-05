@@ -686,6 +686,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'instantDictSpeak': instantDictSpeak(request.text, request.lang, request.voice); result = { ok: true }; break;
         case 'instantDictAI': result = await instantDictAI(request); break;
         case 'instantDictAudio': result = await instantDictAudio(request); break;
+        case 'sidebarClosed': result = await onSidebarClosed(); break;
+        case 'reopenAiWindow': result = await reopenAiWindow(request.site); break;
         default: result = { success: false, message: '未知操作' };
       }
       sendResponse(result);
@@ -1521,10 +1523,38 @@ async function injectAskWithSave(site, prompt, opts = {}) {
   }
 }
 
+// docs/012 ⑤：AI 网页窗口随侧栏生命周期（aiWindowAutoClose，默认关）
+// 侧栏关闭 → 开关开时收 AI 窗；注入进行中跳过（不掐断，窗保留至注入完成）
+async function onSidebarClosed() {
+  try {
+    const r = await chrome.storage.local.get('aiWindowAutoClose');
+    if (!r.aiWindowAutoClose) return { ok: true };
+    if (injectLock) return { ok: true, deferred: true };
+    if (aiWindowId != null) {
+      try { await chrome.windows.remove(aiWindowId); } catch (e) {}
+      aiWindowId = null;
+    }
+  } catch (e) {}
+  return { ok: true };
+}
+
+// 侧栏打开 → 开关开时按站点恢复 AI 窗（ensureAiWindow 幂等：已有窗则复用）
+async function reopenAiWindow(siteKey) {
+  try {
+    const r = await chrome.storage.local.get('aiWindowAutoClose');
+    if (!r.aiWindowAutoClose) return { ok: true, skipped: true };
+    const site = AI_SITES[siteKey];
+    if (!site) return { ok: false, message: '未知站点' };
+    await ensureAiWindow(site.newChatUrl);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: (e && e.message) || '' };
+  }
+}
+
 // 在 AI 页面提问并返回 { answer } 或 { error }
 // 通用实现：按 site 找标签页（找不到则新开），注入 askInSite 等待回复
-async function injectAsk(siteKey, prompt, opts = {}) {
-  const site = AI_SITES[siteKey];
+async function injectAsk(siteKey, prompt, opts = {}) {  const site = AI_SITES[siteKey];
   if (!site) return { error: '未知站点: ' + siteKey };
   if (!site.ready) return { error: site.label + ' 适配器尚未实现，暂仅支持 ChatGPT' };
   try {

@@ -483,6 +483,7 @@ const I18N = (() => {
       aiModeLocalHint: '💻 本地版：由本机 asr-server（{0}）的本地 LLM 直接回答，不经网页注入；「发送到」站点在本地版下不生效。',
       aiModeLocalDown: '⚠️ 本地版：asr-server（{0}）未运行，发送会失败——请启动本地服务，或切换到「浏览器版」。',
       aiSiteInjectOnlyTitle: '仅浏览器版渠道使用；本地/API 渠道下不生效',
+      instantDictAiAutoRow: '🤖 AI 详解 自动展开（词典查不到时自动问 AI）',
 
       // 能力卡二级折叠（docs/010 P1）
       foldCredsAsr: '☁️ 云端凭据（Azure / OpenAI / 阿里云）',
@@ -498,6 +499,7 @@ const I18N = (() => {
       clearSnapshotsCnt: '清空快照（{0}）',
       clearBmVersionsCnt: '清空书签版本（{0}）',
       clearHistVersionsCnt: '清空历史版本（{0}）',
+      aiWindowLifecycleRow: 'AI 网页窗口随侧栏自动关/开（关侧栏收窗 · 重开侧栏恢复，避免旧对话残留）',
 
       // 蓝层：系统 / 设置
       secSystem: '⚙️ 系统 / 设置',
@@ -1460,6 +1462,7 @@ const I18N = (() => {
       aiModeLocalHint: '💻 Local: answered by your machine\'s asr-server LLM ({0}), no page injection. The "Send to" site has no effect in Local mode.',
       aiModeLocalDown: '⚠️ Local: asr-server ({0}) is not running; sending will fail — start it or switch to Browser mode.',
       aiSiteInjectOnlyTitle: 'Only used by the Browser channel; ignored in Local/API modes',
+      instantDictAiAutoRow: '🤖 AI detail auto-expand (ask AI when the dictionary misses)',
 
       // Capability-card secondary folds (docs/010 P1)
       foldCredsAsr: '☁️ Cloud credentials (Azure / OpenAI / Aliyun)',
@@ -1475,6 +1478,7 @@ const I18N = (() => {
       clearSnapshotsCnt: 'Clear snapshots ({0})',
       clearBmVersionsCnt: 'Clear bookmark versions ({0})',
       clearHistVersionsCnt: 'Clear history versions ({0})',
+      aiWindowLifecycleRow: 'AI site window auto-closes with the sidebar and reopens with it (avoid stale sessions)',
 
       // Blue: system / settings
       secSystem: '⚙️ System / Settings',

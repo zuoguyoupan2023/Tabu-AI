@@ -2557,20 +2557,11 @@ function injectStop() {
 }
 
 async function injectNewChat() {
-  // 新对话 = 全新开始：清空输入框与素材胶囊（API 模式同时重置后台会话）
+  // docs/012 ⑥：新对话 = 全量重置——清侧栏对话流（含 storage.session 快照）+ 清输入/素材
+  //   + 重启底层 AI（API 重置会话 / 注入关 AI 小窗重开）；每轮问答已按轮存 IndexedDB，历史保留
+  await resetConversation({ notify: true });
   injectSetInput('');
   injectClearMaterials();
-  // API 模式：重置会话（新 session 清空多轮上下文），无需操作真实 AI 页面
-  if (await getEffectiveAiMode() === 'api') {
-    const r = await sendMessage('resetAiSession');
-    if (r && r.error) { showStatus(r.error, 'error'); return; }
-    showStatus(I18N.t('aiSessionReset'), 'success');
-    return;
-  }
-  const site = injectSite();
-  showStatus(I18N.t('newChatStarting'), 'info');
-  const r = await sendMessage('newConversation', { site });
-  showStatus(r && r.success ? r.message : (r && r.message || I18N.t('newChatFail')), r && r.success ? 'success' : 'error');
 }
 
 function fmtTime(ts) {
@@ -4229,6 +4220,27 @@ async function initChatSession() {
   await loadChatSessionPrefs();
   if (chatRestartOnOpen) await resetConversation();
   else await restoreChatStream();
+  await initAiWindowLifecycle();
+}
+
+// docs/012 ⑤：AI 网页窗口随侧栏生命周期（aiWindowAutoClose，默认关）
+async function initAiWindowLifecycle() {
+  const chk = document.getElementById('aiWindowLifecycle');
+  if (chk) {
+    chrome.storage.local.get('aiWindowAutoClose').then((r) => { chk.checked = r.aiWindowAutoClose === true; }).catch(() => {});
+    chk.addEventListener('change', () => chrome.storage.local.set({ aiWindowAutoClose: !!chk.checked }).catch(() => {}));
+  }
+  // 侧栏关闭 → 通知 SW（开关开时收 AI 窗；注入进行中 SW 侧跳过，不掐断）
+  window.addEventListener('pagehide', () => {
+    try { chrome.runtime.sendMessage({ action: 'sidebarClosed' }).catch(() => {}); } catch (e) {}
+  });
+  // 侧栏打开 → 开关开且注入渠道时自动恢复 AI 窗（chatRestartOnOpen 开时 resetConversation 已重建窗，此处幂等）
+  try {
+    const r = await chrome.storage.local.get('aiWindowAutoClose');
+    if (r.aiWindowAutoClose && (await getEffectiveAiMode()) === 'inject') {
+      await sendMessage('reopenAiWindow', { site: injectSite() });
+    }
+  } catch (e) {}
 }
 // 切换页面（网址变化）检测：忽略 AI 站点与浏览器内部页
 function isAiSiteUrl(u) {
