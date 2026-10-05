@@ -109,6 +109,12 @@
   .aibtn:hover { background: rgba(127,140,170,.4); }
   `;
 
+  // ===== 扩展上下文存活检测（docs/012 真机反馈④）：重载扩展后旧页面的内容脚本成为"孤儿"——
+  // chrome.runtime.id 消失，storage/消息全部失效，开关状态也不可达 → 一律静默退出，不渲染任何卡片
+  function ctxAlive() {
+    try { return !!(chrome.runtime && chrome.runtime.id); } catch (e) { return false; }
+  }
+
   // ===== 显示/定位 =====
   function showLoading(rect, modeLabel) {
     ensureHost();
@@ -246,6 +252,7 @@
   // opts.missText：合并状态卡（docs/012 ④）——「未查询到 · 🤖 AI 详解中…」一次渲染无跳变
   async function aiDetail(info, opts = {}) {
     if (!info || !info.text) return;
+    if (!ctxAlive()) return; // 孤儿脚本：静默退出（不渲染「AI 详解失败」卡）
     const token = ++lookupToken;
     ensureHost();
     // loading 文案按渠道区分：API 已配置 → 通常几秒；否则页面注入 10–60s
@@ -341,6 +348,7 @@
   }
 
   async function handleSelection() {
+    if (!ctxAlive()) return; // 孤儿脚本（扩展已重载、本页未刷新）：静默退出，不渲染任何卡片
     const info = currentSelection();
     if (!info) {
       // docs/012 ②：悬停浮层或按住/选中卡片文本 → 不算离开，保持浮层（可框选复制片段）
@@ -349,7 +357,8 @@
       hidePopup();
       return;
     }
-    if (!S.enabled) return;
+    // 总开关关闭：收掉可能残留的浮层并退出（避免旧卡残留屏幕）
+    if (!S.enabled) { hidePopup(); return; }
     let mode = detectMode(info.text);
     if (!mode) { hidePopup(); return; }
     // 路由 + 回落（docs/009 §2.2，审阅决定④）：词汇对照关、句子翻译开 → 词按句子（译文）处理
