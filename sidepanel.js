@@ -4388,7 +4388,7 @@ async function freeTranslate(text) {
 }
 // 译文来源标注（renderVoiceOutput 第 5 参）
 function transViaLabel(provider) {
-  return I18N.t(provider === 'google' ? 'transViaGoogle' : 'transViaMymemory');
+  return I18N.t(provider === 'google' ? 'transViaGoogle' : provider === 'llm' ? 'transViaLlm' : 'transViaMymemory');
 }
 // 免费翻译按钮 title 随服务源变化（蓝区切换后同步）
 function applyTranslateProviderUi(provider) {

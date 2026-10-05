@@ -349,12 +349,12 @@ function splitTextIntoChunks(text, maxLength) {
   return chunks;
 }
 
-// 单段 · Google（免费、无 Key；'auto' 为其合法源语言）
-async function translateChunkGoogle(text, sourceLang, targetLang, retries = 1) {
+// 单段 · Google（免费、无 Key；'auto' 为其合法源语言；超时收紧 6s——失败快速落 LLM 兜底）
+async function translateChunkGoogle(text, sourceLang, targetLang, retries = 0) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
       const data = await response.json();
       if (data && data[0]) {
         return data[0].map(item => item[0]).join('');
@@ -365,8 +365,8 @@ async function translateChunkGoogle(text, sourceLang, targetLang, retries = 1) {
   throw new Error(I18N.t('translateFail'));
 }
 
-// 单段 · MyMemory（带重试）
-async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 2) {
+// 单段 · MyMemory（超时收紧 10s、重试 1 次——失败快速落 Google/LLM 兜底）
+async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 1) {
   const MAX_LENGTH = 500;
   let finalText = text;
   if (text.length > MAX_LENGTH) {
@@ -379,7 +379,7 @@ async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 2)
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), 10000);
       const response = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
       const textData = await response.text();
@@ -424,6 +424,36 @@ async function translateChunk(text, sourceLang, targetLang, provider) {
   }
 }
 
+// 第三级兜底（docs/013）：MyMemory/Google 均失败 → 当前 LLM 渠道（API 已配置优先，否则页面注入）
+// 返回译文文本或 null（静默，由调用方抛原错误）
+const TRANSLATE_TARGET_NAMES = {
+  'zh-CN': '简体中文', zh: '简体中文', en: 'English', ja: '日本語', ko: '한국어',
+  fr: 'Français', de: 'Deutsch', es: 'Español', ru: 'Русский'
+};
+async function translateViaLLM(text, targetLang) {
+  try {
+    const tlName = TRANSLATE_TARGET_NAMES[targetLang] || targetLang || 'English';
+    const prompt = `将以下内容翻译成${tlName}，只输出译文，不要任何解释或原文：\n\n${text}`;
+    const r = await chrome.storage.local.get(['aiBaseUrl', 'aiApiKey', 'aiModel', 'aiProvider', 'aiAllowAnyHost', 'injectSite']);
+    let answer = '';
+    if (r.aiBaseUrl) {
+      const cfg = {
+        aiProvider: r.aiProvider || 'openai', aiBaseUrl: String(r.aiBaseUrl || '').trim(),
+        aiApiKey: String(r.aiApiKey || '').trim(), aiModel: String(r.aiModel || '').trim(),
+        aiAllowAnyHost: !!r.aiAllowAnyHost
+      };
+      const res = await askApiStream(prompt, cfg, [], {});
+      answer = (res && res.answer) || '';
+    } else {
+      const res = await sendMessage('injectAsk', { site: r.injectSite || 'chatgpt', prompt });
+      answer = (res && res.answer) || '';
+    }
+    return answer.trim() ? String(answer).trim() : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // 分段翻译长文本
 async function translateLongText(text, sourceLang, targetLang, onProgress, provider) {
   const maxChunkSize = 480;
@@ -454,16 +484,23 @@ async function translateLongText(text, sourceLang, targetLang, onProgress, provi
 }
 
 // 翻译动作核心：返回 { text, provider, viaFallback }（provider = 实际服务的来源）；超长自动分段
+// 兜底链（docs/013）：MyMemory → Google → 当前 LLM 渠道（API 优先，否则页面注入）
 async function translateText(text, opts = {}) {
   const source = opts.source || 'en';
   const target = opts.target || 'zh-CN';
   const provider = TRANSLATE_PROVIDERS[opts.provider] ? opts.provider : 'auto';
   const onProgress = opts.onProgress;
   const MAX_SINGLE = 500;
-  if (text.length > MAX_SINGLE) {
-    return translateLongText(text, source, target, onProgress, provider);
+  try {
+    if (text.length > MAX_SINGLE) {
+      return await translateLongText(text, source, target, onProgress, provider);
+    }
+    return await translateChunk(text, source, target, provider);
+  } catch (e) {
+    const llm = await translateViaLLM(text, target);
+    if (llm) return { text: llm, provider: 'llm', viaFallback: true };
+    throw e;
   }
-  return translateChunk(text, source, target, provider);
 }
 
 // 发送到 AI：注入 askInSite（后台）并返回 { ok, text, error }

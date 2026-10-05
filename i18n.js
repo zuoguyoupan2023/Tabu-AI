@@ -548,6 +548,7 @@ const I18N = (() => {
       transSvcGoogle: 'Google',
       transProviderHint: '免费翻译（主界面「🌐 免费翻译」与选区条「翻译」）使用此服务源；对话流中的译文会标注实际服务的来源。均为免费无 Key 服务。',
       transViaMymemory: '来自 MyMemory 的服务',
+      transViaLlm: '来自当前 LLM 渠道（免费翻译源失败后的兜底）',
       transViaGoogle: '来自 Google 的服务',
       capSourceHint: '选择后同步下方各维度的具体引擎/后端；「自动」按可达性选择：本地在线 → 本地，否则云端/系统。可点「检测可达性」刷新状态。',
 
@@ -1527,6 +1528,7 @@ const I18N = (() => {
       transSvcGoogle: 'Google',
       transProviderHint: 'Used by free translate (main panel "Free translate" and selection bar "Translate"); results in the chat stream are labeled with the service actually used. Both are free and key-less.',
       transViaMymemory: 'via MyMemory',
+      transViaLlm: 'via your LLM channel (fallback after free sources failed)',
       transViaGoogle: 'via Google',
       capSourceHint: 'Selecting syncs the per-dimension engine/backend below; "Auto" picks by reachability (local up → local, else cloud/system). Use "Probe" to refresh.',
 
