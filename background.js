@@ -1524,16 +1524,33 @@ async function injectAskWithSave(site, prompt, opts = {}) {
 }
 
 // docs/012 ⑤：AI 网页窗口随侧栏生命周期（aiWindowAutoClose，默认关）
+// ＊MV3 SW 空闲 ~30s 会被回收，aiWindowId 内存记忆随之丢失——一切判定必须以标签页实况为准（按站点 URL 模式反查）
+async function findAiWindows(siteKey) {
+  const patterns = siteKey && AI_SITES[siteKey]
+    ? (AI_SITES[siteKey].urlPatterns || [])
+    : Object.values(AI_SITES).flatMap((s) => s.urlPatterns || []);
+  if (!patterns.length) return [];
+  const tabs = await chrome.tabs.query({ url: patterns }).catch(() => []);
+  const winIds = [];
+  for (const t of tabs) {
+    if (t.windowId == null || winIds.includes(t.windowId)) continue;
+    try {
+      const w = await chrome.windows.get(t.windowId);
+      if (w.type === 'popup') winIds.push(t.windowId); // 只关 AI 专用小窗，绝不碰正常浏览器标签
+    } catch (e) {}
+  }
+  return winIds;
+}
+
 // 侧栏关闭 → 开关开时收 AI 窗；注入进行中跳过（不掐断，窗保留至注入完成）
 async function onSidebarClosed() {
   try {
     const r = await chrome.storage.local.get('aiWindowAutoClose');
     if (!r.aiWindowAutoClose) return { ok: true };
     if (injectLock) return { ok: true, deferred: true };
-    if (aiWindowId != null) {
-      try { await chrome.windows.remove(aiWindowId); } catch (e) {}
-      aiWindowId = null;
-    }
+    const winIds = await findAiWindows(); // 全部 AI 站点的 popup 专用窗
+    for (const id of winIds) { try { await chrome.windows.remove(id); } catch (e) {} }
+    aiWindowId = null;
   } catch (e) {}
   return { ok: true };
 }
@@ -1722,6 +1739,11 @@ async function ensureAiWindow(url) {
     } catch (e) {
       aiWindowId = null; // 已被用户关闭
     }
+  }
+  // SW 重启会丢 aiWindowId 内存记忆 → 按 URL 模式反查已有 AI 小窗并重新接管（避免重复开窗）
+  if (aiWindowId == null) {
+    const found = await findAiWindows().catch(() => []);
+    if (found.length) aiWindowId = found[0];
   }
   // 窗口还在：复用其中的标签页，按需导航
   if (aiWindowId != null) {
