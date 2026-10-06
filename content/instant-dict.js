@@ -26,8 +26,8 @@
 
   // ===== 文案（zh/en） =====
   const STR = {
-    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', audio: '真人发音', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI 详解', aiLoadingApi: 'AI 详解中…（API 渠道，通常几秒）', aiLoadingInject: 'AI 详解中…（页面注入约 10–60 秒）', aiFail: 'AI 详解失败' },
-    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', audio: 'Real voice', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI detail', aiLoadingApi: 'Asking AI… (API channel, usually seconds)', aiLoadingInject: 'Asking AI… (page injection, 10–60s)', aiFail: 'AI detail failed' },
+    zh: { loading: '查询中…', notFound: '未收录', notFoundHint: '试试「AI 详解」或换个词', rateLimited: '查询太频繁，稍后再试', network: '网络不可用', copy: '复制', copied: '已复制', speak: '朗读', audio: '真人发音', close: '关闭', srcLabel: '原文', viaEcdict: '离线词典', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI 详解', aiLoadingApi: 'AI 详解中…（API 渠道，通常几秒）', aiLoadingInject: 'AI 详解中…（页面注入约 10–60 秒）', aiFail: 'AI 详解失败', showAs: '以…显示', alts: '另解' },
+    en: { loading: 'Looking up…', notFound: 'Not found', notFoundHint: 'Try "AI detail" or another word', rateLimited: 'Too many lookups, try again later', network: 'Network unavailable', copy: 'Copy', copied: 'Copied', speak: 'Speak', audio: 'Real voice', close: 'Close', srcLabel: 'Source', viaEcdict: 'offline dict', viaGoogle: 'via Google', viaMymemory: 'via MyMemory', viaLlm: 'AI', aiDetail: 'AI detail', aiLoadingApi: 'Asking AI… (API channel, usually seconds)', aiLoadingInject: 'Asking AI… (page injection, 10–60s)', aiFail: 'AI detail failed', showAs: 'Show as', alts: 'also' },
   };
   const t = (k) => (STR[S.uiLang === 'en' ? 'en' : 'zh'] || STR.zh)[k] || k;
 
@@ -107,6 +107,14 @@
   .airow.ai-busy { font-size: 11px; opacity: .8; }
   .aibtn { all: unset; cursor: pointer; font-size: 11px; padding: 2px 8px; border-radius: 6px; background: rgba(127,140,170,.25); color: inherit; }
   .aibtn:hover { background: rgba(127,140,170,.4); }
+  .langsel { all: unset; cursor: pointer; font-size: 10px; opacity: .6; color: inherit; max-width: 74px; }
+  .langsel:hover, .langsel:focus { opacity: 1; }
+  .langsel option { color: #23272f; background: #fff; }
+  .alts { margin-top: 4px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .alts .alts-label { font-size: 10px; opacity: .5; }
+  .altchip { all: unset; cursor: pointer; font-size: 11px; padding: 1px 8px; border-radius: 8px; background: rgba(127,140,170,.25); color: inherit; }
+  .altchip:hover { background: rgba(127,140,170,.45); }
+  .altchip.cur { opacity: .45; cursor: default; }
   `;
 
   // ===== 扩展上下文存活检测（docs/012 真机反馈④）：重载扩展后旧页面的内容脚本成为"孤儿"——
@@ -141,7 +149,25 @@
     lookupToken++;
     if (host && host.isConnected) { cardEl.innerHTML = ''; if (host.parentNode) host.remove(); }
     host = null; shadow = null; cardEl = null;
+    _cardShown = { text: '', ts: 0, nonce: '' };
   }
+
+  // ===== 跨帧去重（docs/013 §2.2）：iframe 支持后同屏可能多帧各出一张卡 —— 同文本只保留顶帧或最近帧 =====
+  let _cardShown = { text: '', ts: 0, nonce: '' };
+  function announceCard(text) {
+    _cardShown = { text: String(text || ''), ts: Date.now(), nonce: Math.random().toString(36).slice(2) };
+    try { chrome.runtime.sendMessage({ action: 'instantDictCardShown', text: _cardShown.text, ts: _cardShown.ts, nonce: _cardShown.nonce }).catch(() => {}); } catch (e) {}
+  }
+  try {
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (!msg || msg.type !== 'instantDictCardShown' || !msg.text) return;
+      if (msg.nonce && msg.nonce === _cardShown.nonce) return; // 本帧自己的广播（后台转发会回传全帧）
+      if (!_cardShown.text || _cardShown.text !== msg.text || !host || !host.isConnected) return;
+      const newer = (msg.ts || 0) > _cardShown.ts;                    // 最近帧优先
+      const topWins = msg.fromFrame === 0 && (msg.ts || 0) >= _cardShown.ts; // 顶帧出卡一律让位
+      if (newer || topWins) hidePopup();
+    });
+  } catch (e) {}
 
   // ===== 渲染器 =====
   const ICONS = {
@@ -159,7 +185,23 @@
   }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
-  // 词条卡：source(原词)/sourceRoman + headword/phonetic + gloss(目标语释义) + native(中文释义)
+  // 浮层内「以…显示」目标语言小下拉（docs/013 §2.1）：切换即重查当前词/句，并写入 instantDictTargetLang
+  const LANGS = [['zh-CN', '简体中文'], ['zh-TW', '繁體中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어'], ['fr', 'Français'], ['de', 'Deutsch'], ['es', 'Español'], ['ru', 'Русский']];
+  function langSelectHtml() {
+    const cur = S.targetLang && S.targetLang !== 'system' ? S.targetLang : resolveTarget();
+    const opts = LANGS.map(([code, name]) => `<option value="${code}"${code === cur ? ' selected' : ''}>${name}</option>`).join('');
+    return `<select class="langsel" title="${esc(t('showAs'))}">${opts}</select>`;
+  }
+  function bindLangSelect() {
+    cardEl.querySelector('.langsel')?.addEventListener('change', (e) => {
+      const v = e.target.value;
+      S.targetLang = v;
+      try { chrome.storage.local.set({ instantDictTargetLang: v }); } catch (err) {}
+      if (lastSel) queryAndRender(lastSel); // 即时重查当前词/句
+    });
+  }
+
+  // 词条卡：source(原词)/sourceRoman + headword/phonetic + gloss(目标语释义) + native(中文释义) + alts(另解候选)
   function renderEntry(d, rect) {
     ensureHost();
     const via = d.tier === 'ecdict' ? t('viaEcdict') : d.tier === 'mymemory' ? t('viaMymemory') : d.tier === 'gtx' ? t('viaGoogle') : d.tier === 'llm' ? t('viaLlm') : '';
@@ -167,16 +209,28 @@
       ? `<div class="src">${esc(d.source)}${d.sourceRoman ? `<i class="srcroman">${esc(d.sourceRoman)}</i>` : ''}</div>` : '';
     const hwLine = d.headword
       ? `<div class="hw">${esc(d.headword)}${d.phonetic ? `<i class="phon">/${esc(d.phonetic)}/</i>` : ''}</div>` : '';
+    // 多义词候选并列（docs/013 §2.4）：zh→en 反向索引多候选，点选即换卡
+    const altsRow = (d.alts && d.alts.length)
+      ? `<div class="alts"><span class="alts-label">${esc(t('alts'))}</span>${d.alts.slice(0, 4).map((a) =>
+          `<button class="altchip${a.word === d.headword ? ' cur' : ''}" data-alt="${esc(a.word)}" title="${esc(String(a.defZh || a.defEn || '').split('\n')[0] || '')}">${esc(a.word)}</button>`).join('')}</div>` : '';
     // 基础卡（gtx）/ 词典 miss 兜底译文卡（aiEligible）挂「AI 详解」（docs/009 P3-1）
     const aiRow = (d.tier === 'gtx' || d.aiEligible) ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card">
-      <div class="hd">${d.extra ? `<span class="badge">${esc(d.extra)}</span>` : ''}<span class="via">${esc(via)}</span>${actionsHtml()}</div>
-      ${srcLine}${hwLine}
+      <div class="hd">${d.extra ? `<span class="badge">${esc(d.extra)}</span>` : ''}<span class="via">${esc(via)}</span>${langSelectHtml()}${actionsHtml()}</div>
+      ${srcLine}${hwLine}${altsRow}
       ${d.gloss ? `<div class="gloss">${esc(d.gloss)}</div>` : ''}
       ${d.native ? `<div class="native">${esc(d.native)}</div>` : ''}
       ${aiRow}
     </div>`;
     bindCard(rect, d.headword || d.source || '', d.headword ? (S.uiLang === 'en' ? 'en-US' : 'en-US') : 'zh-CN');
+    bindLangSelect();
+    cardEl.querySelectorAll('.altchip:not(.cur)').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const alt = (d.alts || []).find((a) => a.word === btn.dataset.alt);
+        if (!alt || !lastSel) return;
+        renderEntry({ ...d, headword: alt.word, phonetic: alt.phonetic || '', gloss: alt.defEn || '', native: alt.defZh || '', extra: alt.badge || '' }, lastSel.rect);
+      });
+    });
     cardEl.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
     maybeAttachAudio(d);
   }
@@ -187,12 +241,13 @@
     // 词汇模式词典 miss 的 MyMemory 译文兜底也挂「AI 详解」（docs/009 P3-1；句子翻译不挂）
     const aiRow = d.aiEligible ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
     cardEl.innerHTML = `<div class="card">
-      <div class="hd"><span class="via">🌐 ${esc(via)}</span>${actionsHtml()}</div>
+      <div class="hd"><span class="via">🌐 ${esc(via)}</span>${langSelectHtml()}${actionsHtml()}</div>
       <div class="native">${esc(d.text || '')}</div>
       ${d.source ? `<div class="src">${esc(t('srcLabel'))}：${esc(d.source)}</div>` : ''}
       ${aiRow}
     </div>`;
     bindCard(rect, d.text || '', /[\u4e00-\u9fff]/.test(d.text || '') ? 'zh-CN' : 'en-US');
+    bindLangSelect();
     cardEl.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
   }
 
@@ -204,11 +259,12 @@
     // miss / AI 失败 / 词汇模式网络不可用 → 「AI 详解」按钮（AI 渠道走 API/页面注入，不依赖词典与翻译源的网络）
     const canAi = !!(lastSel && lastSel.mode === 'word');
     const aiRow = (reason === 'miss' || reason === 'ai' || (reason === 'network' && canAi)) ? `<div class="airow"><button class="aibtn" data-act="aidetail">🤖 ${esc(t('aiDetail'))}</button></div>` : '';
-    cardEl.innerHTML = `<div class="card"><div class="err">${esc(msg)}${hint}</div>${aiRow}</div>`;
+    cardEl.innerHTML = `<div class="card"><div class="hd">${langSelectHtml()}</div><div class="err">${esc(msg)}${hint}</div>${aiRow}</div>`;
     const card = cardEl.firstElementChild;
     card.style.display = 'block';
     positionCard(rect);
     bindCard(rect, '', '');
+    bindLangSelect();
     card.querySelector('[data-act="aidetail"]')?.addEventListener('click', () => aiDetail(lastSel));
   }
 
@@ -366,15 +422,20 @@
     if (mode === 'sentence' && !S.sentence) mode = null;
     if (!mode) { hidePopup(); return; }
     lastSel = { ...info, mode }; // AI 详解重试保留最近选区（词汇模式网络错误也挂按钮）
+    queryAndRender(lastSel);
+  }
 
+  // 查询 + 渲染（handleSelection 与浮层切语言重查共用，docs/013 §2.1）
+  async function queryAndRender(sel) {
     const token = ++lookupToken;
-    showLoading(info.rect, mode);
+    showLoading(sel.rect, sel.mode);
+    announceCard(sel.text); // 跨帧去重（docs/013 §2.2）
     let resp = null;
     try {
       resp = await chrome.runtime.sendMessage({
         action: 'instantDictLookup',
-        text: info.text,
-        mode,
+        text: sel.text,
+        mode: sel.mode,
         targetLang: resolveTarget(),
         aiAuto: S.aiAuto, // docs/012 ④：AI 自动详解开启时词典 miss 由 AI 接管
       });
@@ -382,12 +443,12 @@
     if (token !== lookupToken) return; // 已有更新的查询/已关闭
     // P3-1 自动 AI 详解（2026-10-03 反馈）：词典 miss / 网络失败 / 裸兜底卡（aiEligible）→ 免点击自动展开（两渠道都自动）；
     // 限流时不自动（防风暴）；gtx 基础卡与离线完整卡仍为手动按钮（已有可用结果，不覆盖）
-    const autoAi = lastSel.mode === 'word' && resp && resp.reason !== 'rate-limited' && (!resp.ok || !!resp.aiEligible);
-    if (autoAi) { aiDetail(lastSel, { missText: resp.reason === 'miss' ? t('notFound') : t('network'), detail: resp.detail }); return; }
-    if (!resp.ok) { renderError(resp.reason || 'network', info.rect, resp.detail); return; }
-    if (resp.kind === 'entry') renderEntry(resp, info.rect);
-    else if (resp.kind === 'translation') renderTranslation(resp, info.rect);
-    else renderError('miss', info.rect);
+    const autoAi = sel.mode === 'word' && resp && resp.reason !== 'rate-limited' && (!resp.ok || !!resp.aiEligible);
+    if (autoAi) { aiDetail(sel, { missText: resp.reason === 'miss' ? t('notFound') : t('network'), detail: resp.detail }); return; }
+    if (!resp.ok) { renderError(resp.reason || 'network', sel.rect, resp.detail); return; }
+    if (resp.kind === 'entry') renderEntry(resp, sel.rect);
+    else if (resp.kind === 'translation') renderTranslation(resp, sel.rect);
+    else renderError('miss', sel.rect);
   }
 
   function resolveTarget() {

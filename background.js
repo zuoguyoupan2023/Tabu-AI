@@ -686,6 +686,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'instantDictSpeak': instantDictSpeak(request.text, request.lang, request.voice); result = { ok: true }; break;
         case 'instantDictAI': result = await instantDictAI(request); break;
         case 'instantDictAudio': result = await instantDictAudio(request); break;
+        // 跨帧去重（docs/013 §2.2）：某帧出卡 → 转发同标签页全部帧，同文本旧卡让位（顶帧/最近帧优先）
+        case 'instantDictCardShown': {
+          try {
+            const tabId = sender.tab && sender.tab.id;
+            if (tabId != null) {
+              chrome.tabs.sendMessage(tabId, { type: 'instantDictCardShown', text: request.text, ts: request.ts, nonce: request.nonce, fromFrame: sender.frameId || 0 }).catch(() => {});
+            }
+          } catch (e) {}
+          result = { ok: true };
+          break;
+        }
         case 'sidebarClosed': result = await onSidebarClosed(); break;
         case 'reopenAiWindow': result = await reopenAiWindow(request.site); break;
         default: result = { success: false, message: '未知操作' };
@@ -805,6 +816,139 @@ async function ecdictRevLookup(text) {
   return [];
 }
 
+// 反向索引候选排序（docs/013 §2.4）：名词/动词优先（查词典条目行首词性标记），频率序为稳定次序
+async function rankRevCandidates(cands) {
+  let map = null;
+  try { map = await loadEcdict(); } catch (e) {}
+  const scored = cands.map((w, i) => {
+    const e = (map && map.get(w)) || ['', '', '', '', ''];
+    const zh = String(e[2] || ''), en = String(e[1] || '');
+    let score = 0;
+    if (/(^|\n)\s*n\./.test(zh) || /(^|\n)\s*n\./.test(en)) score += 2;
+    if (/(^|\n)\s*v(i|t)?\./.test(zh) || /(^|\n)\s*v(i|t)?\./.test(en)) score += 1;
+    return { word: w, e, score, i };
+  });
+  scored.sort((a, b) => b.score - a.score || a.i - b.i);
+  return scored;
+}
+
+// ========== 全量词典 CDN（docs/013 §2.3）：top50k miss → jsDelivr 按首字母拉桶 → IndexedDB 缓存 ==========
+// 产物 data/ecdict-full/{a..z,#}.json.gz + manifest.json（tools/build-ecdict-subset.js --full 生成），
+// 随开源仓分发、jsDelivr 服务；桶内条目格式与 top50k 一致（词头 → [音标,英释,中释,'',徽标]）。
+const ECDICT_CDN_BASE = 'https://cdn.jsdelivr.net/gh/zuoguyoupan2023/Tabu-AI@main/data/ecdict-full/';
+const ECDICT_FULL_TIMEOUT = 6000; // 桶下载限时：首次 miss 最坏多等 6s，失败熔断后不再拖慢
+let _ecdictFullMeta = null, _ecdictFullFails = 0, _ecdictFullSkipUntil = 0;
+const _ecdictFullInflight = new Map();
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    try {
+      const req = indexedDB.open('tabu-ecdict-full', 1);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore('buckets'); } catch (e) {} };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error || new Error('idb open failed'));
+    } catch (e) { reject(e); }
+  });
+}
+async function idbGet(key) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const rq = db.transaction('buckets', 'readonly').objectStore('buckets').get(key);
+    rq.onsuccess = () => resolve(rq.result);
+    rq.onerror = () => reject(rq.error);
+    txCleanup(db);
+  });
+}
+async function idbSet(key, val) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('buckets', 'readwrite');
+    tx.objectStore('buckets').put(val, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    txCleanup(db);
+  });
+}
+async function idbClear() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('buckets', 'readwrite');
+    tx.objectStore('buckets').clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    txCleanup(db);
+  });
+}
+function txCleanup(db) { // 事务完成后关连接（MV3 SW 不宜堆积 IDB 连接）
+  setTimeout(() => { try { db.close(); } catch (e) {} }, 0);
+}
+
+// CDN manifest（含版本号）；版本变化 → 清空 IndexedDB 旧桶（docs/013 §2.3 版本失效）
+async function ecdictFullMeta() {
+  if (_ecdictFullMeta) return _ecdictFullMeta;
+  const r = await fetch(ECDICT_CDN_BASE + 'manifest.json', { signal: AbortSignal.timeout(ECDICT_FULL_TIMEOUT) });
+  if (!r.ok) throw new Error('ecdict-full manifest ' + r.status);
+  const meta = await r.json();
+  if (!meta || !meta.version) throw new Error('ecdict-full manifest bad');
+  let stored = null;
+  try { stored = await idbGet('meta'); } catch (e) {}
+  if (stored && stored.version && stored.version !== meta.version) { try { await idbClear(); } catch (e) {} }
+  if (!stored || stored.version !== meta.version) { try { await idbSet('meta', { version: meta.version }); } catch (e) {} }
+  _ecdictFullMeta = meta;
+  return meta;
+}
+
+function ecdictFullBucketKey(word) {
+  const c = String(word || '').toLowerCase().trim()[0] || '#';
+  return /[a-z]/.test(c) ? c : '#';
+}
+
+// 单桶：IDB 命中即用；未命中限时下载 → 解压 → 入库；并发去重；连败 2 次熔断 10 分钟
+async function ecdictFullBucket(letter) {
+  if (Date.now() < _ecdictFullSkipUntil) return null;
+  const meta = await ecdictFullMeta().catch(() => null);
+  if (!meta) return null;
+  const key = 'bucket:' + meta.version + ':' + letter;
+  const cached = await idbGet(key).catch(() => null);
+  if (cached && cached.dict) return cached.dict;
+  let p = _ecdictFullInflight.get(key);
+  if (!p) {
+    p = (async () => {
+      const url = ECDICT_CDN_BASE + letter + '.json.gz';
+      const resp = await fetch(url, { signal: AbortSignal.timeout(ECDICT_FULL_TIMEOUT) });
+      if (!resp.ok) throw new Error('ecdict-full ' + letter + ' ' + resp.status);
+      const buf = await resp.arrayBuffer();
+      const text = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      const dict = JSON.parse(text);
+      try { await idbSet(key, { dict }); } catch (e) {} // 入库失败（隐私模式等）不致命，本次会话内存可用
+      _ecdictFullFails = 0;
+      return dict;
+    })().catch((e) => {
+      if (++_ecdictFullFails >= 2) { _ecdictFullSkipUntil = Date.now() + 600000; console.warn('[instantDict] 全量词典 CDN 连败熔断 10 分钟:', e && e.message); }
+      return null;
+    });
+    _ecdictFullInflight.set(key, p);
+    setTimeout(() => _ecdictFullInflight.delete(key), 30000);
+  }
+  return p;
+}
+
+// 全量词典查询（与 ecdictLookup 同返回形状）；含词形还原（英文屈折不跨首字母桶）
+async function ecdictFullLookup(word) {
+  try {
+    const w = String(word || '').toLowerCase().trim();
+    if (!w || Date.now() < _ecdictFullSkipUntil) return null; // 熔断窗口内跳过
+    const dict = await ecdictFullBucket(ecdictFullBucketKey(w));
+    if (!dict) return null;
+    if (dict[w]) return { word: w, e: dict[w] };
+    for (const c of lemmaCandidates(w)) {
+      if (ecdictFullBucketKey(c) !== ecdictFullBucketKey(w)) continue;
+      if (dict[c]) return { word: c, e: dict[c] };
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
 // 词形还原候选（-s/-es/-ed/-ing/-er/-est/-ly/'s + 双写辅音）
 function lemmaCandidates(word) {
   const w = word.toLowerCase(), out = [];
@@ -829,7 +973,8 @@ async function ecdictLookup(word) {
   for (const c of lemmaCandidates(w)) {
     if (map.has(c)) return { word: c, e: map.get(c) };
   }
-  return null;
+  // 全量词典 CDN（docs/013 §2.3）：top50k miss → 按首字母拉桶（IndexedDB 缓存/熔断）；失败静默回落在线兜底
+  return await ecdictFullLookup(w);
 }
 
 // 预热：SW 启动即后台解压三份离线资产（词典/反向索引/拼音），首次查询免解压延迟（docs/009 §11.3）
@@ -956,7 +1101,7 @@ async function idWord(text, targetLang, prov, aiAuto) {
   }
   // 中文词 → 英文：headword 顺序（prov=mymemory 时跳过 gtx）反向索引兜底离线精准命中
   if (src === 'zh' && toEn) {
-    let head = '', roman = '', via = 'gtx';
+    let head = '', roman = '', via = 'gtx', alts = [];
     if (prov !== 'mymemory') {
       try {
         const j = await gtxFetch(text, 'zh-CN', 'en', 't&dt=rm', 3000);
@@ -966,7 +1111,13 @@ async function idWord(text, targetLang, prov, aiAuto) {
     }
     if (!head) {
       const cands = await ecdictRevLookup(text).catch(() => []);
-      if (cands.length) { head = cands[0]; via = 'ecdict'; }
+      if (cands.length) {
+        const ranked = await rankRevCandidates(cands); // docs/013 §2.4：名词/动词优先排序
+        head = ranked[0].word; via = 'ecdict';
+        alts = ranked
+          .map((r) => { const [phonetic, defEn, defZh, , badge] = r.e; return { word: r.word, phonetic, defEn, defZh, badge }; })
+          .filter((a) => a.word !== head && (a.defZh || a.defEn));
+      }
     }
     if (!head) { try { head = (await mymemoryTranslate(text, 'zh-CN', 'en', 5000)).trim(); via = 'mymemory'; } catch (e) {} }
     if (!head) return { ok: false, reason: 'network' };
@@ -976,9 +1127,9 @@ async function idWord(text, targetLang, prov, aiAuto) {
     try { hit = await ecdictLookup(head.split(/\s+/)[0].replace(/[^A-Za-z''-]/g, '') || head); } catch (e) { hit = null; }
     if (hit) {
       const [phonetic, defEn, defZh, , badge] = hit.e;
-      return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge };
+      return { ok: true, kind: 'entry', tier: 'ecdict', source: text, sourceRoman: roman, headword: hit.word, phonetic, gloss: defEn, native: defZh, extra: badge, alts: alts.length > 1 ? alts : undefined };
     }
-    return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '', aiEligible: true };
+    return { ok: true, kind: 'entry', tier: via, source: text, sourceRoman: roman, headword: head, phonetic: '', gloss: '', native: '', extra: '', aiEligible: true, alts: alts.length > 1 ? alts : undefined };
   }
   // 中文词 → 中文目标（同语言）：改查英文对照（学习兜底）；其余语言对 → gtx 基础卡
   if (src === 'zh' && toZh) return await idWord(text, 'en', prov);

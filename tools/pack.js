@@ -25,13 +25,18 @@ const SKIP = new Set([
 const entries = fs.readdirSync(root).filter((n) => !SKIP.has(n));
 
 // ① 干净的可加载目录（load unpacked 直接指向它）
+// data/ecdict-full/（全量词典 CDN 桶，docs/013 §2.3）走 jsDelivr 分发，不随扩展打包
 const stageDir = path.join(dist, `tabu-ai-${version}`);
 const zipPath = path.join(dist, `tabu-ai-${version}.zip`);
 fs.rmSync(stageDir, { recursive: true, force: true });
 fs.rmSync(zipPath, { force: true });
 fs.mkdirSync(stageDir, { recursive: true });
+const fullDirToken = path.join('data', 'ecdict-full') + path.sep;
 for (const name of entries) {
-  fs.cpSync(path.join(root, name), path.join(stageDir, name), { recursive: true });
+  fs.cpSync(path.join(root, name), path.join(stageDir, name), {
+    recursive: true,
+    filter: (src) => !src.includes(fullDirToken) && !src.endsWith(path.join('data', 'ecdict-full')),
+  });
 }
 
 // ② 同内容的 zip（在 stage 目录内打包，保证 manifest.json 位于压缩包根部）

@@ -1,0 +1,115 @@
+{
+  "version": "ecdict-770610-20261005",
+  "builtAt": "2026-10-05T17:53:53.615Z",
+  "entries": 770610,
+  "buckets": {
+    "#": {
+      "entries": 607,
+      "gzBytes": 19470
+    },
+    "a": {
+      "entries": 60478,
+      "gzBytes": 1779495
+    },
+    "b": {
+      "entries": 45854,
+      "gzBytes": 1436836
+    },
+    "c": {
+      "entries": 73384,
+      "gzBytes": 2263618
+    },
+    "d": {
+      "entries": 39192,
+      "gzBytes": 1260363
+    },
+    "e": {
+      "entries": 29627,
+      "gzBytes": 929158
+    },
+    "f": {
+      "entries": 31657,
+      "gzBytes": 975026
+    },
+    "g": {
+      "entries": 28332,
+      "gzBytes": 835836
+    },
+    "h": {
+      "entries": 31085,
+      "gzBytes": 967466
+    },
+    "i": {
+      "entries": 28122,
+      "gzBytes": 851471
+    },
+    "j": {
+      "entries": 6123,
+      "gzBytes": 202181
+    },
+    "k": {
+      "entries": 9349,
+      "gzBytes": 285329
+    },
+    "l": {
+      "entries": 29378,
+      "gzBytes": 878756
+    },
+    "m": {
+      "entries": 48246,
+      "gzBytes": 1441638
+    },
+    "n": {
+      "entries": 21384,
+      "gzBytes": 623720
+    },
+    "o": {
+      "entries": 21619,
+      "gzBytes": 647272
+    },
+    "p": {
+      "entries": 64985,
+      "gzBytes": 2021299
+    },
+    "q": {
+      "entries": 3389,
+      "gzBytes": 107003
+    },
+    "r": {
+      "entries": 33942,
+      "gzBytes": 1085052
+    },
+    "s": {
+      "entries": 76735,
+      "gzBytes": 2498969
+    },
+    "t": {
+      "entries": 40782,
+      "gzBytes": 1286068
+    },
+    "u": {
+      "entries": 12920,
+      "gzBytes": 423115
+    },
+    "v": {
+      "entries": 11890,
+      "gzBytes": 368866
+    },
+    "w": {
+      "entries": 15412,
+      "gzBytes": 513816
+    },
+    "x": {
+      "entries": 1217,
+      "gzBytes": 38085
+    },
+    "y": {
+      "entries": 2185,
+      "gzBytes": 73992
+    },
+    "z": {
+      "entries": 2716,
+      "gzBytes": 84475
+    }
+  }
+}
