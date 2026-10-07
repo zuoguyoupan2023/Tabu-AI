@@ -483,6 +483,9 @@ const I18N = (() => {
       aiModeLocalHint: '💻 本地版：由本机 asr-server（{0}）的本地 LLM 直接回答，不经网页注入；「发送到」站点在本地版下不生效。',
       aiModeLocalDown: '⚠️ 本地版：asr-server（{0}）未运行，发送会失败——请启动本地服务，或切换到「浏览器版」。',
       aiSiteInjectOnlyTitle: '仅浏览器版渠道使用；本地/API 渠道下不生效',
+      siteHealthLabel: '站点健康',
+      siteHealthTitle: '浏览器免费 AI（甜点层）各站点可用状态：● 正常（页面已开且可注入）/ ◐ 页面已开（未登录或未适配）/ ○ 可达未开页 / ✕ 不可达',
+      siteHealthRefreshTitle: '重新探测全部站点（含打开中页面的 DOM 检查，约几秒）',
       instantDictAiAutoRow: '🤖 AI 详解 自动展开（词典查不到时自动问 AI）',
 
       // 能力卡二级折叠（docs/010 P1）
@@ -1463,6 +1466,9 @@ const I18N = (() => {
       aiModeLocalHint: '💻 Local: answered by your machine\'s asr-server LLM ({0}), no page injection. The "Send to" site has no effect in Local mode.',
       aiModeLocalDown: '⚠️ Local: asr-server ({0}) is not running; sending will fail — start it or switch to Browser mode.',
       aiSiteInjectOnlyTitle: 'Only used by the Browser channel; ignored in Local/API modes',
+      siteHealthLabel: 'Site health',
+      siteHealthTitle: 'Availability of each site in the Browser free-AI layer: ● ok (page open & injectable) / ◐ page open (not logged in or not adapted) / ○ reachable, no page / ✕ unreachable',
+      siteHealthRefreshTitle: 'Re-probe all sites (incl. DOM check of open pages, a few seconds)',
       instantDictAiAutoRow: '🤖 AI detail auto-expand (ask AI when the dictionary misses)',
 
       // Capability-card secondary folds (docs/010 P1)

@@ -161,6 +161,14 @@
                 </select>
               </label>
 
+              <div class="cfg-row" data-i18n-title="siteHealthTitle" title="浏览器免费 AI（甜点层）各站点的可用状态：● 正常（页面已开且可注入）/ ◐ 页面已开（未登录或未适配）/ ○ 可达未开页 / ✕ 不可达">
+                <span data-i18n="siteHealthLabel">站点健康</span>
+                <div style="flex:1;display:flex;align-items:center;gap:6px;min-width:0;">
+                  <div id="siteHealthChips" style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px;"></div>
+                  <button class="chip" id="siteHealthRefresh" style="margin-left:auto;" data-i18n-title="siteHealthRefreshTitle" title="重新探测全部站点（含打开中页面的 DOM 检查，约几秒）">↻</button>
+                </div>
+              </div>
+
               <div class="ai-svc-sep" data-i18n="chatSessionLabel">🔄 会话行为（默认保留对话）</div>
               <label class="cfg-row"><input type="checkbox" id="chatRestartOnOpen" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnOpenRow" style="opacity:.85;font-size:11px;">关闭侧栏再打开时自动开新对话（并重启 AI 页面/会话）</span></label>
               <label class="cfg-row"><input type="checkbox" id="chatRestartOnNav" style="accent-color:var(--accent);width:auto;"> <span data-i18n="chatRestartOnNavRow" style="opacity:.85;font-size:11px;">切换页面（网址变化）时自动开新对话</span></label>

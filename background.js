@@ -662,6 +662,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         case 'injectAsk': result = await injectAskWithSave(request.site, request.prompt, { images: request.images || [], requestId: request.streamId || '' }); break;
         // 站点能力运行时探测（005 P2）：探测已打开的 AI 页面是否有 file input / 接受图片
         case 'probeSiteCapabilities': result = await probeSiteCapabilities(request.site); break;
+        // 站点适配器健康（docs/013 §9）：request.refresh=true 时含 DOM 探测（较慢），否则用缓存
+        case 'siteHealth': result = await siteHealthSnapshot(request.refresh === true); break;
         // 自定义 API：测试连接 / 单次调用（openai 兼容或 anthropic 原生）
         case 'askViaApi': result = await askViaApi(request.prompt, request.config, request.history); break;
         // 自定义 API：多轮会话上下文（session + 历史消息）
@@ -1348,11 +1350,57 @@ function connectBridge() {
         try { bridgeSocket.close(); } catch (e) {}
       } else if (msg.type === 'ask') {
         console.log('[TabU AI Bridge] 收到 ask，问题:', msg.question);
-        const result = await handleBridgeAsk(msg.question, { requestId: msg.requestId, stream: !!msg.stream });
+        const result = await handleBridgeAsk(msg.question, { requestId: msg.requestId, stream: !!msg.stream, site: msg.site, images: msg.images });
         console.log('[TabU AI Bridge] ask 结果:', JSON.stringify(result).slice(0, 200));
         if (bridgeSocket && bridgeSocket.readyState === 1) {
           try { bridgeSocket.send(JSON.stringify({ type: 'ask_result', requestId: msg.requestId, result })); } catch (e) {}
         }
+      } else if (msg.type === 'diag') {
+        // docs/013 §3：桥接诊断通道（站点能力探测 / 预开站点标签页），结果经 diag_result 回传
+        (async () => {
+          let result;
+          try {
+            if (msg.action === 'open') {
+              // 测试语义：确保该站点有一个可用标签页即可（不依赖 AI 小窗创建；小窗路径在部分环境会挂起）
+              const site = AI_SITES[msg.site];
+              if (!site) { result = { ok: false, error: '未知站点: ' + msg.site }; }
+              else {
+                const steps = { created: false };
+                let tabs = await chrome.tabs.query({ url: site.urlPatterns });
+                let tab = tabs.find((t) => t.url && !t.discarded) || tabs[0];
+                if (!tab) {
+                  tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
+                  steps.created = true;
+                }
+                steps.tabId = tab.id;
+                for (let i = 0; i < 12; i++) { // 等页面加载完成（上限 12s）
+                  try { const t = await chrome.tabs.get(tab.id); if (t.status === 'complete') break; } catch (e) { break; }
+                  await new Promise((r) => setTimeout(r, 1000));
+                }
+                result = { ok: true, steps };
+              }
+            } else if (msg.action === 'scan') {
+              // docs/013 §3：扫描页面采集精确选择器（发送按钮/附件完成态/文件名元素），供回填 AI_SITES 配置
+              const site = AI_SITES[msg.site];
+              if (!site) { result = { ok: false, error: '未知站点: ' + msg.site }; }
+              else {
+                const tabs = await chrome.tabs.query({ url: site.urlPatterns });
+                const tab = tabs.find((t) => t.url && !t.discarded) || tabs[0];
+                if (!tab || tab.id == null) result = { ok: false, error: '无标签页' };
+                else {
+                  const r = await withTimeout(chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scanPageForSelectors }), 8000, '扫描超时');
+                  result = { ok: true, ...((r && r[0] && r[0].result) || {}) };
+                }
+              }
+            } else if (msg.action === 'health') {
+              // docs/013 §9：站点适配器健康快照（refresh=true 含 DOM 探测）
+              result = await siteHealthSnapshot(msg.refresh === true);
+            } else {
+              result = await probeSiteCapabilities(msg.site);
+            }
+          } catch (e) { result = { ok: false, error: e.message }; }
+          try { if (bridgeSocket && bridgeSocket.readyState === 1) bridgeSocket.send(JSON.stringify({ type: 'diag_result', requestId: msg.requestId, result })); } catch (e) {}
+        })();
       }
     };
     bridgeSocket.onclose = () => { bridgeSocket = null; scheduleBridgeConnect(5000); };
@@ -1432,8 +1480,9 @@ const AI_SITES = {
   kimi: {
     label: 'Kimi',
     ready: true,
-    urlPatterns: ['https://kimi.moonshot.cn/*'],
-    newChatUrl: 'https://kimi.moonshot.cn/chat/',
+    // 2026-10 起官网迁移至 www.kimi.com（旧 kimi.moonshot.cn 仅跳转，docs/013 §3 实测）
+    urlPatterns: ['https://www.kimi.com/*', 'https://kimi.com/*', 'https://kimi.moonshot.cn/*'],
+    newChatUrl: 'https://www.kimi.com/',
     newChatSelectors: [
       'button[aria-label*="新对话"]', 'button[aria-label*="New chat"]', 'a[href*="/chat/"]',
       '[role="button"][aria-label*="新对话"]'
@@ -1466,6 +1515,8 @@ const AI_SITES = {
       'div[role="button"][aria-label*="发送"]', 'button[aria-label*="发送"]', 'button[aria-label*="Send"]',
       'button[type="submit"]', 'form button[type="submit"]'
     ],
+    // docs/013 §3 实测（2026-10-06）：上传 input[type=file] 命中即成功；发送按钮选择器未命中时 Enter 兜底可发
+    uploads: ['input[type=file]'],
     replies: { assistant: '[class*="ds-markdown"], [class*="markdown"], [data-message-role="assistant"], [class*="assistant"]' }
   }
 };
@@ -1740,14 +1791,19 @@ async function injectAsk(siteKey, prompt, opts = {}) {  const site = AI_SITES[si
         } catch (e) {}
       }
       // 智能策略：无现成 AI 标签 → 自动开独立小窗（可见操作，不占当前页面）；小窗失败退回后台标签
+      // 小窗创建在部分环境会长时间挂起（docs/013 §3 实测）→ 8s 超时后复查标签页，再退回后台标签
       let usedAiWindow = false;
       try {
-        const win = await ensureAiWindow(site.newChatUrl);
+        const win = await withTimeout(ensureAiWindow(site.newChatUrl), 8000, 'AI 小窗创建超时');
         if (win && win.tabId != null) {
           tab = await chrome.tabs.get(win.tabId);
           usedAiWindow = true;
         }
       } catch (e) {}
+      if (!tab) {
+        const again = await chrome.tabs.query({ url: site.urlPatterns }).catch(() => []);
+        tab = again.find((t) => t.url && !t.discarded) || again[0] || null; // 超时后小窗可能迟到创建
+      }
       if (!tab) {
         tab = await chrome.tabs.create({ url: site.newChatUrl, active: false });
       }
@@ -1784,7 +1840,7 @@ async function injectAsk(siteKey, prompt, opts = {}) {  const site = AI_SITES[si
           injectImmediately: true
         }), 75000, '注入执行超时（页面加载异常）');
         const out = results && results[0] ? results[0].result : null;
-        if (out && out.answer) return { answer: out.answer, thinking: out.thinking || '' };
+        if (out && out.answer) return { answer: out.answer, thinking: out.thinking || '', diag: out.diag || null };
         if (out && out.error) lastError = out.error;
       } catch (e) {
         lastError = '注入失败: ' + e.message;
@@ -1815,24 +1871,40 @@ async function injectAsk(siteKey, prompt, opts = {}) {  const site = AI_SITES[si
 // 页面不存在则返回 { present: false }，由侧边栏回退到适配器静态声明。
 async function probeSiteCapabilities(siteKey) {
   const site = AI_SITES[siteKey];
-  if (!site || !site.ready) return { present: false };
+  const browser = (() => { try { return /Edg\//.test(navigator.userAgent) ? 'Edge' : /Chrome\//.test(navigator.userAgent) ? 'Chrome' : navigator.userAgent.slice(0, 40); } catch (e) { return ''; } })();
+  if (!site || !site.ready) return { present: false, browser };
   try {
     const tabs = await chrome.tabs.query({ url: site.urlPatterns });
+    const tabInfo = tabs.slice(0, 4).map((t) => ({ url: String(t.url || '').slice(0, 80), status: t.status, discarded: !!t.discarded }));
     const tab = tabs.find(t => t.url && !t.discarded) || tabs[0];
-    if (!tab || tab.id == null) return { present: false };
+    if (!tab || tab.id == null) return { present: false, browser, tabs: tabInfo };
     const results = await withTimeout(chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: probeCapsInPage
     }), 8000, '能力探测超时');
     const out = results && results[0] ? results[0].result : null;
-    return out ? { present: true, ...out } : { present: false };
+    return out ? { present: true, browser, tabs: tabInfo, ...out } : { present: false, browser, tabs: tabInfo };
   } catch (e) {
-    return { present: false, error: e.message };
+    return { present: false, browser, error: e.message };
   }
 }
 
 // 页面内执行（自包含，勿引用外部变量）：探测文件/图片上传能力
+// docs/013 §3：额外回报每个 file input 的选择器特征与可见附件按钮，供逐站回填 AI_SITES[site].uploads
 function probeCapsInPage() {
+  const elSel = (el) => {
+    if (!el) return '';
+    const tag = el.tagName.toLowerCase();
+    if (el.id) return tag + '#' + el.id;
+    const testid = el.getAttribute('data-testid');
+    if (testid) return tag + '[data-testid="' + testid + '"]';
+    const accept = el.getAttribute('accept');
+    const cls = String(el.className || '').trim().split(/\s+/).filter(Boolean).slice(0, 3);
+    let s = tag;
+    if (accept) s += '[accept="' + accept + '"]';
+    if (cls.length) s += '.' + cls.map((c) => c.replace(/"/g, '')).join('.');
+    return s;
+  };
   try {
     const fileInputs = Array.from(document.querySelectorAll('input[type=file]'));
     // accept 为空 = 接受任意文件（含图片）；含 image/ 或 .png/.jpg 等也算
@@ -1840,13 +1912,95 @@ function probeCapsInPage() {
       const a = String(i.getAttribute('accept') || '').toLowerCase().trim();
       return !a || a.includes('image') || /\.(png|jpe?g|gif|webp|bmp|heic|avif)/.test(a);
     });
+    const attachBtns = Array.from(document.querySelectorAll(
+      'button[aria-label*="attach" i], button[title*="attach" i], button[aria-label*="上传" i], button[aria-label*="附件" i], button[aria-label*="Add file" i], [data-testid*="attach" i], button[aria-label*="Add photos" i]'
+    )).slice(0, 6).map((b) => ({ sel: elSel(b), label: b.getAttribute('aria-label') || b.getAttribute('title') || '' }));
     return {
       fileInput: fileInputs.length > 0,
       acceptsImage,
-      contentEditable: !!document.querySelector('[contenteditable="true"]')
+      contentEditable: !!document.querySelector('[contenteditable="true"]'),
+      inputs: fileInputs.slice(0, 6).map((i) => ({
+        sel: elSel(i),
+        accept: String(i.getAttribute('accept') || ''),
+        multiple: !!i.multiple,
+        visible: (() => { try { const r = i.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (e) { return false; } })()
+      })),
+      attachBtns
     };
   } catch (e) {
-    return { fileInput: false, acceptsImage: false, contentEditable: false };
+    return { fileInput: false, acceptsImage: false, contentEditable: false, inputs: [], attachBtns: [] };
+  }
+}
+
+// 页面内执行（自包含，勿引用外部变量）：docs/013 §3 扫描采集精确选择器
+// 输出：发送按钮候选 / 附件完成态候选（含文件名元素的类名链）/ file input 明细
+function scanPageForSelectors() {
+  const elSel = (el) => {
+    if (!el || !el.tagName) return '';
+    const tag = el.tagName.toLowerCase();
+    if (el.id) return tag + '#' + el.id;
+    const tid = el.getAttribute('data-testid');
+    if (tid) return tag + '[data-testid="' + tid + '"]';
+    const aria = el.getAttribute('aria-label');
+    if (aria) return tag + '[aria-label="' + aria.slice(0, 40) + '"]';
+    const cls = String((el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className) || '').trim().split(/\s+/).filter(Boolean).slice(0, 3);
+    return tag + (cls.length ? '.' + cls.join('.') : '');
+  };
+  const clsChain = (el, depth) => {
+    const out = [];
+    let cur = el, d = 0;
+    while (cur && cur.tagName && d < (depth || 3)) {
+      out.push(elSel(cur));
+      cur = cur.parentElement; d++;
+    }
+    return out.join(' < ');
+  };
+  try {
+    const out = { fileInputs: [], sendCandidates: [], attachCandidates: [], fileTextEls: [] };
+    document.querySelectorAll('input[type=file]').forEach((i) => {
+      if (out.fileInputs.length >= 8) return;
+      const r = (() => { try { const b = i.getBoundingClientRect(); return b.width > 0 && b.height > 0; } catch (e) { return false; } })();
+      out.fileInputs.push({ sel: elSel(i), accept: String(i.getAttribute('accept') || '').slice(0, 60), multiple: !!i.multiple, visible: r });
+    });
+    document.querySelectorAll('button, div[role="button"], a[role="button"], [class*="send" i], [aria-label*="send" i], [aria-label*="发送"]').forEach((el) => {
+      if (out.sendCandidates.length >= 10) return;
+      const r = (() => { try { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; } catch (e) { return false; } })();
+      if (!r) return;
+      const txt = String(el.innerText || '').replace(/\s+/g, ' ').slice(0, 16);
+      out.sendCandidates.push({ sel: elSel(el), disabled: !!el.disabled, text: txt });
+    });
+    // 附件完成态：文件名文本元素（含 .pdf 或常见附件名）+ 类名链
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    const seen = new Set();
+    let node;
+    while ((node = walker.nextNode()) && out.fileTextEls.length < 8) {
+      const t = String(node.nodeValue || '').trim();
+      if (!/\.(pdf|docx?|pptx?|xlsx?|txt|md|csv|png|jpe?g|webp)\b/i.test(t) || t.length > 80) continue;
+      const el = node.parentElement;
+      if (!el) continue;
+      const chain = clsChain(el, 4);
+      if (seen.has(chain)) continue;
+      seen.add(chain);
+      const r = (() => { try { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; } catch (e) { return false; } })();
+      out.fileTextEls.push({ text: t.slice(0, 60), visible: r, chain });
+    }
+    // 附件/预览类名候选（全局扫描，限 12 条）
+    const rx = /attach|file|upload|preview|thumb|chip|document/i;
+    const seen2 = new Set();
+    document.querySelectorAll('div,span,img').forEach((el) => {
+      if (out.attachCandidates.length >= 12) return;
+      const cls = String((el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className) || '');
+      const tid = el.getAttribute('data-testid') || '';
+      const aria = el.getAttribute('aria-label') || '';
+      if (!(rx.test(cls) || rx.test(tid) || rx.test(aria))) return;
+      const key = elSel(el);
+      if (seen2.has(key)) return;
+      seen2.add(key);
+      out.attachCandidates.push({ sel: key, tid: tid.slice(0, 40), aria: aria.slice(0, 40) });
+    });
+    return out;
+  } catch (e) {
+    return { error: e.message };
   }
 }
 
@@ -1873,6 +2027,117 @@ async function probeSiteReachable(url, timeoutMs = 8000) {
 
 function safeOrigin(url) {
   try { return new URL(url).origin; } catch (e) { return url; }
+}
+
+// ========== 站点适配器健康（docs/013 §9）：网络心跳(定时) + DOM 适配(按需) + 桥接故障转移 ==========
+// 状态分级：ok=已开页且适配(input 可见) / page=已开页(未做 DOM 探测或 DOM 异常) / idle=可达未开页 / down=不可达。
+// 可达性缓存 10 分钟（内存 + storage.session 跨 SW 重启）；DOM 探测仅在侧栏「刷新」时做（避免无谓注入）。
+const SITE_HEALTH_ALARM = 'siteHealthCheck';
+const SITE_HEALTH_ORDER = ['deepseek', 'kimi', 'claude', 'chatgpt']; // 桥接故障转移顺序：国内可达优先（013 §3 实测）
+const SITE_HEALTH_TTL = 600000;
+let _siteHealth = {}; // {site: {reach, reachAt, tab, adapted, adaptedAt, lastError}}
+
+async function siteHealthSave() {
+  try { await chrome.storage.session.set({ siteHealth: _siteHealth }); } catch (e) {}
+}
+async function siteHealthLoad() {
+  if (Object.keys(_siteHealth).length) return _siteHealth;
+  try { _siteHealth = (await chrome.storage.session.get('siteHealth')).siteHealth || {}; } catch (e) { _siteHealth = {}; }
+  return _siteHealth;
+}
+
+// 可达性刷新（reachOnly=true 时跳过 DOM 探测）；带并发去重
+let _siteHealthInflight = null;
+async function siteHealthRefresh(refreshDom) {
+  if (_siteHealthInflight) return _siteHealthInflight;
+  _siteHealthInflight = (async () => {
+    const h = await siteHealthLoad();
+    const now = Date.now();
+    for (const site of Object.values(AI_SITES)) {
+      if (!site.ready) continue;
+      const key = Object.keys(AI_SITES).find((k) => AI_SITES[k] === site);
+      const cur = h[key] || {};
+      const stale = !cur.reachAt || now - cur.reachAt > SITE_HEALTH_TTL;
+      let reach = cur.reach;
+      if (stale || refreshDom) {
+        reach = await probeSiteReachable(site.newChatUrl, 6000);
+        cur.reach = reach; cur.reachAt = now; cur.lastError = reach ? '' : '网络不可达';
+      }
+      // 标签页实况（实时查询，不缓存）
+      try {
+        const tabs = await chrome.tabs.query({ url: site.urlPatterns });
+        const tab = tabs.find((t) => t.url && !t.discarded) || tabs[0] || null;
+        cur.tab = !!tab;
+        cur.adapted = null;
+        if (tab && refreshDom) {
+          try {
+            const r = await withTimeout(chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeCapsInPage }), 8000, 'DOM 探测超时');
+            const out = r && r[0] && r[0].result;
+            // 适配判据：页面里存在输入体系（file input / contenteditable / 任一 file 候选）即认为可注入
+            //（DeepSeek 的 file input 不可见但注入全链可用，013 §3 实测——不能用 visible 判）
+            cur.adapted = !!(out && (out.fileInput || out.contentEditable || (out.inputs || []).length > 0));
+            if (!cur.adapted) cur.lastError = '页面已开但未找到可用输入框（可能未登录/改版）';
+          } catch (e) { cur.adapted = false; cur.lastError = 'DOM 探测失败: ' + e.message; }
+        } else if (tab) {
+          cur.adapted = (cur.adaptedAt && now - cur.adaptedAt < SITE_HEALTH_TTL) ? cur.adapted : null;
+        }
+        if (cur.adapted !== null && cur.adapted === true) cur.adaptedAt = now;
+      } catch (e) { cur.tab = false; }
+      h[key] = cur;
+    }
+    _siteHealth = h;
+    await siteHealthSave();
+    return h;
+  })();
+  try { return await _siteHealthInflight; } finally { _siteHealthInflight = null; }
+}
+
+// 面向 UI/桥接的健康快照：state ∈ ok | page | idle | down | unknown
+async function siteHealthSnapshot(refreshDom) {
+  const h = await siteHealthRefresh(!!refreshDom);
+  const out = {};
+  for (const [key, cur] of Object.entries(h)) {
+    let state = 'unknown';
+    if (cur.reach === false) state = 'down';
+    else if (cur.tab) state = cur.adapted === true ? 'ok' : 'page';
+    else if (cur.reach === true) state = 'idle';
+    out[key] = {
+      state,
+      label: AI_SITES[key] ? AI_SITES[key].label : key,
+      lastError: cur.lastError || '',
+      reachAt: cur.reachAt || 0,
+      adaptedAt: cur.adaptedAt || 0
+    };
+  }
+  return out;
+}
+
+// 桥接故障转移（docs/013 §9）：请求站点失败 → 按国内可达优先顺序换站重试（总预算 100s，桥接超时 120s 内收口）。
+// 健康数据前置过滤：不可达（state=down）的站点直接跳过——否则挂起站点会吃光预算（chatgpt 挂 90s 的教训）。
+async function handleBridgeAsk(question, opts = {}) {
+  const images = Array.isArray(opts.images)
+    ? opts.images.filter((it) => it && typeof it.dataUrl === 'string' && it.dataUrl.startsWith('data:')).slice(0, 6)
+    : [];
+  const requested = opts.site || 'chatgpt';
+  let order = [requested, ...SITE_HEALTH_ORDER.filter((s) => s !== requested)]
+    .filter((s, i, a) => AI_SITES[s] && AI_SITES[s].ready && a.indexOf(s) === i);
+  const health = await siteHealthSnapshot(false).catch(() => ({}));
+  const isDown = (s) => health[s] && health[s].state === 'down';
+  const skipped = order.filter((s) => s !== requested && isDown(s));
+  order = order.filter((s) => !isDown(s));
+  if (!order.includes(requested)) order.push(requested); // 请求站不可达：排到最后兜底（拿真实错误）
+  const budget = Date.now() + 100000;
+  const errors = skipped.map((s) => (AI_SITES[s] ? AI_SITES[s].label : s) + ': 跳过（健康心跳显示不可达）');
+  for (const site of order) {
+    if (Date.now() > budget) { errors.push(site + ': 总预算耗尽，剩余站点未尝试'); break; }
+    const r = await injectAsk(site, question, { allowCreate: true, requestId: opts.requestId || '', images });
+    if (r && r.answer) return { ...r, viaSite: site };
+    const err = (r && r.error) || '未知错误';
+    errors.push((AI_SITES[site] ? AI_SITES[site].label : site) + ': ' + err);
+    // 锁定/用户取消不换站：语义上是"现在不能发"，换站违背用户意图
+    if (err.includes('上一条注入还在处理中') || err.includes('已停止注入')) break;
+  }
+  return { error: '全部站点失败（尝试顺序 ' + order.map((s) => AI_SITES[s] ? AI_SITES[s].label : s).join(' → ') + '）:\n' + errors.join('\n') };
 }
 
 // ===== AI 独立小窗（可见操作模式） =====
@@ -1936,10 +2201,6 @@ async function ensureAiWindow(url) {
 }
 
 // 桥接专用：ChatGPT 提问。带 requestId 时页面内会在流式回复过程中上报增量（真流式给终端/应用）
-async function handleBridgeAsk(question, opts = {}) {
-  return injectAsk('chatgpt', question, { allowCreate: true, requestId: opts.requestId || '' });
-}
-
 // 在页面上下文执行：输入问题 → 发送 → 等待流式回复稳定 → 返回完整回答
 // adapter 为站点适配器（见 AI_SITES），提供 inputs / sends / replies 选择器
 // requestId 非空时（桥接流式请求）：回复增长过程中节流上报文本快照，由后台转发给桥接服务
@@ -1948,7 +2209,7 @@ function askInSite(question, adapter, requestId, images) {
     const RESOLVE_TIMEOUT = 60000;
     let finished = false;
     let observer = null;
-    const finish = (result) => { if (finished) return; finished = true; if (observer) observer.disconnect(); resolve(result); };
+    const finish = (result) => { if (finished) return; finished = true; if (observer) observer.disconnect(); try { result.diag = { ...diag }; } catch (e) {} resolve(result); };
 
     // 桥接真流式：把"当前已生成的完整文本"节流上报（服务端换算增量）；final answer 走 ask_result 兜底
     let lastSent = '';
@@ -1965,7 +2226,7 @@ function askInSite(question, adapter, requestId, images) {
       } catch (e) {}
     };
 
-    const diag = { inputFound: null, sendFound: null };
+    const diag = { inputFound: null, sendFound: null, uploadFound: null, attachBtn: null, attachSettled: 0, attachTotal: 0 };
     const cfg = adapter || {};
 
     // 1) 找输入框（多级回退，优先可见的；兼容 textarea 与 contenteditable 两种版本）
@@ -2120,14 +2381,19 @@ function askInSite(question, adapter, requestId, images) {
       for (const sel of attachBtnSelectors) {
         let btn = null;
         try { btn = document.querySelector(sel); } catch (e) {}
-        if (btn) { try { btn.click(); } catch (e) {} await new Promise(r => setTimeout(r, 350)); return true; }
+        if (btn) {
+          try { btn.click(); } catch (e) {}
+          diag.attachBtn = sel; // docs/013 §3：记录实际唤醒的附件按钮（真机适配用）
+          await new Promise(r => setTimeout(r, 350));
+          return true;
+        }
       }
       return false;
     };
     const findFileInput = async () => {
       const scan = () => {
         for (const sel of uploadSelectors) {
-          try { const el = document.querySelector(sel); if (el) return el; } catch (e) {}
+          try { const el = document.querySelector(sel); if (el) { diag.uploadFound = sel; return el; } } catch (e) {}
         }
         return null;
       };
@@ -2136,14 +2402,15 @@ function askInSite(question, adapter, requestId, images) {
       await tryRevealFileInput(); // 点附件按钮唤醒隐藏 input
       el = scan();
       if (!el) {
-        try { el = [...document.querySelectorAll('input[type=file]')].pop() || null; } catch (e) {} // 动态插入兜底：取最后一个
+        try { el = [...document.querySelectorAll('input[type=file]')].pop() || null; if (el) diag.uploadFound = 'input[type=file]:last'; } catch (e) {} // 动态插入兜底：取最后一个
       }
       return el;
     };
     // 上传完成判定（005 P2）：轮询附件缩略图出现且无进行中进度；未命中信号 → 调用方退回固定等待
-    const attachHintSelectors = ['[data-testid*="attachment" i]', '[class*="attachment" i]', '[class*="attached" i]',
+    // 站点适配器可覆盖（cfg.attachHints/cfg.uploading，docs/013 §3 实测补充）
+    const attachHintSelectors = (cfg.attachHints && cfg.attachHints.length) ? cfg.attachHints : ['[data-testid*="attachment" i]', '[class*="attachment" i]', '[class*="attached" i]',
       '[class*="thumbnail" i]', '[class*="file-preview" i]', 'img[alt*="upload" i]'];
-    const uploadingSelectors = ['[class*="uploading" i]', '[role="progressbar"]'];
+    const uploadingSelectors = (cfg.uploading && cfg.uploading.length) ? cfg.uploading : ['[class*="uploading" i]', '[role="progressbar"]'];
     const waitForUploadSettled = async (isImage) => {
       const cap = isImage ? 4000 : 8000, t0 = Date.now();
       let sawUploading = false;
@@ -2162,6 +2429,7 @@ function askInSite(question, adapter, requestId, images) {
       for (const item of (images || []).slice(0, 6)) {
         const f = dataUrlToFile(item.dataUrl, item.name);
         if (!f) continue;
+        diag.attachTotal++;
         const isImage = /^image\//i.test(f.type);
         let delivered = false;
         // 图片优先粘贴；非图片直接设 file input（粘贴通常不处理文档）
@@ -2196,6 +2464,7 @@ function askInSite(question, adapter, requestId, images) {
         if (delivered) diag.images++;
         // 等待上传生效（005 P2）：先轮询完成信号（缩略图/进度），未命中再退回固定等待（图片 1.5s；文件 2.5s）
         const settled = await waitForUploadSettled(isImage).catch(() => false);
+        if (settled) diag.attachSettled++;
         if (!settled) await new Promise(r => setTimeout(r, isImage ? 1500 : 2500));
       }
     };
@@ -2408,7 +2677,12 @@ function ensureBridgeKeepAlive() {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'bridgeKeepAlive') connectBridge(); // 若断开则自动重连
+  if (alarm.name === SITE_HEALTH_ALARM) siteHealthRefresh(false).catch(() => {}); // 站点可达性心跳（docs/013 §9）
 });
+
+// 站点健康心跳：启动即建 15 分钟周期（只刷可达性；DOM 探测由侧栏「刷新」按需触发）
+chrome.alarms.create(SITE_HEALTH_ALARM, { periodInMinutes: 15, delayInMinutes: 1 });
+siteHealthRefresh(false).catch(() => {});
 
 async function bridgeStartup() {
   await loadBridgeToken();

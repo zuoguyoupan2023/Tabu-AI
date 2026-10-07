@@ -127,11 +127,27 @@ function authOk(req) {
 
 // ========================== WebSocket（扩展侧） ==========================
 const wss = new WebSocketServer({ host: HOST, port: WS_PORT });
-let extSocket = null;          // 已认证的扩展连接（同一时刻只保留一个活跃连接）
+let extSocket = null;          // 请求路由目标（偏好 UA 或最新认证的扩展连接）
+const authedSockets = new Set(); // 全部已认证连接（多浏览器并存；不互相踢，避免互踢重连风暴）
+// 偏好浏览器 UA（docs/013 §3）：设置后请求固定路由到匹配的扩展，如 TABU_BRIDGE_PREFER_UA='Edg/'
+const PREFER_UA = process.env.TABU_BRIDGE_PREFER_UA || '';
+function pickExtSocket() {
+  const arr = [...authedSockets].filter((s) => s.readyState === 1);
+  if (!arr.length) return null;
+  if (PREFER_UA) {
+    const m = arr.find((s) => String(s._uaRaw || '').includes(PREFER_UA));
+    if (m) return m;
+  }
+  return arr[arr.length - 1];
+}
 const pendingRequests = new Map(); // requestId -> { resolve, timer, session, streamed }
 
-wss.on('connection', (socket) => {
+wss.on('connection', (socket, req) => {
   socket.authed = false;
+  // 浏览器识别（docs/013 §3）：多浏览器同时装扩展时用于区分/偏好路由
+  const ua = String((req && req.headers && req.headers['user-agent']) || '');
+  socket._uaRaw = ua;
+  socket._browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : 'Unknown';
   socket.on('message', (data) => {
     let msg;
     try { msg = JSON.parse(String(data)); } catch (e) { return; }
@@ -143,12 +159,16 @@ wss.on('connection', (socket) => {
         return;
       }
       socket.authed = true;
-      if (extSocket && extSocket !== socket) { try { extSocket.close(); } catch (e) {} }
-      extSocket = socket;
+      // 不再踢掉旧连接：多浏览器扩展各自保持长连（踢旧会导致双方无限互踢重连风暴，
+      // 并让请求在浏览器间随机摇摆）。请求按偏好 UA 路由（TABU_BRIDGE_PREFER_UA，如 'Edg/'），
+      // 无偏好时用最新认证的连接。
+      authedSockets.add(socket);
+      extSocket = pickExtSocket();
       socket.send(JSON.stringify({ type: 'auth_ok' }));
       // 告知扩展实际 HTTP 端口（11434 被占用自动顺延后，扩展设置页能显示正确地址）
       try { socket.send(JSON.stringify({ type: 'bridge_info', httpPort: HTTP_PORT, origins: allOrigins() })); } catch (e) {}
-      console.log('[Bridge] 扩展已连接 ✔');
+      const others = [...authedSockets].filter((s) => s !== socket).map((s) => s._browser).join(', ');
+      console.log(`[Bridge] 扩展已连接 ✔ (${socket._browser}${others ? '；其他在线: ' + others : ''})`);
     } else if (msg.type === 'set_origins' && socket.authed && Array.isArray(msg.origins)) {
       // 扩展设置页下发的额外网页来源：合并进白名单并持久化到 config.json
       extOrigins = [...new Set(msg.origins.map(normOrigin).filter((o) => o && o !== 'null'))];
@@ -167,12 +187,23 @@ wss.on('connection', (socket) => {
         clearTimeout(pending.timer);
         pending.resolve({ result: msg.result || {}, ok: true, streamed: !!pending.streamed });
       }
+    } else if (msg.type === 'diag_result' && socket.authed) {
+      // docs/013 §3：站点探测/诊断结果回传（与 ask_result 同走 pendingRequests，但解包结构不同）
+      const pending = pendingRequests.get(msg.requestId);
+      if (pending) {
+        pendingRequests.delete(msg.requestId);
+        clearTimeout(pending.timer);
+        pending.resolve(msg.result || {});
+      }
     }
   });
   socket.on('close', () => {
+    authedSockets.delete(socket);
     if (extSocket === socket) {
-      extSocket = null;
-      console.log('[Bridge] 扩展已断开，等待重连…');
+      extSocket = pickExtSocket();
+      console.log(extSocket
+        ? `[Bridge] 扩展(${socket._browser})断开，改用在线连接(${extSocket._browser})`
+        : '[Bridge] 扩展已断开，等待重连…');
     }
   });
   // 服务端心跳，保持扩展 Service Worker 存活
@@ -452,13 +483,82 @@ const server = http.createServer((req, res) => {
     return handleAskRequest(req, res, 'openai');
   }
 
+  // POST /v0/diag/probe —— 站点能力探测（docs/013 §3 站点适配真机测试通道）
+  //   body: { site: 'chatgpt'|'claude'|'kimi'|'deepseek', action?: 'probe'|'open' }
+  //   action=open：先开/复用该站点独立小窗并等 6s（随后可再 probe）；probe：返回页面 file input /
+  //   附件按钮的实际选择器特征。响应即扩展回传结果；扩展未连接 → 503。
+  if (url.pathname === '/v0/diag/probe' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 1e5) body = body.slice(0, 1e5); });
+    req.on('end', async () => {
+      let parsed;
+      try { parsed = JSON.parse(body || '{}'); } catch (e) {
+        return sendJson(req, res, 400, { error: '请求体不是合法 JSON' });
+      }
+      const sock = await waitForExtSocket(40000);
+      if (!sock) return sendJson(req, res, 503, { error: '未检测到 Chrome 扩展连接' });
+      const site = String(parsed.site || 'chatgpt');
+      const action = ['open', 'scan'].includes(parsed.action) ? parsed.action : 'probe';
+      const requestId = 'diag_' + crypto.randomBytes(8).toString('hex');
+      const timer = setTimeout(() => {
+        if (pendingRequests.has(requestId)) { pendingRequests.delete(requestId); sendJson(req, res, 504, { error: '诊断超时' }); }
+      }, 60000);
+      pendingRequests.set(requestId, { resolve: (r) => { clearTimeout(timer); sendJson(req, res, 200, r); }, timer, session: null, streamed: false });
+      try {
+        sock.send(JSON.stringify({ type: 'diag', requestId, action, site }));
+      } catch (e) {
+        pendingRequests.delete(requestId); clearTimeout(timer);
+        sendJson(req, res, 502, { error: '向扩展发送诊断指令失败: ' + e.message });
+      }
+    });
+    return;
+  }
+
+  // POST /v0/diag/health —— 站点适配器健康快照（docs/013 §9）
+  //   body: { refresh?: bool } —— refresh=true 含 DOM 探测（较慢）；否则返回缓存（含 15 分钟心跳的可达性）
+  if (url.pathname === '/v0/diag/health' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 1e4) body = body.slice(0, 1e4); });
+    req.on('end', async () => {
+      let parsed = {};
+      try { parsed = JSON.parse(body || '{}'); } catch (e) {}
+      const sock = await waitForExtSocket(40000);
+      if (!sock) return sendJson(req, res, 503, { error: '未检测到 Chrome 扩展连接' });
+      const requestId = 'diag_' + crypto.randomBytes(8).toString('hex');
+      const timer = setTimeout(() => {
+        if (pendingRequests.has(requestId)) { pendingRequests.delete(requestId); sendJson(req, res, 504, { error: '诊断超时' }); }
+      }, parsed.refresh ? 60000 : 45000);
+      pendingRequests.set(requestId, { resolve: (r) => { clearTimeout(timer); sendJson(req, res, 200, r); }, timer, session: null, streamed: false });
+      try {
+        sock.send(JSON.stringify({ type: 'diag', requestId, action: 'health', refresh: !!parsed.refresh }));
+      } catch (e) {
+        pendingRequests.delete(requestId); clearTimeout(timer);
+        sendJson(req, res, 502, { error: '向扩展发送诊断指令失败: ' + e.message });
+      }
+    });
+    return;
+  }
+
   sendJson(req, res, 404, { type: 'error', error: { type: 'not_found_error', message: '未知端点 ' + url.pathname } });
 });
+
+// MV3 SW 的 WS 连接空闲 ~30s 会被浏览器回收、随后由 keepalive 闹钟自动重连（表现为周期性断连）。
+// 请求恰好落在断连窗口时：等扩展重连再发送，而不是立即失败（上限 40s，覆盖一个唤醒周期）。
+function waitForExtSocket(ms = 40000) {
+  const wanted = (s) => s && s.readyState === 1 && (!PREFER_UA || String(s._uaRaw || '').includes(PREFER_UA));
+  return new Promise((resolve) => {
+    if (wanted(extSocket)) return resolve(extSocket);
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      if (wanted(extSocket) || Date.now() - t0 > ms) { clearInterval(iv); resolve(extSocket); }
+    }, 500);
+  });
+}
 
 // 两种协议共用的问答主流程：解析请求 → 组 prompt（含多轮上下文）→ WS 发给扩展 → SSE/JSON 返回
 function handleAskRequest(req, res, protocol) {
   let body = '';
-  req.on('data', (chunk) => { body += chunk; if (body.length > 2e6) { body = body.slice(0, 2e6); } });
+  req.on('data', (chunk) => { body += chunk; if (body.length > 12e6) { body = body.slice(0, 12e6); } }); // 宽裕上限：base64 PDF 附件
   req.on('end', async () => {
     let parsed;
     try { parsed = JSON.parse(body || '{}'); } catch (e) {
@@ -466,13 +566,19 @@ function handleAskRequest(req, res, protocol) {
     }
     const model = parsed.model || 'claude-bridge';
     const stream = !!parsed.stream;
+    // docs/013 §3：可选附件（{dataUrl, name} 数组，≤6 项）与目标站点（tabu_site 字段，缺省 chatgpt）
+    const images = Array.isArray(parsed.images)
+      ? parsed.images.filter((it) => it && typeof it.dataUrl === 'string' && it.dataUrl.startsWith('data:')).slice(0, 6)
+      : [];
+    const site = typeof parsed.tabu_site === 'string' && parsed.tabu_site.trim() ? parsed.tabu_site.trim() : undefined;
     const built = buildPromptFromMessages(parsed.messages);
     if (!built || !built.question.trim()) {
       return sendJson(req, res, 400, { type: 'error', error: { type: 'invalid_request_error', message: 'messages 中没有找到用户问题' } });
     }
     console.log(`[Bridge] 请求[${protocol}] model=${model} stream=${stream} 多轮=${(parsed.messages || []).length}条 问题长度=${built.question.length} 开头=${built.question.slice(0, 60).replace(/\n/g, ' ')}`);
 
-    if (!extSocket) {
+    const sock = await waitForExtSocket(40000);
+    if (!sock) {
       return sendJson(req, res, 503, {
         type: 'error',
         error: { type: 'overloaded_error',
@@ -505,7 +611,7 @@ function handleAskRequest(req, res, protocol) {
       }
       pendingRequests.set(requestId, entry);
       try {
-        extSocket.send(JSON.stringify({ type: 'ask', requestId, question: built.prompt, model, stream }));
+        sock.send(JSON.stringify({ type: 'ask', requestId, question: built.prompt, model, stream, site, images: images.length ? images : undefined }));
       } catch (e) {
         pendingRequests.delete(requestId); clearTimeout(timer);
         if (entry.session) entry.session.error('向扩展发送指令失败: ' + e.message);
@@ -541,6 +647,8 @@ function handleAskRequest(req, res, protocol) {
         stop_reason: 'end_turn',
         stop_sequence: null,
         usage: { input_tokens: 0, output_tokens: estTokens(text) },
+        ...(answer.result && answer.result.diag ? { tabu_diag: answer.result.diag } : {}),
+        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {})
       });
     } else {
       sendJson(req, res, 200, {
@@ -550,6 +658,8 @@ function handleAskRequest(req, res, protocol) {
         model,
         choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 0, completion_tokens: estTokens(text), total_tokens: estTokens(text) },
+        ...(answer.result && answer.result.diag ? { tabu_diag: answer.result.diag } : {}),
+        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {})
       });
     }
   });

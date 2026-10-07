@@ -1885,6 +1885,42 @@ function injectSite() {
   return document.getElementById('injectSite')?.value || 'chatgpt';
 }
 
+// ===== 站点适配器健康（docs/013 §9）：蓝区「站点健康」行 =====
+// 初始用缓存快照渲染（不注入探测）；↻ 按钮触发全量刷新（可达性 + 打开中页面的 DOM 检查）。
+const SITE_HEALTH_STYLE = {
+  ok:   { dot: '●', color: 'var(--accent, #4a9eff)', tip: '页面已开且可注入' },
+  page: { dot: '◐', color: '#e0a63a', tip: '页面已开，但未找到可用输入框（未登录或改版）' },
+  idle: { dot: '○', color: '#8a93a3', tip: '网络可达，未开页面' },
+  down: { dot: '✕', color: '#e05555', tip: '网络不可达' },
+  unknown: { dot: '·', color: '#8a93a3', tip: '尚未探测' }
+};
+function renderSiteHealth(h) {
+  const box = document.getElementById('siteHealthChips');
+  if (!box) return;
+  box.innerHTML = Object.entries(h || {}).map(([key, s]) => {
+    const st = SITE_HEALTH_STYLE[s.state] || SITE_HEALTH_STYLE.unknown;
+    const err = s.lastError ? ' —— ' + s.lastError : '';
+    return `<span title="${s.label}：${st.tip}${err}" style="color:${st.color};white-space:nowrap;cursor:default;">${st.dot} ${s.label}</span>`;
+  }).join('');
+}
+async function refreshSiteHealth(refresh) {
+  try {
+    const r = await sendMessage('siteHealth', { refresh: refresh === true });
+    if (r && !r.error) renderSiteHealth(r);
+  } catch (e) {}
+}
+function initSiteHealth() {
+  refreshSiteHealth(false); // 缓存快照（可达性缓存 10 分钟）
+  document.getElementById('siteHealthRefresh')?.addEventListener('click', () => {
+    const btn = document.getElementById('siteHealthRefresh');
+    if (btn) { btn.disabled = true; btn.style.opacity = '.5'; }
+    refreshSiteHealth(true).finally(() => {
+      const b = document.getElementById('siteHealthRefresh');
+      if (b) { b.disabled = false; b.style.opacity = ''; }
+    });
+  });
+}
+
 // ===== AI 工作台：素材胶囊（005 P0/P1）=====
 // 类型：selection（选中内容）/ fulltext（网页全文）/ file（文本附件，已读为文本）/ image（图片，dataUrl 随发送注入粘贴）
 // 选中文本/全文/文本文件 → 引用块并入 prompt；图片 → 随发送在 AI 站点页面内模拟"粘贴"上传（仅浏览器版渠道）
@@ -5546,6 +5582,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadBlueFold();
   initBlueNav();
   initBlueSearch();
+
+  // ===== 站点适配器健康（docs/013 §9）：缓存快照渲染 + ↻ 全量刷新 =====
+  initSiteHealth();
 
   // ===== 红蓝层切换 =====
   document.querySelectorAll('.layer-btn').forEach(btn => {
