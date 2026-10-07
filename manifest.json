@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "TabU AI",
   "short_name": "TabU AI",
-  "version": "0.5.0",
-  "description": "智能标签页管家 | 一键快照 · 版本回溯 · 全局搜索",
+  "version": "0.6.0",
+  "description": "智能标签页管家 · 阅读增强：快照回溯 · 全局搜索 · 划词词典 · 翻译朗读 · AI 对话",
   "permissions": [
     "tabs",
     "storage",

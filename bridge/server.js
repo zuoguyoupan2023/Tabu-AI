@@ -31,6 +31,10 @@
  *       或编辑 ~/.tabu-bridge/config.json 的 extraOrigins，或设 TABU_BRIDGE_EXTRA_ORIGINS 环境变量
  *
  * 运行：node bridge/server.js        （依赖 npm i ws，其余用 Node 内置 http）
+ *
+ * 测试/调试用环境变量（不影响默认行为，见 bridge/test.mjs）：
+ *   TABU_BRIDGE_CONFIG_DIR           覆盖配置目录（默认 ~/.tabu-bridge），测试时隔离 config/http-port 写入
+ *   TABU_BRIDGE_HTTP_PORT_CANDIDATES 逗号分隔的候选 HTTP 端口列表（替代内置 11434… 顺延序列，供端口顺延回归测试）
  */
 'use strict';
 
@@ -47,11 +51,16 @@ const REQUEST_TIMEOUT_MS = parseInt(process.env.TABU_BRIDGE_TIMEOUT || '120000',
 // HTTP 端口：默认 11434（与 Ollama 同端口便于记忆）；被占用时自动顺延，避免和 Ollama 冲突。
 // 用 TABU_BRIDGE_HTTP_PORT 显式指定端口时不再顺延（指定了就要用，失败直接退出）。
 const EXPLICIT_HTTP_PORT = process.env.TABU_BRIDGE_HTTP_PORT ? parseInt(process.env.TABU_BRIDGE_HTTP_PORT, 10) : 0;
-const HTTP_PORT_CANDIDATES = EXPLICIT_HTTP_PORT ? [EXPLICIT_HTTP_PORT] : [11434, 11435, 11436, 11437, 9528, 8117];
+const ENV_CANDIDATES = String(process.env.TABU_BRIDGE_HTTP_PORT_CANDIDATES || '')
+  .split(',').map((s) => parseInt(s.trim(), 10)).filter(Number.isInteger);
+const HTTP_PORT_CANDIDATES = EXPLICIT_HTTP_PORT ? [EXPLICIT_HTTP_PORT]
+  : (ENV_CANDIDATES.length ? ENV_CANDIDATES : [11434, 11435, 11436, 11437, 9528, 8117]);
 let HTTP_PORT = HTTP_PORT_CANDIDATES[0];
 
 // ========================== Token 管理 ==========================
-const CONFIG_DIR = path.join(os.homedir(), '.tabu-bridge');
+const CONFIG_DIR = process.env.TABU_BRIDGE_CONFIG_DIR
+  ? path.resolve(process.env.TABU_BRIDGE_CONFIG_DIR)
+  : path.join(os.homedir(), '.tabu-bridge');
 const TOKEN_FILE = path.join(CONFIG_DIR, 'token');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 let TOKEN = process.env.TABU_BRIDGE_TOKEN || '';

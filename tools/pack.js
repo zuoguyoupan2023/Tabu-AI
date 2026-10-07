@@ -21,6 +21,7 @@ fs.mkdirSync(dist, { recursive: true });
 const SKIP = new Set([
   'docs', 'node_modules', '.git', 'tools', 'bridge', 'dist',
   'package.json', 'package-lock.json', '.DS_Store', '.gitignore', '.gitattributes',
+  'gui-test-screenshots', // 开发期 GUI 测试截图（非运行时资源，不进商店包）
 ]);
 const entries = fs.readdirSync(root).filter((n) => !SKIP.has(n));
 
