@@ -1488,10 +1488,12 @@ const AI_SITES = {
       '[role="button"][aria-label*="新对话"]'
     ],
     // 输入 textarea/contenteditable 双候选；回复取 assistant 容器 / .markdown 双候选
+    // replyBusy：agent 模式工具调用状态的忙碌签名——命中时完成判定继续等待真实内容（docs/013 §9 实测修复）
     inputs: [
       'textarea[placeholder*="输入"]', 'textarea[placeholder*="发送"]', 'div[contenteditable="true"][data-placeholder]',
       'textarea', 'div[contenteditable="true"]'
     ],
+    replyBusy: 'executing|running (code|python)|正在执行|正在运行|正在调用|正在搜索|正在浏览|thinking',
     sends: [
       'button[aria-label*="发送"]', 'button[aria-label*="Send"]', 'button[type="submit"]',
       'div[role="button"][aria-label*="发送"]', 'form button[type="submit"]'
@@ -1778,7 +1780,23 @@ async function injectAsk(siteKey, prompt, opts = {}) {  const site = AI_SITES[si
   if (!site.ready) return { error: site.label + ' 适配器尚未实现，暂仅支持 ChatGPT' };
   try {
     let tabs = await chrome.tabs.query({ url: site.urlPatterns });
-    let tab = tabs.find(t => t.url && !t.discarded) || tabs[0];
+    // 优先非冻结/非休眠标签（Edge 冻结或折叠后台标签后 executeScript 会挂起，013 §9 实测）；
+    // 选中标签若已冻结/休眠 → 激活解冻并等页面就绪再注入（与"失败切前台重试"策略一致）
+    const usable = tabs.filter(t => t.url && !t.discarded);
+    let tab = usable.find(t => !t.frozen && t.status !== 'unloaded') || usable.find(t => !t.frozen) || usable[0];
+    if (tab) {
+      try {
+        const t = await chrome.tabs.get(tab.id);
+        if (t && (t.frozen || t.status === 'unloaded')) {
+          await chrome.tabs.update(tab.id, { active: true });
+          await new Promise(r => setTimeout(r, 1500)); // 等解冻
+          for (let i = 0; i < 8; i++) { // 休眠标签激活后需加载页面
+            try { const t2 = await chrome.tabs.get(tab.id); if (t2.status === 'complete') break; } catch (e) { break; }
+            await new Promise(r => setTimeout(r, 1000));
+          }
+        }
+      } catch (e) {}
+    }
     let justCreated = false;
     if (!tab) {
       if (opts.allowCreate === false) return { error: '未找到打开的 ' + site.label + ' 页面，请先打开并登录' };
@@ -1962,13 +1980,20 @@ function scanPageForSelectors() {
       const r = (() => { try { const b = i.getBoundingClientRect(); return b.width > 0 && b.height > 0; } catch (e) { return false; } })();
       out.fileInputs.push({ sel: elSel(i), accept: String(i.getAttribute('accept') || '').slice(0, 60), multiple: !!i.multiple, visible: r });
     });
-    document.querySelectorAll('button, div[role="button"], a[role="button"], [class*="send" i], [aria-label*="send" i], [aria-label*="发送"]').forEach((el) => {
-      if (out.sendCandidates.length >= 10) return;
+    // 发送键采集（docs/013 §9.1）：先收 send 特征元素（工具栏/侧栏按钮会淹没通用收集），再补通用按钮
+    const seenSend = new Set();
+    const pushSend = (el) => {
+      if (out.sendCandidates.length >= 10 || seenSend.has(el)) return;
       const r = (() => { try { const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; } catch (e) { return false; } })();
       if (!r) return;
+      seenSend.add(el);
       const txt = String(el.innerText || '').replace(/\s+/g, ' ').slice(0, 16);
       out.sendCandidates.push({ sel: elSel(el), disabled: !!el.disabled, text: txt });
-    });
+    };
+    document.querySelectorAll('[data-testid*="send" i], [class*="send" i], [aria-label*="send" i], [aria-label*="发送"]').forEach(pushSend);
+    if (out.sendCandidates.length < 10) {
+      document.querySelectorAll('button, div[role="button"], a[role="button"]').forEach(pushSend);
+    }
     // 附件完成态：文件名文本元素（含 .pdf 或常见附件名）+ 类名链
     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
     const seen = new Set();
@@ -2072,12 +2097,19 @@ async function siteHealthRefresh(refreshDom) {
         cur.adapted = null;
         if (tab && refreshDom) {
           try {
-            const r = await withTimeout(chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeCapsInPage }), 8000, 'DOM 探测超时');
-            const out = r && r[0] && r[0].result;
-            // 适配判据：页面里存在输入体系（file input / contenteditable / 任一 file 候选）即认为可注入
-            //（DeepSeek 的 file input 不可见但注入全链可用，013 §3 实测——不能用 visible 判）
-            cur.adapted = !!(out && (out.fileInput || out.contentEditable || (out.inputs || []).length > 0));
-            cur.lastError = cur.adapted ? '' : '页面已开但未找到可用输入框（可能未登录/改版）';
+            const t = await chrome.tabs.get(tab.id);
+            if (t && t.frozen) {
+              // 冻结标签注入会挂起（013 §9 实测）→ 不探测，如实标注；用户点开标签即恢复
+              cur.adapted = false;
+              cur.lastError = '标签页被浏览器冻结（后台过久），点开该标签一次即恢复';
+            } else {
+              const r = await withTimeout(chrome.scripting.executeScript({ target: { tabId: tab.id }, func: probeCapsInPage }), 8000, 'DOM 探测超时');
+              const out = r && r[0] && r[0].result;
+              // 适配判据：页面里存在输入体系（file input / contenteditable / 任一 file 候选）即认为可注入
+              //（DeepSeek 的 file input 不可见但注入全链可用，013 §3 实测——不能用 visible 判）
+              cur.adapted = !!(out && (out.fileInput || out.contentEditable || (out.inputs || []).length > 0));
+              cur.lastError = cur.adapted ? '' : '页面已开但未找到可用输入框（可能未登录/改版）';
+            }
           } catch (e) { cur.adapted = false; cur.lastError = 'DOM 探测失败: ' + e.message; }
         } else if (tab) {
           cur.adapted = (cur.adaptedAt && now - cur.adaptedAt < SITE_HEALTH_TTL) ? cur.adapted : null;
@@ -2137,7 +2169,7 @@ async function handleBridgeAsk(question, opts = {}) {
   for (const site of order) {
     if (Date.now() > budget) { errors.push(site + ': 总预算耗尽，剩余站点未尝试'); break; }
     const r = await injectAsk(site, question, { allowCreate: true, requestId: opts.requestId || '', images });
-    if (r && r.answer) return { ...r, viaSite: site };
+    if (r && r.answer) return { ...r, viaSite: site, failover: errors.length ? errors : undefined };
     const err = (r && r.error) || '未知错误';
     errors.push((AI_SITES[site] ? AI_SITES[site].label : site) + ': ' + err);
     // 锁定/用户取消不换站：语义上是"现在不能发"，换站违背用户意图
@@ -2360,6 +2392,39 @@ function askInSite(question, adapter, requestId, images) {
       }
     };
     insertText();
+    // 诊断（docs/013 §9.1）：composer 是否真的拿到了问题文本——区分"没插进去"与"没发出去"
+    try { diag.composerHasText = String(input.innerText || input.value || '').includes(String(question).slice(0, 6)); } catch (e) {}
+    // 插入失败兜底（docs/013 §9.1）：新版富文本编辑器把真正编辑区嵌在包装层里（外层 contenteditable 只是容器，
+    // execCommand 静默失败）→ 找最深层 contenteditable 子节点重试一遍 execCommand + 输入事件
+    if (diag.composerHasText === false && input.getAttribute && input.getAttribute('contenteditable') !== null) {
+      try {
+        let deep = input;
+        for (let i = 0; i < 4; i++) {
+          const c = Array.from(deep.querySelectorAll('[contenteditable="true"], [contenteditable=""]')).pop();
+          if (!c || c === deep) break;
+          deep = c;
+        }
+        if (deep !== input) {
+          deep.focus();
+          const range = document.createRange();
+          range.selectNodeContents(deep);
+          const sel = window.getSelection();
+          sel.removeAllRanges(); sel.addRange(range);
+          let ok2 = false;
+          try { ok2 = document.execCommand('insertText', false, question); } catch (e) {}
+          if (!ok2 || !String(deep.innerText || deep.textContent || '').includes(question.slice(0, 6))) {
+            deep.textContent = question;
+            deep.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, inputType: 'insertText', data: question, isComposing: false }));
+            deep.dispatchEvent(new InputEvent('change', { bubbles: true }));
+          }
+          if (String(deep.innerText || deep.textContent || '').includes(question.slice(0, 6))) {
+            diag.composerHasText = true;
+            diag.composerDeep = 'inserted-into-deepest';
+            input = deep; // 后续发送/清理观察都用真正的编辑节点
+          }
+        }
+      } catch (e) {}
+    }
 
     // 2.5) 附件注入（005 P1/P2）：图片走"粘贴"（ChatGPT/Claude/Kimi 支持粘贴图片）；
     //      其它文件（PDF/文档）直接设站点 input[type=file]；每项等待上传（缩略图/进度）后再发送。
@@ -2538,12 +2603,47 @@ function askInSite(question, adapter, requestId, images) {
         }
         if (el) diag.sendFound = sel + '(禁用)';
       }
+      // 通用兜底（docs/013 §9.1）：发送键选择器全 miss（站点改版/图标按钮无信号）→
+      // 在 composer 邻近容器里找「与输入框纵向同排（±160px）、可见可用、非附件/停止/菜单类」的最右按钮
       if (!sent) {
-        // 回退：Enter
+        const findSendNear = () => {
+          let node = input;
+          try {
+            const ir = input.getBoundingClientRect();
+            for (let hops = 0; node && hops < 8; hops++, node = node.parentElement) {
+              const btns = Array.from(node.querySelectorAll('button, [role="button"]'));
+              const ok = btns.filter((b) => {
+                try {
+                  const r = b.getBoundingClientRect();
+                  if (!(r.width > 0 && r.height > 0)) return false;
+                  const dy = Math.abs((r.top + r.height / 2) - (ir.top + ir.height / 2));
+                  if (dy > 200) return false;
+                  if (b.disabled || b.getAttribute('aria-disabled') === 'true') return false;
+                  const label = ((b.getAttribute('aria-label') || '') + ' ' + (b.getAttribute('title') || '') + ' ' + String(b.className || '') + ' ' + (b.getAttribute('data-testid') || '')).toLowerCase();
+                  return !/attach|upload|附件|上传|file|mic|voice|语音|stop|停止|regenerat|重新|clear|清除|menu|nav|setting|设置|share|分享/.test(label);
+                } catch (e) { return false; }
+              });
+              if (ok.length) return ok[ok.length - 1]; // composer 行最右 = 发送键的高概率位
+            }
+          } catch (e) {}
+          return null;
+        };
+        const near = findSendNear();
+        if (near) {
+          diag.sendFound = 'near-composer button';
+          try { await simulateMouseMoveAndClick(input, near); } catch (e) { try { near.click(); } catch (e2) {} }
+          sent = true;
+        }
+      }
+      if (!sent) {
+        // 最后回退：Enter（keydown + keypress 双发，部分编辑器监听 keypress）
         diag.sendFound = diag.sendFound || '未找到(已用Enter)';
-        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true, cancelable: true }));
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
+        input.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true, cancelable: true }));
       }
       sentAt = Date.now();
+      // 发送后 1.5s 记录 composer 是否被清空（诊断：未清空 = 没发出去——输入法式编辑器不清空则消息未发）
+      setTimeout(() => { try { diag.composerCleared = !String(input.innerText || input.value || '').trim(); } catch (e) {} }, 1500);
       // 已有会话但适配器选择器全空（站点改版）时：发送瞬间重取基线（旧消息已在、新回复未出），
       // 否则通用兜底选择器匹配到的整个历史都会被当成"新回复"
       if (!before.length) {
@@ -2576,6 +2676,8 @@ function askInSite(question, adapter, requestId, images) {
       'button[data-testid="stop-button"]', 'button[aria-label*="停止"]',
       'button[aria-label*="Stop"]', 'button.stop-button'
     ];
+    // agentic 忙碌签名（站点可配 cfg.replyBusy，正则字符串；docs/013 §9）
+    const busyRe = cfg.replyBusy ? new RegExp(cfg.replyBusy, 'i') : null;
     const generating = () => stopSelectors.some(sel => document.querySelector(sel));
     const check = () => {
       const list = topMsgs();
@@ -2650,6 +2752,10 @@ function askInSite(question, adapter, requestId, images) {
       const isNew = list.length > before.length || (text && text !== baselineLast);
       if (!isNew) return;
       if (text !== lastText) { lastText = text; lastThinking = thinking; stableSince = Date.now(); reportDelta(text); return; }
+      // agentic 站点守卫（docs/013 §9）：Kimi agent 模式先输出工具调用状态（"Executing Python code"），
+      // 文本会"稳定"但并非终答——尾段命中忙碌签名 → 重置稳定计时继续等真实内容；
+      // 整体超时兜底仍会返回已有文本（宁慢不丢）。
+      if (busyRe && busyRe.test(String(text).trim().slice(-80))) { stableSince = Date.now(); return; }
       if (!generating() && Date.now() - stableSince > 1500) finish({ answer: text, thinking: lastThinking });
     };
     const beginWait = () => {
@@ -2663,7 +2769,7 @@ function askInSite(question, adapter, requestId, images) {
         clearInterval(pollTimer);
         if (lastText) finish({ answer: lastText, thinking: lastThinking });
         else if (lastThinking) finish({ answer: lastThinking, thinking: '' }); // 分类失误兜底：内容可见性优先
-        else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；图片: ' + (diag.images || 0) + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
+        else finish({ error: '等待 ' + (cfg.label || 'AI') + ' 回复超时。输入框: ' + diag.inputFound + '；发送: ' + (diag.sendFound || '未触发') + '；文本已入: ' + diag.composerHasText + '；发送后清空: ' + diag.composerCleared + '；图片: ' + (diag.images || 0) + '；回复元素: ' + (diag.replyCount || 0) + ' 个（若为 0 说明站点改版、选择器失效）' });
       }, RESOLVE_TIMEOUT);
     };
     // 有附件图片：先粘贴上传完成，再进入发送/等待流程

@@ -626,6 +626,9 @@ function handleAskRequest(req, res, protocol) {
       return;
     }
     const text = (answer.result && answer.result.answer) || '';
+    if (answer.result && answer.result.failover && answer.result.failover.length) {
+      console.log('[Bridge] 故障转移失败腿:', JSON.stringify(answer.result.failover).slice(0, 500));
+    }
 
     if (answer.streamed) {
       // 真流式：ask_delta 已实时转发，这里补发差值并收尾
@@ -648,7 +651,8 @@ function handleAskRequest(req, res, protocol) {
         stop_sequence: null,
         usage: { input_tokens: 0, output_tokens: estTokens(text) },
         ...(answer.result && answer.result.diag ? { tabu_diag: answer.result.diag } : {}),
-        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {})
+        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {}),
+        ...(answer.result && answer.result.failover ? { tabu_failover: answer.result.failover } : {})
       });
     } else {
       sendJson(req, res, 200, {
@@ -659,7 +663,8 @@ function handleAskRequest(req, res, protocol) {
         choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
         usage: { prompt_tokens: 0, completion_tokens: estTokens(text), total_tokens: estTokens(text) },
         ...(answer.result && answer.result.diag ? { tabu_diag: answer.result.diag } : {}),
-        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {})
+        ...(answer.result && answer.result.viaSite ? { tabu_via_site: answer.result.viaSite } : {}),
+        ...(answer.result && answer.result.failover ? { tabu_failover: answer.result.failover } : {})
       });
     }
   });
