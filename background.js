@@ -2063,7 +2063,8 @@ async function siteHealthRefresh(refreshDom) {
         reach = await probeSiteReachable(site.newChatUrl, 6000);
         cur.reach = reach; cur.reachAt = now; cur.lastError = reach ? '' : '网络不可达';
       }
-      // 标签页实况（实时查询，不缓存）
+      // 标签页实况（实时查询，不缓存）——信任层级：标签页实况 > DOM 探测 > 网络探测
+      //（SW 的 no-cors fetch 在部分环境全挂——实测四站全 false 而页面实际可用，013 §9）
       try {
         const tabs = await chrome.tabs.query({ url: site.urlPatterns });
         const tab = tabs.find((t) => t.url && !t.discarded) || tabs[0] || null;
@@ -2076,10 +2077,14 @@ async function siteHealthRefresh(refreshDom) {
             // 适配判据：页面里存在输入体系（file input / contenteditable / 任一 file 候选）即认为可注入
             //（DeepSeek 的 file input 不可见但注入全链可用，013 §3 实测——不能用 visible 判）
             cur.adapted = !!(out && (out.fileInput || out.contentEditable || (out.inputs || []).length > 0));
-            if (!cur.adapted) cur.lastError = '页面已开但未找到可用输入框（可能未登录/改版）';
+            cur.lastError = cur.adapted ? '' : '页面已开但未找到可用输入框（可能未登录/改版）';
           } catch (e) { cur.adapted = false; cur.lastError = 'DOM 探测失败: ' + e.message; }
         } else if (tab) {
           cur.adapted = (cur.adaptedAt && now - cur.adaptedAt < SITE_HEALTH_TTL) ? cur.adapted : null;
+        } else if (cur.reach) {
+          cur.lastError = '';
+        } else if (stale || refreshDom) {
+          cur.lastError = '网络探测不可达（页面未开，可能误报——以实际打开为准）';
         }
         if (cur.adapted !== null && cur.adapted === true) cur.adaptedAt = now;
       } catch (e) { cur.tab = false; }
@@ -2093,14 +2098,15 @@ async function siteHealthRefresh(refreshDom) {
 }
 
 // 面向 UI/桥接的健康快照：state ∈ ok | page | idle | down | unknown
+// 信任层级：开着的页面 > 网络探测——页面可用时绝不因 fetch 失败标 down（实测 SW fetch 会全挂误报）
 async function siteHealthSnapshot(refreshDom) {
   const h = await siteHealthRefresh(!!refreshDom);
   const out = {};
   for (const [key, cur] of Object.entries(h)) {
     let state = 'unknown';
-    if (cur.reach === false) state = 'down';
-    else if (cur.tab) state = cur.adapted === true ? 'ok' : 'page';
+    if (cur.tab) state = cur.adapted === true ? 'ok' : 'page';
     else if (cur.reach === true) state = 'idle';
+    else if (cur.reach === false) state = 'down';
     out[key] = {
       state,
       label: AI_SITES[key] ? AI_SITES[key].label : key,
