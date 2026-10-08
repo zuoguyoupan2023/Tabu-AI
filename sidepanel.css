@@ -548,13 +548,14 @@ input, select, textarea { font-family: var(--font); }
 /* 运行日志体折叠（④ 内部，blueFold['log.body']）；头行可点 */
 .debug-log-head { cursor: pointer; }
 .debug-log.folded .fold-body { grid-template-rows: 0fr; }
-/* ===== 红区底部状态条（2026-10-03 反馈：用哪个 LLM/识别/朗读 重要，但不占顶栏视觉主区）===== */
-.red-status-strip { position: sticky; bottom: 0; z-index: 25; margin-top: auto; display: flex; align-items: center; gap: 6px; padding: 4px 10px;
-  font-size: 10px; background: rgba(0,0,0,.32); backdrop-filter: blur(4px); border-top: 1px solid var(--line);
-  white-space: nowrap; overflow: hidden; }
-.red-status-strip .rs-seg { overflow: hidden; text-overflow: ellipsis; opacity: .85; }
-.rs-llm { background: none; border: none; color: inherit; font: inherit; padding: 0; cursor: pointer; }
-.rs-llm:hover { text-decoration: underline; }
+/* ===== 红区底部状态条（2026-10-03 反馈：用哪个 LLM/识别/朗读 重要，但不占顶栏视觉主区）=====
+   2026-10-07：四段后原 padding 4px / 字号 10px 过挤（用户反馈文字被裁），放宽行高与间距 */
+.red-status-strip { position: sticky; bottom: 0; z-index: 25; margin-top: auto; display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+  font-size: 11px; line-height: 1.5; background: rgba(0,0,0,.32); backdrop-filter: blur(4px); border-top: 1px solid var(--line);
+  white-space: nowrap; overflow-x: auto; overflow-y: hidden; }
+.red-status-strip .rs-seg { flex: none; overflow: hidden; text-overflow: ellipsis; opacity: .85; }
+.rs-llm, .rs-trans { background: none; border: none; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+.rs-llm:hover, .rs-trans:hover { text-decoration: underline; }
 .rs-sep { opacity: .35; flex: none; }
 .red-status-strip .warn { color: #fecaca; font-weight: 700; }
 /* 本地版下「发送到」站点不生效 → 置灰提示 */

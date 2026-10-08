@@ -301,13 +301,15 @@
 
         </div><!-- /upper-section -->
 
-        <!-- 红区底部状态条（2026-10-03 反馈：用哪个 LLM/识别/朗读 重要，但不占顶部视觉主区） -->
+        <!-- 红区底部状态条（2026-10-03 反馈：用哪个 LLM/识别/朗读 重要，但不占顶部视觉主区；2026-10-07 加「翻译源」第四段） -->
         <div class="red-status-strip" id="redStatusStrip">
           <button type="button" class="rs-seg rs-llm" id="rsLlm" data-i18n-title="tipChannel" title="当前 AI 渠道（点击修改）"></button>
           <span class="rs-sep">·</span>
           <span class="rs-seg" id="rsAsr"></span>
           <span class="rs-sep">·</span>
           <span class="rs-seg" id="rsTts"></span>
+          <span class="rs-sep">·</span>
+          <button type="button" class="rs-seg rs-trans" id="rsTrans" data-i18n-title="tipTransChannel" title="当前免费翻译源（点击修改）"></button>
         </div>
       </div>
 

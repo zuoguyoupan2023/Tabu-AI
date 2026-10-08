@@ -360,6 +360,16 @@ function detectSourceLang(text) {
   return 'en';
 }
 
+// 免费翻译源失败 → 结构化错误（含失效源名）。
+// 不再把「翻译失败」文案当 message 抛出：上层（sidepanel.translateFailMessage）统一拼
+// 「翻译失败（当前翻译源：X）」，旧写法 前缀+message 会拼出「翻译失败翻译失败」。
+function transSourceError(source, detail) {
+  const e = new Error(detail ? String(detail).slice(0, 200) : '');
+  e.code = 'TRANS_SRC_FAIL';
+  e.source = source;
+  return e;
+}
+
 // 单段 · Google（免费、无 Key；'auto' 为其合法源语言；超时收紧 6s——失败快速落 LLM 兜底）
 async function translateChunkGoogle(text, sourceLang, targetLang, retries = 0) {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(text)}`;
@@ -373,7 +383,7 @@ async function translateChunkGoogle(text, sourceLang, targetLang, retries = 0) {
     } catch (e) { /* 重试 */ }
     if (attempt < retries) await new Promise(resolve => setTimeout(resolve, 1500));
   }
-  throw new Error(I18N.t('translateFail'));
+  throw transSourceError('Google');
 }
 
 // 单段 · MyMemory（超时收紧 10s、重试 1 次——失败快速落 Google/LLM 兜底）
@@ -409,10 +419,10 @@ async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 1)
           await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
           continue;
         }
-        throw new Error(data.responseDetails || out || I18N.t('translateFail'));
+        throw transSourceError('MyMemory', data.responseDetails || out || '');
       }
       if (out) return out;
-      throw new Error(data.responseDetails || I18N.t('translateFail'));
+      throw transSourceError('MyMemory', data.responseDetails || '');
     } catch (e) {
       if (attempt < retries) {
         await new Promise(resolve => setTimeout(resolve, 2000 * (attempt + 1)));
@@ -421,7 +431,7 @@ async function translateChunkMyMemory(text, sourceLang, targetLang, retries = 1)
       }
     }
   }
-  throw new Error(I18N.t('retryFailed'));
+  throw transSourceError('MyMemory');
 }
 
 // 单段分发：返回 { text, provider, viaFallback }（provider = 实际服务的来源）

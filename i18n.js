@@ -478,6 +478,7 @@ const I18N = (() => {
 
       // 渠道徽章与本地版说明（2026-10-03 反馈：渠道/供应商混淆）
       tipChannel: '当前 AI 渠道（点击修改）',
+      tipTransChannel: '当前免费翻译源（点击修改）',
       aiChannelLocal: '本地',
       aiChannelLocalDown: '本地服务未运行（asr-server），发送会失败；点击打开渠道设置',
       aiModeLocalHint: '💻 本地版：由本机 asr-server（{0}）的本地 LLM 直接回答，不经网页注入；「发送到」站点在本地版下不生效。',
@@ -547,6 +548,7 @@ const I18N = (() => {
       transProviderSepLabel: '🔀 服务源',
       transProviderLabel: '翻译服务源',
       transSvcAuto: '自动（MyMemory → Google）',
+      transSvcAutoShort: '自动',
       transSvcMymemory: 'MyMemory',
       transSvcGoogle: 'Google',
       transProviderHint: '免费翻译（主界面「🌐 免费翻译」与选区条「翻译」）使用此服务源；对话流中的译文会标注实际服务的来源。均为免费无 Key 服务。',
@@ -827,6 +829,7 @@ const I18N = (() => {
       translateDone: '翻译完成',
       translateSuccess: '翻译成功',
       translateFail: '翻译失败',
+      translateFailWithSource: '翻译失败（当前翻译源：{0}）',
       translateErrorPrefix: '翻译失败: ',
       noSelectionAny: '未选中任何文本',
       copySuccess: '✅ 复制成功',
@@ -1471,6 +1474,7 @@ const I18N = (() => {
 
       // Channel badge & local-mode notes (2026-10-03 feedback)
       tipChannel: 'Current AI channel (click to change)',
+      tipTransChannel: 'Current free translation source (click to change)',
       aiChannelLocal: 'Local',
       aiChannelLocalDown: 'Local server not running (asr-server); sending will fail. Click to open channel settings',
       aiModeLocalHint: '💻 Local: answered by your machine\'s asr-server LLM ({0}), no page injection. The "Send to" site has no effect in Local mode.',
@@ -1540,6 +1544,7 @@ const I18N = (() => {
       transProviderSepLabel: '🔀 Service source',
       transProviderLabel: 'Service source',
       transSvcAuto: 'Auto (MyMemory → Google)',
+      transSvcAutoShort: 'Auto',
       transSvcMymemory: 'MyMemory',
       transSvcGoogle: 'Google',
       transProviderHint: 'Used by free translate (main panel "Free translate" and selection bar "Translate"); results in the chat stream are labeled with the service actually used. Both are free and key-less.',
@@ -1820,6 +1825,7 @@ const I18N = (() => {
       translateDone: 'Translation complete',
       translateSuccess: 'Translation succeeded',
       translateFail: 'Translation failed',
+      translateFailWithSource: 'Translation failed (current source: {0})',
       translateErrorPrefix: 'Translation failed: ',
       noSelectionAny: 'No text selected',
       copySuccess: '✅ Copied',

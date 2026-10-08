@@ -4529,7 +4529,7 @@ async function selRunProcessor(type) {
         const out = await TABU_CAPS.translateText(body, { source: transSrcCode(body), target: transTgtCode(), provider });
         renderVoiceOutput(null, (out && out.text) || '', null, null, transViaLabel(out && out.provider));
       } catch (e) {
-        showStatus(I18N.t('translateFail') + ((e && e.message) || ''), 'error');
+        showStatus(translateFailMessage(e), 'error');
       }
       return;
     }
@@ -4554,6 +4554,26 @@ function transTgtCode() {
   return document.getElementById('selTgtLang')?.value || 'zh-CN';
 }
 
+// 当前免费翻译源（'auto' | 'mymemory' | 'google'）：loadTranslateProvider / 蓝区切换时更新，
+// 供底部状态条「翻译源」段与失败提示共用（2026-10-07：用户切换 Google 后国内失败却无从得知当前源）
+let currentTranslateProvider = 'auto';
+function translateProviderShortLabel(p) {
+  return p === 'google' ? 'Google' : p === 'mymemory' ? 'MyMemory' : I18N.t('transSvcAutoShort');
+}
+function translateProviderFullLabel(p) {
+  return p === 'google' ? 'Google' : p === 'mymemory' ? 'MyMemory' : I18N.t('transSvcAuto');
+}
+// 翻译失败提示（两处 catch 共用）：源失败（TRANS_SRC_FAIL）带「当前翻译源」，其它错误直接拼详情。
+// 旧写法 前缀 + caps 抛出的「翻译失败」会拼出「翻译失败翻译失败」，此处统一去重（2026-10-07）
+function translateFailMessage(e) {
+  const detail = String((e && e.message) || '').trim();
+  if (e && e.code === 'TRANS_SRC_FAIL') {
+    return I18N.t('translateFailWithSource', translateProviderShortLabel(currentTranslateProvider))
+      + (detail ? '：' + detail : '');
+  }
+  return I18N.t('translateFail') + (detail ? '：' + detail : '');
+}
+
 // 免费翻译：结果进对话流并标注实际服务来源；供 选区AI处理 / 主界面 共用
 // 服务源在蓝区「🌐 翻译」卡选择（translateProvider：auto | mymemory | google，默认 auto=MyMemory→Google）
 async function freeTranslate(text) {
@@ -4569,7 +4589,7 @@ async function freeTranslate(text) {
     const out = await TABU_CAPS.translateText(text.trim(), { source: transSrcCode(text.trim()), target: transTgtCode(), provider });
     renderVoiceOutput(null, (out && out.text) || '', null, null, transViaLabel(out && out.provider));
   } catch (e) {
-    showStatus(I18N.t('translateFail') + ((e && e.message) || ''), 'error');
+    showStatus(translateFailMessage(e), 'error');
   }
 }
 // 译文来源标注（renderVoiceOutput 第 5 参）
@@ -4585,16 +4605,18 @@ function applyTranslateProviderUi(provider) {
   btn.setAttribute('data-i18n-title', key);
   btn.title = I18N.t(key);
 }
-// 启动时恢复翻译服务源（蓝区下拉 + 红区按钮 title）
+// 启动时恢复翻译服务源（蓝区下拉 + 红区按钮 title + 底部状态条）
 async function loadTranslateProvider() {
   let provider = 'auto';
   try {
     const r = await chrome.storage.local.get('translateProvider');
     if (r.translateProvider) provider = r.translateProvider;
   } catch (e) {}
+  currentTranslateProvider = provider;
   const sel = document.getElementById('transProviderBlue');
   if (sel) sel.value = provider;
   applyTranslateProviderUi(provider);
+  updateRedStatusStrip();
 }
 // 主界面：免费翻译输入框内容
 async function translateInputFree() {
@@ -5489,6 +5511,13 @@ function updateRedStatusStrip(mode) {
   // 朗读段：当前朗读引擎（显式选择）
   const ttsSel = document.getElementById('ttsEngineBlue');
   tts.textContent = '🗣 ' + ((ttsSel && ttsSel.selectedOptions[0]) ? ttsSel.selectedOptions[0].textContent.trim() : '—');
+  // 翻译源段（第四段，2026-10-07）：免费翻译服务源（auto/MyMemory/Google；点击直达蓝区翻译设置）
+  const trans = document.getElementById('rsTrans');
+  if (trans) {
+    trans.textContent = '🌐 ' + translateProviderShortLabel(currentTranslateProvider);
+    trans.title = I18N.t('tipTransChannel') + ' · ' + translateProviderFullLabel(currentTranslateProvider); // 中性分隔符（中英通用）
+    trans.setAttribute('aria-label', trans.title);
+  }
   if (mode === 'local') {
     // 本地服务不可达 → ⚠️（localReachable 自带 5s 缓存）
     localReachable().then((ok) => {
@@ -5506,6 +5535,21 @@ function openChannelSettings() {
   const el = document.getElementById('chatSettings');
   if (el && el.classList.contains('hidden')) toggleChatSettings();
   setChatSettingsTab('channel');
+}
+
+// 点底部状态条「翻译源」段 → 切到蓝区「AI 能力中心」并定位「🌐 翻译」tab（与粘性导航同一展开逻辑）
+function openTranslateSettings() {
+  switchLayer('blue');
+  const sec = document.querySelector('#layer-blue .bsec[data-bsec="ai"]');
+  if (!sec) return;
+  if (sec.classList.contains('folded')) {
+    sec.classList.remove('folded');
+    const head = sec.querySelector('.bsec-head');
+    if (head) head.setAttribute('aria-expanded', 'true');
+    setBlueFold('ai', false);
+  }
+  switchCapTab('trans');
+  sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // ========== 统一能力来源设置区（TTS / LLM / ASR 三维度） ==========
@@ -5824,7 +5868,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (transProviderBlue) transProviderBlue.addEventListener('change', () => {
     const p = ['auto', 'mymemory', 'google'].includes(transProviderBlue.value) ? transProviderBlue.value : 'auto';
     chrome.storage.local.set({ translateProvider: p }).catch(() => {});
+    currentTranslateProvider = p;
     applyTranslateProviderUi(p);
+    updateRedStatusStrip(); // 底部状态条「翻译源」段即时跟随
   });
   const ttsLocalVoiceBlue = document.getElementById('ttsLocalVoiceBlue');
   if (ttsLocalVoiceBlue) ttsLocalVoiceBlue.addEventListener('change', () => saveLocalVoice(ttsLocalVoiceBlue));
@@ -6123,9 +6169,11 @@ document.addEventListener('DOMContentLoaded', () => {
   if (aiBackendInject) aiBackendInject.addEventListener('click', () => setAiMode('inject'));
   const aiBackendApi = document.getElementById('aiBackendApi');
   if (aiBackendApi) aiBackendApi.addEventListener('click', () => setAiMode('api'));
-  // 红区底部状态条：LLM 段点击直达渠道设置
+  // 红区底部状态条：LLM 段点击直达渠道设置；翻译源段点击直达蓝区翻译设置
   const rsLlmSeg = document.getElementById('rsLlm');
   if (rsLlmSeg) rsLlmSeg.addEventListener('click', openChannelSettings);
+  const rsTransSeg = document.getElementById('rsTrans');
+  if (rsTransSeg) rsTransSeg.addEventListener('click', openTranslateSettings);
 
   // ===== 线条图标注入（data-icon → TABU_ICONS SVG，替代 emoji） =====
   document.querySelectorAll('[data-icon]').forEach(el => {
