@@ -24,48 +24,61 @@ const AI_ALLOWED_HOSTS = [
 // 模型名基于各官方 API 文档（2026-08 核对）。
 const AI_PROVIDERS = {
   openai: {
+    label: 'OpenAI',
     protocol: 'openai',
     baseUrl: 'https://api.openai.com/v1',
     models: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3', 'o4-mini'],
     defaultModel: 'gpt-5.4-mini'
   },
   anthropic: {
+    label: 'Anthropic',
     protocol: 'anthropic',
     baseUrl: 'https://api.anthropic.com',
     models: ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5'],
     defaultModel: 'claude-sonnet-4-6'
   },
   deepseek: {
+    label: 'DeepSeek',
     protocol: 'openai',
     baseUrl: 'https://api.deepseek.com/v1',
     models: ['deepseek-v4-flash', 'deepseek-v4-pro'],
     defaultModel: 'deepseek-v4-flash'
   },
   kimi: {
+    label: 'Kimi',
     protocol: 'openai',
     baseUrl: 'https://api.moonshot.cn/v1',
     models: ['kimi-k3', 'kimi-k2.7-code', 'kimi-k2.7-code-highspeed', 'kimi-k2.6', 'moonshot-v1-128k', 'moonshot-v1-32k'],
     defaultModel: 'kimi-k3'
   },
   chatglm: {
+    label: 'ChatGLM',
     protocol: 'openai',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     models: ['glm-5.1', 'glm-5', 'glm-4.7', 'glm-4.6', 'glm-4.6v', 'glm-z1-airx', 'glm-z1-flash'],
     defaultModel: 'glm-4.6'
   },
   qwen: {
+    label: 'Qwen',
     protocol: 'openai',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     models: ['qwen3.7-max', 'qwen3.7-plus', 'qwen3.6-max-preview', 'qwen3.6-plus', 'qwen3.6-flash', 'qwen3.5-plus'],
     defaultModel: 'qwen3.6-plus'
   },
   custom: {
+    label: 'Custom',
     protocol: 'openai',
     baseUrl: '',
     models: [],
     defaultModel: 'gpt-4o-mini'
   }
 };
+
+// provider → 默认档案名（静态标签，供纯逻辑层生成档案名；sidepanel 优先用 i18n 同名键）
+function aiProviderLabel(provider) {
+  const meta = AI_PROVIDERS[provider];
+  return (meta && meta.label) || String(provider || '');
+}
 
 // host 是否在默认允许范围内（已知服务商 + 本机）
 function isAllowedAiHost(baseUrl) {
@@ -133,14 +146,93 @@ function joinApiUrl(baseUrl, path) {
 
 // 配置归一化：按 rawProvider 查 AI_PROVIDERS 确定协议（openai 兼容 / anthropic 原生）与默认模型。
 // 返回 { provider:'openai'|'anthropic', rawProvider, baseUrl, apiKey, model, allowAnyHost }
+// 幂等：同时接受「原始存储形态」（aiProvider/aiBaseUrl/…）与「本函数已归一化形态」（rawProvider/baseUrl/…），
+// 因此 resolveAiConfig 的结果可安全再经本函数（askApiStream 内部会再归一化一次）。
 function normalizeAiConfig(cfg) {
   const c = cfg || {};
-  const rawProvider = c.aiProvider || 'openai';
+  const raw = c.aiProvider || c.rawProvider || 'openai';
+  // 未知 provider 归入 custom（与 normalizeAiProfile 一致；协议/默认模型原本就回落 custom，行为不变）
+  const rawProvider = AI_PROVIDERS[raw] ? String(raw) : 'custom';
   const meta = AI_PROVIDERS[rawProvider] || AI_PROVIDERS.custom;
-  const baseUrl = String(c.aiBaseUrl || '').trim();
-  const apiKey = String(c.aiApiKey || '').trim();
-  const model = String(c.aiModel || '').trim() || meta.defaultModel;
-  return { provider: meta.protocol, rawProvider, baseUrl, apiKey, model, allowAnyHost: !!c.aiAllowAnyHost };
+  const baseUrl = String(c.aiBaseUrl != null ? c.aiBaseUrl : (c.baseUrl || '')).trim();
+  const apiKey = String(c.aiApiKey != null ? c.aiApiKey : (c.apiKey || '')).trim();
+  const model = String(c.aiModel != null ? c.aiModel : (c.model || '')).trim() || meta.defaultModel;
+  const allowAnyHost = !!(c.aiAllowAnyHost != null ? c.aiAllowAnyHost : c.allowAnyHost);
+  return { provider: meta.protocol, rawProvider, baseUrl, apiKey, model, allowAnyHost };
+}
+
+// ========== API 多渠道档案（profiles，docs/017） ==========
+// 存储 schema（chrome.storage.local）：
+//   aiProfiles:        [{ id, name, provider, baseUrl, apiKey, model, allowAnyHost }]  档案列表（唯一事实源）
+//   aiActiveProfileId: string                                                          当前生效档案 id
+// 旧平铺键（aiProvider/aiBaseUrl/aiApiKey/aiModel/aiAllowAnyHost）保留为**兼容镜像**：
+// 由侧栏在保存/切换时写透，供未改造的旧读取路径兜底；读取路径一律经 resolveAiConfig。
+const AI_CFG_FLAT_KEYS = ['aiProvider', 'aiBaseUrl', 'aiApiKey', 'aiModel', 'aiAllowAnyHost'];
+const AI_CFG_STORAGE_KEYS = AI_CFG_FLAT_KEYS.concat(['aiProfiles', 'aiActiveProfileId']);
+
+function newAiProfileId() {
+  return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// 归一化单个档案（宽容：字段缺失/类型异常一律收敛到安全值；未知 provider 归入 custom 以保留 baseUrl）
+function normalizeAiProfile(raw) {
+  const p = raw || {};
+  const provider = AI_PROVIDERS[p.provider] ? String(p.provider) : (p.provider ? 'custom' : 'openai');
+  return {
+    id: String(p.id || ''),
+    name: String(p.name || '').trim(),
+    provider,
+    baseUrl: String(p.baseUrl || '').trim(),
+    apiKey: String(p.apiKey || '').trim(),
+    model: String(p.model || '').trim(),
+    allowAnyHost: !!p.allowAnyHost
+  };
+}
+
+// 从存储快照迁移/加载档案列表。
+// 返回 { profiles, activeId, changed }；changed=true 表示应把结果写回存储（首次迁移、修复非法 activeId）。
+// 不变式：返回的 profiles 至少 1 个（空配置也建一个占位档案，避免各处判空）。
+function migrateAiProfiles(raw) {
+  const s = raw || {};
+  const list = (Array.isArray(s.aiProfiles) ? s.aiProfiles : [])
+    .map((p) => normalizeAiProfile(p))
+    .filter((p) => p.id);
+  if (list.length) {
+    let activeId = String(s.aiActiveProfileId || '');
+    const activeMissing = !list.some((p) => p.id === activeId);
+    if (activeMissing) activeId = list[0].id;
+    const changed = activeMissing || !Array.isArray(s.aiProfiles);
+    return { profiles: list, activeId, changed };
+  }
+  // 无档案：从平铺旧键迁移为单档案（保留已配置的 provider/baseUrl/key/model）
+  const legacy = normalizeAiConfig(s);
+  const profile = normalizeAiProfile({
+    id: newAiProfileId(),
+    name: aiProviderLabel(legacy.rawProvider),
+    provider: legacy.rawProvider,
+    baseUrl: legacy.baseUrl,
+    apiKey: legacy.apiKey,
+    model: legacy.model,
+    allowAnyHost: legacy.allowAnyHost
+  });
+  return { profiles: [profile], activeId: profile.id, changed: true };
+}
+
+// 解析当前生效配置（档案优先；无档案时回落平铺旧键，兼容迁移前的时间窗）。
+// 返回 normalizeAiConfig 结果 + { profileId, profileName }（无档案时空字符串）。
+function resolveAiConfig(raw) {
+  const s = raw || {};
+  const list = Array.isArray(s.aiProfiles)
+    ? s.aiProfiles.map((p) => normalizeAiProfile(p)).filter((p) => p.id)
+    : [];
+  let p = null;
+  if (list.length) p = list.find((x) => x.id === s.aiActiveProfileId) || list[0];
+  const cfg = normalizeAiConfig(p
+    ? { aiProvider: p.provider, aiBaseUrl: p.baseUrl, aiApiKey: p.apiKey, aiModel: p.model, aiAllowAnyHost: p.allowAnyHost }
+    : s);
+  cfg.profileId = p ? p.id : '';
+  cfg.profileName = p ? p.name : '';
+  return cfg;
 }
 
 // 解析单个 SSE 事件块（以空行分隔的一段文本），兼容 OpenAI 与 Anthropic。

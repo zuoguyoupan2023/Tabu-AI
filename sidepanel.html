@@ -152,6 +152,10 @@
               </div>
               <div id="aiModeHint" class="ai-mode-hint hidden"></div>
 
+              <label class="cfg-row" id="chatApiProfileRow"><span data-i18n="aiProfileLabel">档案</span>
+                <select id="chatAiProfileSelect" class="row-select" style="flex:1;"></select>
+              </label>
+
               <label class="cfg-row"><span data-i18n="aiSiteLabel" data-i18n-title="aiSiteInjectOnlyTitle" title="仅浏览器版渠道使用；本地/API 渠道下不生效">发送到</span>
                 <select id="injectSite" class="row-select" style="flex:1;">
                   <option value="chatgpt" data-i18n="aiSiteChatgpt">ChatGPT</option>
@@ -397,6 +401,15 @@
               <div class="ai-svc-sep" data-i18n="llmSourceBrowserLabel">🌐 系统级 · 页面注入</div>
               <div class="hint" data-i18n="llmBrowserHint">未配置云端时，AI 对话默认走页面注入（浏览器内 AI 站点），零配置兜底。</div>
               <div class="ai-svc-sep" data-i18n="llmSourceCloudLabel">☁️ 云端（OpenAI 兼容 API）</div>
+              <label class="cfg-row"><span data-i18n="aiProfileLabel">档案</span>
+                <span class="ai-key-row">
+                  <select id="aiProfileSelect" class="row-select" style="flex:1;"></select>
+                  <button type="button" class="mini-btn" id="aiProfileDelete" data-i18n-title="aiProfileDeleteTitle" title="删除当前档案" style="flex:none;">🗑</button>
+                </span>
+              </label>
+              <label class="cfg-row"><span data-i18n="aiProfileNameLabel">名称</span>
+                <input id="aiProfileName" type="text" class="row-select" style="flex:1;" data-i18n-placeholder="aiProfileNamePlaceholder" placeholder="如：DeepSeek 官方" autocomplete="off" />
+              </label>
               <label class="cfg-row"><span data-i18n="aiProviderLabel">服务商</span>
                 <select id="aiProvider" class="row-select" style="flex:1;">
                   <option value="openai" data-i18n="aiProviderOpenai">OpenAI</option>

@@ -1557,17 +1557,21 @@ async function clearConversations() {
   return { success: true };
 }
 
-// ========== 自定义 API 接入（P0-B + P2） ==========
-// 读取 AI 服务配置（chrome.storage.local）。未配置 aiBaseUrl = 关闭 API 模式，保持页面注入。
+// ========== 自定义 API 接入（P0-B + P2；多渠道档案 docs/017） ==========
+// 读取 AI 服务配置（chrome.storage.local）。未配置 baseUrl = 关闭 API 模式，保持页面注入。
+// 档案（aiProfiles + aiActiveProfileId）优先，平铺旧键兜底（兼容镜像/迁移时间窗）。
 
 async function getAiConfig() {
-  const r = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'aiApiKey', 'aiModel', 'aiAllowAnyHost']);
+  const r = await chrome.storage.local.get(AI_CFG_STORAGE_KEYS);
+  const cfg = resolveAiConfig(r);
   return {
-    aiProvider: r.aiProvider || 'openai',
-    aiBaseUrl: String(r.aiBaseUrl || '').trim(),
-    aiApiKey: String(r.aiApiKey || '').trim(),
-    aiModel: String(r.aiModel || '').trim(),
-    aiAllowAnyHost: !!r.aiAllowAnyHost
+    aiProvider: cfg.rawProvider,
+    aiBaseUrl: cfg.baseUrl,
+    aiApiKey: cfg.apiKey,
+    aiModel: cfg.model,
+    aiAllowAnyHost: cfg.allowAnyHost,
+    cfgProfileId: cfg.profileId,
+    cfgProfileName: cfg.profileName
   };
 }
 

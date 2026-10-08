@@ -448,14 +448,10 @@ async function translateViaLLM(text, targetLang) {
   try {
     const tlName = TRANSLATE_TARGET_NAMES[targetLang] || targetLang || 'English';
     const prompt = `将以下内容翻译成${tlName}，只输出译文，不要任何解释或原文：\n\n${text}`;
-    const r = await chrome.storage.local.get(['aiBaseUrl', 'aiApiKey', 'aiModel', 'aiProvider', 'aiAllowAnyHost', 'injectSite']);
+    const r = await chrome.storage.local.get(AI_CFG_STORAGE_KEYS.concat(['injectSite']));
+    const cfg = resolveAiConfig(r); // 档案优先，平铺旧键兜底（docs/017）
     let answer = '';
-    if (r.aiBaseUrl) {
-      const cfg = {
-        aiProvider: r.aiProvider || 'openai', aiBaseUrl: String(r.aiBaseUrl || '').trim(),
-        aiApiKey: String(r.aiApiKey || '').trim(), aiModel: String(r.aiModel || '').trim(),
-        aiAllowAnyHost: !!r.aiAllowAnyHost
-      };
+    if (cfg.baseUrl) {
       const res = await askApiStream(prompt, cfg, [], {});
       answer = (res && res.answer) || '';
     } else {

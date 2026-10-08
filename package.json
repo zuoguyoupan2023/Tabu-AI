@@ -5,7 +5,10 @@
   "description": "TabU AI — Chrome 扩展（MV3）+ 终端桥接服务",
   "scripts": {
     "bridge": "node bridge/server.js",
+    "test": "node bridge/test.mjs && node tools/test-ai-api.mjs && node tools/test-e2e-profiles.mjs",
     "test:bridge": "node bridge/test.mjs",
+    "test:ai-api": "node tools/test-ai-api.mjs",
+    "test:e2e": "node tools/test-e2e-profiles.mjs",
     "build:dict": "node tools/build-ecdict-subset.js",
     "pack": "node tools/pack.js"
   },

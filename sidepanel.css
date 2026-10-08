@@ -649,6 +649,8 @@ input, select, textarea { font-family: var(--font); }
 .trans-hint { color: #a7f3d0; opacity: .95; }
 .ai-site-row.api-mode { opacity: .45; pointer-events: none; }
 .cfg-row.api-mode { opacity: .45; pointer-events: none; }
+/* 渠道档案快速切换行：非 API 渠道置灰（与 .api-mode 同语义，命名中性供新行复用） */
+.cfg-row.inactive { opacity: .45; pointer-events: none; }
 
 /* 红层 AI 面板：后端切换（免费浏览器版 / 自填 API 版） */
 .ai-backend-row { display: flex; gap: 6px; margin-bottom: 6px; }

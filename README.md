@@ -13,6 +13,7 @@
 | 划词即显 | 选中词/句即出浮层：离线词典（内置 5 万高频词，全量 77 万词按需云端拉取）、翻译（MyMemory → Google → 当前 LLM 渠道三级兜底）、AI 一句话详解、真人发音；支持 iframe 页面、浮层内直接切换目标语言 |
 | 朗读 / 翻译 | 选中文本即读即译，支持多语言；TTS 多引擎（系统 / 本地 Kokoro、Qwen3 / 云端 / Azure / CosyVoice），每个朗读场景可单独指定音色 |
 | AI 对话 | 侧边栏内直接对话，三渠道任选：**API**（自配 OpenAI 兼容 / Anthropic 渠道，流式 + 多轮）、**本地**（localhost OpenAI 兼容端口）、**页面注入**（驱动已登录的 ChatGPT / Kimi / DeepSeek 等网页）；支持思考模式展示与关联页面全文上下文 |
+| 多渠道档案 | API 渠道可保存多份档案（如多家服务商 / 多套 Key），每份独立持有服务商 / Base URL / API Key / 模型；侧栏内一键切换，密钥互不串用 |
 | 语音工作台 | 录音 → 识别（浏览器内置 / Azure / OpenAI Whisper / 阿里云 / 本地服务）→ AI 问答 → 朗读，一条闭环 |
 | 注入输入 | 聚焦网页输入框时浮现发送按钮，一键将内容发到 AI 页面 |
 | 标签快照 | 一键保存当前标签状态，随时回溯 |
@@ -101,6 +102,11 @@ Tabu-AI/
 ├── bridge/
 │   ├── server.js          # 终端桥接服务（Node.js）
 │   └── test.mjs           # 桥接回归测试（npm run test:bridge）
+├── tools/
+│   ├── pack.js            # 打包脚本
+│   ├── build-ecdict-subset.js  # 离线词典构建
+│   ├── test-ai-api.mjs    # 多渠道档案逻辑桩测（npm run test:ai-api）
+│   └── test-e2e-profiles.mjs   # 档案真机 E2E（npm run test:e2e）
 ├── card.js                # 摘录卡片生成
 ├── i18n.js                # 国际化（中文/英文）
 ├── options.html/js        # 管理设置页
@@ -113,7 +119,7 @@ Tabu-AI/
 
 ```bash
 npm run bridge       # 启动终端桥接服务
-npm run test:bridge  # 桥接回归测试（双协议/流式/CORS/认证/端口顺延等 20 项）
+npm test             # 全量回归：桥接 20 项 + 档案逻辑 14 项 + 真机 E2E 8 项（无浏览器时 E2E 自动跳过）
 npm run pack         # 打包扩展 → dist/tabu-ai-<version>/ 与 .zip
 npm run build:dict   # 重建离线词典数据（ECDICT 子集 / 全量桶）
 ```

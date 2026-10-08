@@ -2226,12 +2226,9 @@ async function injectRun(prompt, images = [], opts = {}) {
   // displayPrompt：气泡里显示的"提问"文本（选区处理时传原文，而非加工后的模板提示词）
   const displayPrompt = (opts && opts.displayPrompt) || prompt;
   const sendPrompt = opts.skipPageContext ? prompt : await appendPageContext(prompt);
-  // 首开面板时 loadAiConfig 可能未完成，config 为空则先向 storage 确认一次
+  // 首开面板时 loadAiConfig（含档案迁移）可能未完成，config 为空则等待配置加载完成
   if (!currentAiConfig.aiBaseUrl) {
-    try {
-      const r = await chrome.storage.local.get('aiBaseUrl');
-      if (r.aiBaseUrl) currentAiConfig.aiBaseUrl = String(r.aiBaseUrl || '').trim();
-    } catch (e) {}
+    await ensureAiConfigLoaded().catch(() => {});
   }
   // 后端模式：'local' → 本地 /chat；'api' → 流式（需已配置）；'inject' → 页面注入
   const mode = await getEffectiveAiMode();
@@ -2956,6 +2953,20 @@ function getAiDefaultModel(provider) {
   return meta ? meta.defaultModel : '';
 }
 
+// 档案默认名用服务商简称（Kimi / ChatGLM / Qwen；下拉里是全称「Kimi（月之暗面）」，档案名取短）
+const AI_PROVIDER_I18N_KEYS = {
+  openai: 'aiProviderOpenai', anthropic: 'aiProviderAnthropic', deepseek: 'aiProviderDeepseek',
+  kimi: 'aiProviderKimi', chatglm: 'aiProviderChatglm', qwen: 'aiProviderQwen', custom: 'aiProviderCustom'
+};
+function aiProviderDisplayName(provider) {
+  if (typeof aiProviderLabel === 'function') {
+    const l = aiProviderLabel(provider);
+    if (l && l !== provider) return l;
+  }
+  const key = AI_PROVIDER_I18N_KEYS[provider];
+  return (key && typeof I18N !== 'undefined' && I18N.t(key)) || String(provider || '');
+}
+
 function populateModelDatalist(provider) {
   const dl = aiField('aiModelList');
   const model = aiField('aiModel');
@@ -2967,7 +2978,131 @@ function populateModelDatalist(provider) {
   }
 }
 
+// ========== 多渠道档案（docs/017）：列表 / 当前档案 / 表单映射 ==========
+let aiProfilesCache = [];    // 档案列表（内存镜像，唯一事实源；保存/切换时写回 storage）
+let aiActiveProfileId = '';  // 当前生效档案 id
+let aiConfigReady = null;    // loadAiConfig 完成句柄（发送等路径先 await，收口首开竞态）
+
+function getActiveAiProfile() {
+  return aiProfilesCache.find((p) => p.id === aiActiveProfileId) || aiProfilesCache[0] || null;
+}
+
+// 档案 → 表单（含开关与模型建议），并同步 currentAiConfig（供状态条/渠道提示）
+function applyAiProfileToForm(p) {
+  if (!p) return;
+  const prov = aiField('aiProvider'); if (prov) prov.value = p.provider;
+  const base = aiField('aiBaseUrl'); if (base) base.value = p.baseUrl;
+  const key = aiField('aiApiKey'); if (key) key.value = p.apiKey;
+  const model = aiField('aiModel'); if (model) model.value = p.model;
+  const name = aiField('aiProfileName'); if (name) name.value = p.name;
+  const sw = aiField('aiAllowAnySwitch'); if (sw) sw.classList.toggle('on', !!p.allowAnyHost);
+  populateModelDatalist(p.provider);
+  currentAiConfig = { ...collectAiFormConfig(), profileId: p.id, profileName: p.name };
+}
+
+// 档案 + 平铺旧键镜像一起写。镜像是兼容层：未改造的旧读取路径仍能拿到当前档案的值；
+// 读取统一走 resolveAiConfig（档案优先，镜像只兜底），写入只此一处，不会漂移。
+async function persistAiProfiles() {
+  const p = getActiveAiProfile();
+  const payload = { aiProfiles: aiProfilesCache, aiActiveProfileId: aiActiveProfileId };
+  if (p) {
+    payload.aiProvider = p.provider;
+    payload.aiBaseUrl = p.baseUrl;
+    payload.aiApiKey = p.apiKey;
+    payload.aiModel = p.model;
+    payload.aiAllowAnyHost = p.allowAnyHost;
+  }
+  await chrome.storage.local.set(payload);
+}
+
+// 表单 → 当前档案（静默，切换/新建前调用避免半路输入丢失）；返回是否有变化
+async function saveFormIntoActiveProfile() {
+  const p = getActiveAiProfile();
+  if (!p) return false;
+  const cfg = collectAiFormConfig();
+  const nameInput = aiField('aiProfileName');
+  const name = nameInput ? nameInput.value.trim() : '';
+  const changed = p.provider !== cfg.aiProvider || p.baseUrl !== cfg.aiBaseUrl || p.apiKey !== cfg.aiApiKey
+    || p.model !== cfg.aiModel || !!p.allowAnyHost !== cfg.aiAllowAnyHost || (!!name && name !== p.name);
+  if (!changed) return false;
+  p.provider = cfg.aiProvider;
+  p.baseUrl = cfg.aiBaseUrl;
+  p.apiKey = cfg.aiApiKey;
+  p.model = cfg.aiModel;
+  p.allowAnyHost = cfg.aiAllowAnyHost;
+  if (name) p.name = name;
+  await persistAiProfiles();
+  return true;
+}
+
+// 渲染两处下拉：蓝区卡片（含"＋ 新建档案…"）与 i 设置渠道页快速切换（只列档案）
+function renderAiProfileSelect() {
+  const options = aiProfilesCache.map((p) =>
+    `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</option>`).join('');
+  const sel = aiField('aiProfileSelect');
+  if (sel) {
+    sel.innerHTML = options + `<option value="__new__">${escapeHtml(I18N.t('aiProfileNew'))}</option>`;
+    sel.value = aiActiveProfileId;
+  }
+  const quick = aiField('chatAiProfileSelect');
+  if (quick) {
+    quick.innerHTML = options;
+    quick.value = aiActiveProfileId;
+  }
+}
+
+// 档案切换（两处下拉共用）：切换前先静默保存当前表单，避免半路输入丢失
+async function onAiProfileSelectChange(e) {
+  const v = (e && e.target && e.target.value) || '';
+  if (!v) return;
+  if (v === '__new__') { await createAiProfile(); return; }
+  if (v === aiActiveProfileId) return;
+  await saveFormIntoActiveProfile();
+  aiActiveProfileId = v;
+  const p = getActiveAiProfile();
+  applyAiProfileToForm(p);
+  await persistAiProfiles();
+  renderAiProfileSelect();
+  await syncAiBackendUi();
+  if (p) showStatus(I18N.t('aiProfileSwitched', p.name || p.id), 'success');
+}
+
+// 新建档案：沿用当前服务商，清空 Base URL / Key / 模型；聚焦 Base URL 让用户直接填
+async function createAiProfile() {
+  await saveFormIntoActiveProfile();
+  const provider = (aiField('aiProvider') && aiField('aiProvider').value) || 'openai';
+  const base = aiProviderDisplayName(provider);
+  let name = base;
+  for (let i = 2; aiProfilesCache.some((p) => p.name === name); i++) name = base + ' ' + i;
+  const p = { id: newAiProfileId(), name, provider, baseUrl: '', apiKey: '', model: '', allowAnyHost: false };
+  aiProfilesCache.push(p);
+  aiActiveProfileId = p.id;
+  applyAiProfileToForm(p);
+  await persistAiProfiles();
+  renderAiProfileSelect();
+  await syncAiBackendUi();
+  showStatus(I18N.t('aiProfileCreated', name), 'success');
+  const baseInput = aiField('aiBaseUrl');
+  if (baseInput) baseInput.focus();
+}
+
+function deleteAiProfile() {
+  const p = getActiveAiProfile();
+  if (!p) return;
+  if (aiProfilesCache.length <= 1) { showStatus(I18N.t('aiProfileKeepOne'), 'info'); return; }
+  confirmModal(I18N.t('aiProfileDeleteConfirm', p.name || p.id), async () => {
+    aiProfilesCache = aiProfilesCache.filter((x) => x.id !== p.id);
+    if (aiActiveProfileId === p.id) aiActiveProfileId = aiProfilesCache[0].id;
+    applyAiProfileToForm(getActiveAiProfile());
+    await persistAiProfiles();
+    renderAiProfileSelect();
+    await syncAiBackendUi();
+    showStatus(I18N.t('aiProfileDeleted', p.name || p.id), 'success');
+  });
+}
+
 // 切换提供商：填充默认 Base URL（仅当输入框为空、或仍是对应其他提供商的默认值，避免覆盖自定义地址）+ 模型建议
+// 档案名若还是某服务商的默认名（没自定义过），跟随切换更新，避免出现"名叫 OpenAI 实为 DeepSeek"的档案
 function onAiProviderChange() {
   const sel = aiField('aiProvider');
   const provider = (sel && sel.value) || 'openai';
@@ -2981,25 +3116,32 @@ function onAiProviderChange() {
       base.value = (AI_PROVIDERS[provider] && AI_PROVIDERS[provider].baseUrl) || '';
     }
   }
+  const nameInput = aiField('aiProfileName');
+  if (nameInput) {
+    const cur = nameInput.value.trim();
+    const isDefaultName = Object.keys(AI_PROVIDERS).some((k) => aiProviderDisplayName(k) === cur);
+    if (!cur || isDefaultName) nameInput.value = aiProviderDisplayName(provider);
+  }
   populateModelDatalist(provider);
 }
 
 async function loadAiConfig() {
-  const r = await chrome.storage.local.get(['aiProvider', 'aiBaseUrl', 'aiApiKey', 'aiModel', 'aiAllowAnyHost']);
-  currentAiConfig = {
-    aiProvider: r.aiProvider || 'openai',
-    aiBaseUrl: String(r.aiBaseUrl || '').trim(),
-    aiApiKey: String(r.aiApiKey || '').trim(),
-    aiModel: String(r.aiModel || '').trim(),
-    aiAllowAnyHost: !!r.aiAllowAnyHost
-  };
-  const p = aiField('aiProvider'); if (p) p.value = currentAiConfig.aiProvider;
-  const b = aiField('aiBaseUrl'); if (b) b.value = currentAiConfig.aiBaseUrl;
-  const k = aiField('aiApiKey'); if (k) k.value = currentAiConfig.aiApiKey;
-  const m = aiField('aiModel'); if (m) m.value = currentAiConfig.aiModel;
-  const sw = aiField('aiAllowAnySwitch'); if (sw) sw.classList.toggle('on', currentAiConfig.aiAllowAnyHost);
-  populateModelDatalist(currentAiConfig.aiProvider);
+  const r = await chrome.storage.local.get(AI_CFG_STORAGE_KEYS);
+  const mig = migrateAiProfiles(r); // 首次运行：平铺旧键 → 单档案（或空配置建占位档案）
+  aiProfilesCache = mig.profiles;
+  aiActiveProfileId = mig.activeId;
+  if (mig.changed) await persistAiProfiles(); // 迁移/修复结果写回（含兼容镜像）
+  renderAiProfileSelect();
+  applyAiProfileToForm(getActiveAiProfile());
   await syncAiBackendUi();
+}
+
+// 配置首次加载完成句柄：发送/查询等路径先 await（首开面板时 refreshAll 与懒加载的竞态收口）
+function ensureAiConfigLoaded() {
+  if (!aiConfigReady) {
+    aiConfigReady = loadAiConfig().catch((e) => { aiConfigReady = null; throw e; });
+  }
+  return aiConfigReady;
 }
 
 function collectAiFormConfig() {
@@ -3014,8 +3156,20 @@ function collectAiFormConfig() {
 
 async function saveAiConfig() {
   const cfg = collectAiFormConfig();
-  await chrome.storage.local.set(cfg);
-  currentAiConfig = cfg;
+  const p = getActiveAiProfile();
+  if (!p) return;
+  const nameInput = aiField('aiProfileName');
+  const name = nameInput ? nameInput.value.trim() : '';
+  p.name = name || aiProviderDisplayName(cfg.aiProvider);
+  p.provider = cfg.aiProvider;
+  p.baseUrl = cfg.aiBaseUrl;
+  p.apiKey = cfg.aiApiKey;
+  p.model = cfg.aiModel;
+  p.allowAnyHost = cfg.aiAllowAnyHost;
+  await persistAiProfiles();
+  renderAiProfileSelect();
+  if (nameInput) nameInput.value = p.name;
+  currentAiConfig = { ...cfg, profileId: p.id, profileName: p.name };
   await syncAiBackendUi();
   showStatus(I18N.t('aiSvcSaved'), 'success');
 }
@@ -5252,18 +5406,22 @@ async function syncAiBackendUi() {
   const hint = aiField('aiModeHint');
   const siteSelEl = document.getElementById('injectSite');
   const siteRow = siteSelEl ? siteSelEl.closest('.cfg-row') : null;
+  const profileRow = document.getElementById('chatApiProfileRow');
   const apiConfigured = !!currentAiConfig.aiBaseUrl;
   if (siteRow) {
     siteRow.classList.toggle('api-mode', mode === 'api');
     siteRow.classList.toggle('local-mode', mode === 'local');
   }
+  // 档案快速切换行：非 API 渠道下不生效（置灰，与「发送到」行同一模式）
+  if (profileRow) profileRow.classList.toggle('inactive', mode !== 'api');
   updateRedStatusStrip(mode);
   if (hint) {
     if (mode === 'api') {
       if (apiConfigured) {
         let host = '?';
         try { host = new URL(currentAiConfig.aiBaseUrl).host; } catch (e) {}
-        hint.textContent = I18N.t('aiModeApi', currentAiConfig.aiModel || getAiDefaultModel(currentAiConfig.aiProvider), host);
+        hint.textContent = I18N.t('aiModeApi', currentAiConfig.aiModel || getAiDefaultModel(currentAiConfig.aiProvider), host)
+          + (currentAiConfig.profileName ? ' · ' + currentAiConfig.profileName : '');
       } else {
         hint.textContent = I18N.t('aiBackendApiNoConfig');
       }
@@ -5299,6 +5457,7 @@ function updateRedStatusStrip(mode) {
   }
   // LLM 段：渠道·供应商（原顶栏徽章逻辑下移）
   let llmText = '';
+  let llmTitle = '';
   if (mode === 'inject') {
     const siteSel = document.getElementById('injectSite');
     llmText = '🌐 ' + ((siteSel && siteSel.selectedOptions[0]) ? siteSel.selectedOptions[0].textContent.trim() : '');
@@ -5310,13 +5469,19 @@ function updateRedStatusStrip(mode) {
     } else if (prov.selectedOptions[0]) {
       label = prov.selectedOptions[0].textContent.trim();
     }
-    llmText = '🔑 ' + (label || 'API');
+    const profName = currentAiConfig.profileName || '';
+    llmText = '🔑 ' + (profName || label || 'API');
+    // 悬停补全：档案名 · 供应商 · host（信息密度高于徽章文字本身）
+    let host = '';
+    try { host = new URL(currentAiConfig.aiBaseUrl).host; } catch (e) {}
+    const parts = [profName, label && label !== profName ? label : '', host].filter(Boolean);
+    if (parts.length) llmTitle = parts.join(' · ');
   } else {
     llmText = '💻 ' + I18N.t('aiChannelLocal');
   }
   llm.textContent = llmText;
   llm.classList.remove('warn');
-  llm.title = I18N.t('tipChannel');
+  llm.title = llmTitle || I18N.t('tipChannel');
   llm.setAttribute('aria-label', llm.title);
   // 识别段：当前识别后端（显式选择）
   const asrSel = document.getElementById('asrBackendBlue');
@@ -5944,6 +6109,13 @@ document.addEventListener('DOMContentLoaded', () => {
   if (aiAllowAnySwitch) aiAllowAnySwitch.addEventListener('click', toggleAiAllowAny);
   const aiProviderSel = document.getElementById('aiProvider');
   if (aiProviderSel) aiProviderSel.addEventListener('change', onAiProviderChange);
+  // 多渠道档案：选择（蓝区卡片 + i 设置渠道页两处共用）+ 删除
+  const aiProfileSel = document.getElementById('aiProfileSelect');
+  if (aiProfileSel) aiProfileSel.addEventListener('change', onAiProfileSelectChange);
+  const chatAiProfileSel = document.getElementById('chatAiProfileSelect');
+  if (chatAiProfileSel) chatAiProfileSel.addEventListener('change', onAiProfileSelectChange);
+  const aiProfileDel = document.getElementById('aiProfileDelete');
+  if (aiProfileDel) aiProfileDel.addEventListener('click', deleteAiProfile);
   // 红区 AI 渠道切换（本地版 / 浏览器版 / API版）
   const aiBackendLocal = document.getElementById('aiBackendLocal');
   if (aiBackendLocal) aiBackendLocal.addEventListener('click', () => setAiMode('local'));
@@ -6268,7 +6440,7 @@ function refreshAll() {
     loadBridgeTokenSetting().catch(e => console.error(e)),
     loadInjectSwitchState().catch(e => console.error(e)),
     loadVersionSettings().catch(e => console.error(e)),
-    loadAiConfig().catch(e => console.error(e)),
+    ensureAiConfigLoaded().catch(e => console.error(e)),
     loadVoiceConfig().catch(e => console.error(e)),
     loadCapabilityAutos().catch(e => console.error(e)),
     loadAutoSaveSettings().catch(e => console.error(e)),
